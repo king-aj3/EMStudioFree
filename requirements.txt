@@ -1,0 +1,14 @@
+# Python dependencies for the EMStudio workbench (run inside FreeCAD's Python).
+# The FreeCAD Addon Manager reads this file and offers to install missing entries
+# automatically at addon install time — this is how Windows/macOS users (whose
+# FreeCAD bundles may lack these) get the plotting stack without manual pip.
+#
+# numpy ships with all official FreeCAD builds; listed for completeness.
+numpy
+matplotlib
+# scipy: exact Kelvin/Bessel functions for the wire toolkit (falls back to
+# built-in series/asymptotics when absent) AND the P.368-10 spherical-earth
+# ground-wave engine (scipy.special.airy/wofz — REQUIRED for that engine, no
+# fallback; the flat-earth ground-wave model works without it, and the
+# workbench itself imports/loads fine either way).
+scipy

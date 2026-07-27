@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="32" y1="58" x2="32" y2="12" stroke="#8a2be2" stroke-width="5"/>
+    <g stroke="#2b8cff" stroke-width="5">
+      <path d="M14 6 Q32 10.5 50 9"/>
+      <path d="M14 17.75 Q32 22.25 50 20.75"/>
+      <path d="M14 29.5 Q32 34 50 32.5"/>
+      <path d="M14 41.25 Q32 45.75 50 44.25"/>
+      <path d="M14 53 Q32 57.5 50 56"/>
+    </g>
+    <polygon points="32,3 24,14 40,14" fill="#8a2be2" stroke="none"/>
+  </g>
+</svg>

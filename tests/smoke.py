@@ -1,0 +1,989 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+"""Headless smoke test for the EMStudio workbench.
+
+Runs under FreeCAD's console interpreter:
+
+    freecadcmd tests/smoke.py
+
+Exit code 0 means the Phase-0 skeleton is healthy. It checks:
+  * the workbench package imports (no GUI required),
+  * version strings agree between version.py and package.xml,
+  * an EM Analysis object can be created in a document and is a proper group,
+  * the object survives a save/reload round-trip,
+  * solver detection runs and returns the full backend registry.
+
+The script is defensive about being run outside FreeCAD (plain python) so it can also be
+imported by pytest for the Qt-free parts.
+"""
+
+import os
+import sys
+import traceback
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+_failures = []
+
+
+def _log(msg):
+    """Emit a line that survives freecadcmd.
+
+    Plain ``print`` output is buffered and can be dropped when a freecadcmd script
+    exits, so when FreeCAD is present we write through its C++ console (unbuffered).
+    We also print+flush for the plain-python/pytest paths.
+    """
+    line = str(msg)
+    try:
+        import FreeCAD
+
+        FreeCAD.Console.PrintMessage(line + "\n")
+        return  # console handled it; avoid double output on stdout
+    except Exception:
+        pass
+    try:
+        print(line, flush=True)
+    except Exception:
+        print(line)
+
+
+def check(name, fn):
+    try:
+        fn()
+        _log("  ok   - {0}".format(name))
+    except Exception as exc:  # noqa: BLE001  (smoke test wants every failure)
+        _failures.append((name, exc))
+        _log("  FAIL - {0}: {1}".format(name, exc))
+        traceback.print_exc()
+
+
+# --- Qt-free checks (work in plain python too) -----------------------------
+def _import_package():
+    import emstudio  # noqa: F401
+    from emstudio import version
+
+    assert version.__version__, "version string empty"
+
+
+def _version_matches_package_xml():
+    from emstudio import version
+
+    xml = os.path.join(_ROOT, "package.xml")
+    with open(xml, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    tag = "<version>{0}</version>".format(version.__version__)
+    assert tag in text, "package.xml <version> != version.py ({0})".format(version.__version__)
+
+
+def _package_xml_subdirectory_guard():
+    """Regression guard for the invisible-workbench bug (2026-07-05).
+
+    With package.xml present, FreeCAD runs Init/InitGui ONLY from the workbench
+    content item's subdirectory — which defaults to the workbench NAME, i.e.
+    Mod/EMStudio/EMStudio/. Our init scripts live at the addon root, so package.xml
+    MUST carry the SINGULAR element <subdirectory>./</subdirectory> (0.21 parses the
+    singular form; a plural <subdirectories> is silently ignored). Without it the
+    workbench never appears in the GUI while every headless check still passes.
+    """
+    xml = os.path.join(_ROOT, "package.xml")
+    with open(xml, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    assert "<subdirectory>./</subdirectory>" in text, (
+        "package.xml lost <subdirectory>./</subdirectory> — the workbench will "
+        "silently vanish from the FreeCAD GUI (FreeCAD looks in Mod/EMStudio/EMStudio/)"
+    )
+
+
+def _solver_detection_runs():
+    from emstudio.setup import solvers
+
+    results = solvers.detect_all()
+    assert set(results) == set(solvers.BACKENDS), "detect_all missing backends"
+    for key, info in results.items():
+        # Found-ness varies by machine; the contract is that it never raises and
+        # every entry is a well-formed SolverInfo.
+        assert hasattr(info, "found"), "SolverInfo malformed for " + key
+        assert info.backend.key == key
+
+
+def _installer_build_plans():
+    """Guided-build recipes are well-formed and never touch sudo."""
+    from emstudio.setup import solvers
+
+    source_built = [k for k, b in solvers.BACKENDS.items() if b.source_build]
+    assert source_built, "no source-built backends registered"
+    for key in source_built:
+        plan = solvers.BUILD_PLANS.get(key)
+        assert plan, "source-built backend '{0}' has no BUILD_PLANS recipe".format(key)
+        assert plan.get("estimate") and plan.get("prefix"), key
+        assert plan["steps"], "empty build steps for " + key
+        for desc, cmd in plan["steps"]:
+            assert desc and isinstance(cmd, list) and cmd, (key, desc)
+            joined = " ".join(cmd)
+            assert "sudo" not in joined, "build step must not use sudo: " + joined
+    # non-source backends must have no recipe; build_plan() filters them
+    assert solvers.build_plan("nec2") is None
+    if os.name != "nt":
+        assert solvers.build_plan(source_built[0]) is not None
+
+
+def _elmer3d_backend_headless():
+    """The 3-D WhitneyAV backend imports headless and writes .geo + .sif."""
+    import tempfile
+
+    from emstudio.meshing import gmsh_3d
+    from emstudio.solvers.elmer import runner3d, writer3d  # noqa: F401
+
+    bodies = [
+        {"name": "coil",
+         "shape": {"kind": "tube", "center": (0.0, 0.0), "r_in": 0.045,
+                   "r_out": 0.055, "z0": -0.1, "z1": 0.1},
+         "mu_r": 1.0, "lc": 0.005,
+         "coil": {"amp_turns": -100.0, "normal": (0.0, 0.0, 1.0)}}]
+    geo = os.path.join(tempfile.gettempdir(), "emstudio_smoke_3d.geo")
+    gmsh_3d.write_geo_3d(bodies, geo,
+                         air={"kind": "cylinder", "r": 0.5, "z0": -0.5,
+                              "z1": 0.5}, lc_air=0.08)
+    with open(geo, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    assert "BooleanFragments" in text, "3-D .geo missing conformal fragments"
+    assert 'Physical Volume("coil"' in text and 'Physical Volume("air", 1)' in text
+    assert 'Physical Surface("outer"' in text, "3-D .geo missing outer skin"
+    assert "Mesh.MeshSizeExtendFromBoundary = 0" in text, "size tiering off"
+    sif = os.path.join(tempfile.gettempdir(), "emstudio_smoke_3d.sif")
+    writer3d.write_sif3d({"bodies": bodies}, sif, {"air": 1, "coil": 2},
+                         {"outer": 3})
+    with open(sif, "r", encoding="utf-8") as fh:
+        deck = fh.read()
+    assert '"MagnetoDynamics" "WhitneyAVSolver"' in deck
+    assert "Linear System Preconditioning = none" in deck, "ungauged AV needs Krylov"
+    assert "Desired Coil Current = Real -100" in deck
+    for p in (geo, sif):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+
+def _elmer_backend_headless():
+    """The magnetics backend imports without FreeCAD/Qt and writes a .geo."""
+    import tempfile
+
+    from emstudio.meshing import gmsh_axi
+    from emstudio.post import magnetics  # noqa: F401
+    from emstudio.solvers.elmer import parser, runner, sweep, writer  # noqa: F401
+
+    regions = [{"name": "billet", "r0": 0.0, "r1": 10.0, "z0": -20.0, "z1": 20.0,
+                "lc": 2.0}]
+    path = os.path.join(tempfile.gettempdir(), "emstudio_smoke_axi.geo")
+    gmsh_axi.write_geo(regions, path)
+    with open(path, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    assert 'Physical Surface("billet", 1)' in text, ".geo missing body group"
+    assert 'Physical Curve("router"' in text, ".geo missing boundary group"
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+    # Palace backend imports headless + writes a valid box .geo / config
+    from emstudio.meshing import gmsh_box
+    from emstudio.post import eigenmodes  # noqa: F401
+    from emstudio.solvers.palace import parser as pparser  # noqa: F401
+    from emstudio.solvers.palace import runner, writer  # noqa: F401
+
+    box_geo = os.path.join(tempfile.gettempdir(), "emstudio_smoke_box.geo")
+    gmsh_box.write_geo((40.0, 20.0, 60.0), box_geo)
+    with open(box_geo, "r", encoding="utf-8") as fh:
+        btext = fh.read()
+    assert 'Physical Volume("interior", 1)' in btext, "box .geo missing volume group"
+    assert 'Physical Surface("pec_walls", 2)' in btext, "box .geo missing wall group"
+    cfg = writer.build_eigenmode_config("cavity.msh", n_modes=6, target_ghz=4.0)
+    assert cfg["Model"]["L0"] == 1e-3, "Palace L0 must be 1e-3 for a mm mesh"
+    assert cfg["Boundaries"]["PEC"]["Attributes"] == [2], "PEC must be attribute 2"
+    # adaptive mesh refinement (AMR) is OPT-IN: default off = NO Model.Refinement
+    # key (byte-identical to the pre-AMR writer); on = a Model-level Refinement
+    # block with Nonconformal true (mandatory for gmsh tets).
+    assert "Refinement" not in cfg["Model"], \
+        "default eigenmode config must NOT carry Model.Refinement (no regression)"
+    cfg_amr = writer.build_eigenmode_config("cavity.msh", n_modes=6, target_ghz=4.0,
+                                            mesh_refinement=2, refinement_tol=0.01)
+    ref = cfg_amr["Model"].get("Refinement")
+    assert ref and ref["MaxIts"] == 2 and ref["Nonconformal"] is True \
+        and ref["Tol"] == 0.01 and ref["UpdateFraction"] == 0.7, \
+        "AMR on must emit Model.Refinement with MaxIts + Nonconformal true"
+    assert "Refinement" not in writer.build_driven_config("wg.msh", 8.0, 12.0, 0.5)["Model"], \
+        "default driven config must NOT carry Model.Refinement (no regression)"
+    assert "Refinement" in writer.build_driven_config(
+        "wg.msh", 8.0, 12.0, 0.5, mesh_refinement=1)["Model"], \
+        "driven AMR on must emit Model.Refinement (AMR works for driven too)"
+    try:
+        os.remove(box_geo)
+    except OSError:
+        pass
+
+    # Palace driven (waveguide) writer/mesher: 4 physical groups, WavePort config
+    wg_geo = os.path.join(tempfile.gettempdir(), "emstudio_smoke_wg.geo")
+    gmsh_box.write_geo_waveguide((22.86, 10.16, 30.0), wg_geo, axis=2)
+    with open(wg_geo, "r", encoding="utf-8") as fh:
+        wtext = fh.read()
+    for grp in ('Physical Surface("port1", 2)', 'Physical Surface("port2", 3)',
+                'Physical Surface("walls", 4)'):
+        assert grp in wtext, "waveguide .geo missing " + grp
+    dcfg = writer.build_driven_config("wg.msh", 8.0, 12.0, 0.5)
+    assert dcfg["Problem"]["Type"] == "Driven"
+    wp = dcfg["Boundaries"]["WavePort"]
+    assert wp[0]["Excitation"] == 1 and "Excitation" not in wp[1], \
+        "driven: port 1 excited, port 2 passive"
+    # adaptive fast frequency sweep is OPT-IN: default off = flat direct sweep,
+    # on = a Samples grid + AdaptiveTol (Palace interpolates the dense band).
+    assert "Samples" not in dcfg["Solver"]["Driven"], \
+        "default driven sweep must be the flat direct block (no regression)"
+    dfast = writer.build_driven_config("wg.msh", 8.0, 12.0, 0.1, fast_sweep=True)
+    dsw = dfast["Solver"]["Driven"]
+    assert "Samples" in dsw and "MinFreq" not in dsw and dsw["AdaptiveTol"] == 1e-3 \
+        and dsw["Samples"][0]["Type"] == "Linear", "fast sweep must emit Samples+AdaptiveTol"
+    try:
+        os.remove(wg_geo)
+    except OSError:
+        pass
+
+    # Palace coax (lumped-port) mesher/writer: annulus .geo with 4 physical
+    # groups, LumpedPort config (driven "+R" port + passive port)
+    from emstudio.meshing import gmsh_coax
+
+    coax_geo = os.path.join(tempfile.gettempdir(), "emstudio_smoke_coax.geo")
+    gmsh_coax.write_geo_coax(0.5, 1.15, 20.0, coax_geo)
+    with open(coax_geo, "r", encoding="utf-8") as fh:
+        ctext = fh.read()
+    for name in ('"dielectric"', '"pec"', '"port1"', '"port2"'):
+        assert name in ctext, "coax .geo missing physical group " + name
+    assert "Abs( Boundary" in ctext, "coax .geo lost the Abs() wall selection"
+    ccfg = writer.build_lumped_coax_config("coax.msh", 2.0, 6.0, 1.0, 0.5, 1.15)
+    assert ccfg["Problem"]["Type"] == "Driven", "coax config not Driven"
+    lp = ccfg["Boundaries"]["LumpedPort"]
+    assert lp[0]["Excitation"] == lp[0]["Index"] and "Excitation" not in lp[1], \
+        "coax: port 1 driven (Excitation==Index), port 2 passive"
+    assert lp[0]["Direction"] == "+R", "coax lumped port must be radial (+R)"
+    assert "Samples" not in ccfg["Solver"]["Driven"], "coax default sweep must be flat"
+    ccfg_fast = writer.build_lumped_coax_config("coax.msh", 2.0, 6.0, 0.1, 0.5, 1.15,
+                                                fast_sweep=True)
+    assert "Samples" in ccfg_fast["Solver"]["Driven"], "coax fast sweep must emit Samples"
+    assert abs(writer.coax_z0(0.5, 1.15, 1.0) - 49.94) < 0.1, "coax Z0 formula drift"
+    try:
+        os.remove(coax_geo)
+    except OSError:
+        pass
+
+    # Palace general-3D BREP mesher: tags any imported solid's interior=1 and
+    # its whole boundary=2 (PEC), so build_eigenmode_config is reused unchanged.
+    from emstudio.meshing import gmsh_brep
+
+    dummy_brep = os.path.join(tempfile.gettempdir(), "emstudio_smoke_dummy.brep")
+    open(dummy_brep, "w").close()  # write_geo_brep only needs the path to exist
+    brep_geo = os.path.join(tempfile.gettempdir(), "emstudio_smoke_brep.geo")
+    gmsh_brep.write_geo_brep(dummy_brep, brep_geo, elem_mm=4.0)
+    with open(brep_geo, "r", encoding="utf-8") as fh:
+        btext = fh.read()
+    assert "Merge" in btext, "BREP .geo missing Merge"
+    assert 'Physical Volume ("interior", 1)' in btext, "BREP .geo missing interior=1"
+    assert 'Physical Surface("pec_walls", 2)' in btext, "BREP .geo missing pec_walls=2"
+    assert "Abs(Boundary" in btext, "BREP .geo lost the Abs(Boundary) wall selection"
+    # general-BREP DRIVEN mesher: same solid tagged with TWO ports + PEC walls
+    # (reuses the box waveguide's attr numbers so the driven config is unchanged)
+    drv_geo = os.path.join(tempfile.gettempdir(), "emstudio_smoke_brepdrv.geo")
+    gmsh_brep.write_geo_brep_driven(dummy_brep, drv_geo, axis=2,
+                                    bbox_mm=(0, 0, 0, 20.0, 10.0, 40.0), elem_mm=4.0)
+    with open(drv_geo, "r", encoding="utf-8") as fh:
+        dtext = fh.read()
+    assert 'Physical Surface("port1", 2)' in dtext, "BREP-driven .geo missing port1=2"
+    assert 'Physical Surface("port2", 3)' in dtext, "BREP-driven .geo missing port2=3"
+    assert 'Physical Surface("walls", 4)' in dtext, "BREP-driven .geo missing walls=4"
+    assert "walls() -= port1();" in dtext and "Abs( Boundary" in dtext, \
+        "BREP-driven .geo must subtract ports from Abs(Boundary) walls"
+    for _p in (dummy_brep, brep_geo, drv_geo):
+        try:
+            os.remove(_p)
+        except OSError:
+            pass
+
+    # Quasi-static frequency-validity guard: silent when electrically small,
+    # warns (never blocks) when the structure is >= lambda/10.
+    from emstudio.solvers import validity
+
+    assert validity.electrical_size_warning(100e3, 0.10) is None, \
+        "guard must stay silent for a 10 cm coil at 100 kHz (quasi-static)"
+    _w = validity.electrical_size_warning(40e9, 0.10)
+    assert _w and "quasi-static" in _w, \
+        "guard must warn for a 10 cm structure at 40 GHz"
+    assert abs(validity.axi_model_max_dim_m(
+        {"bodies": [{"r0": 0.0, "r1": 50.0, "z0": -20.0, "z1": 20.0}]}) - 0.10) < 1e-9, \
+        "axi max-dim must be the 100 mm diameter"
+
+    # electrically-small (VLF/LF) antenna analytics: short-monopole Rr formula
+    import math as _math
+
+    from emstudio.antenna import small_antenna as _sa
+
+    _lam = 299792458.0 / 30e6
+    _m = _sa.short_monopole(_lam * 0.1, 30e6)
+    assert abs(_m["radiation_resistance_ohm"] - 40 * _math.pi ** 2 * 0.01) < 1e-9, \
+        "short-monopole Rr formula drift"
+
+    # element-family recommender (Element Designer E2): deterministic rules,
+    # Qt-free — 24 kHz must route to the small-antenna family
+    from emstudio.antenna import element_picker as _ep
+
+    _rec = _ep.recommend_element({"f0_hz": 24e3})
+    assert _rec["candidates"][0]["family"] == "small_antenna", \
+        "24 kHz must route to the small-antenna family"
+
+
+def _nec2_ground_cards():
+    """NEC2 ground writer: free space byte-identical; ground/base-feed opt-in works."""
+    from emstudio.solvers.nec2 import writer
+
+    class _S:  # minimal stand-in for the SolverNEC2 object
+        def __init__(self, **kw):
+            self.__dict__.update(kw)
+
+    # default / free space -> GE 0, no GN, inactive (byte-identical to pre-ground)
+    ge, gn, active = writer._ground_cards(_S(GroundType="None (free space)"))
+    assert ge == "GE 0" and gn is None and active is False, "free-space ground drift"
+    # a free-space (vertical, off-ground) wire keeps the CENTER feed
+    w = {"nseg": 11, "p1": (0, 0, 1.0), "p2": (0, 0, -1.0)}
+    assert writer._feed_segment(w, False) == 6, "free-space feed must be centered"
+    # perfect ground -> GE 1 / GN 1
+    ge, gn, active = writer._ground_cards(_S(GroundType="Perfect (PEC image)"))
+    assert ge == "GE 1" and gn == "GN 1" and active, "perfect ground cards wrong"
+    # finite ground -> GE 1 / GN 2 with eps,sigma
+    ge, gn, active = writer._ground_cards(
+        _S(GroundType="Finite (Sommerfeld)", GroundEpsilonR=13.0,
+           GroundConductivity=0.005))
+    assert ge == "GE 1" and gn.startswith("GN 2,0,0,0,13,0.005") and active, \
+        "finite ground GN card wrong: {0}".format(gn)
+    # a grounded monopole (base at z=0) is fed at its BASE segment
+    mono = {"nseg": 21, "p1": (0, 0, 0.0), "p2": (0, 0, 300.0)}
+    assert writer._feed_segment(mono, True) == 1, "grounded monopole must feed at base"
+
+
+def _cosite_engine():
+    """Co-site interference engine: IMD products + intercept-point level (Qt-free)."""
+    from emstudio.cosite import interference as ci
+
+    prods = ci.intermod_products([150e6, 151e6], max_order=3)
+    lo = [p for p in prods if abs(p["freq_hz"] - 149e6) < 1.0]
+    assert lo and lo[0]["order"] == 3, "two-tone 2f1-f2 (149 MHz) product missing"
+    # classic: two -10 dBm tones, IP3 +30 -> IMD3 -90 dBm
+    assert abs(ci.imd_level_dbm(lo[0], [-10.0, -10.0], 30.0) - (-90.0)) < 1e-9, \
+        "IMD3 intercept-point level drift"
+    site = [ci.Radio("A", tx_freq_hz=150e6, tx_power_dbm=40.0),
+            ci.Radio("B", tx_freq_hz=151e6, tx_power_dbm=40.0),
+            ci.Radio("C", rx_freq_hz=149e6, rx_bw_hz=25e3, rx_sens_dbm=-110.0,
+                     rx_blocking_dbm=20.0)]
+    rep = ci.analyze_site(site, isolation_db=30.0, junction_ip3_dbm=20.0)
+    assert any(abs(h["freq_hz"] - 149e6) < 1e3 for h in rep["imd"]), \
+        "analyze_site missed the 2f1-f2 IMD hit on the victim receiver"
+    # the frequency-plan optimizer clears the (frequency-fixable) IMD hit
+    opt = ci.optimize_frequency_plan(site, tunable=[0, 1],
+                                     candidates=[150e6, 155e6, 160e6],
+                                     isolation_db=30.0, junction_ip3_dbm=20.0)
+    assert opt["cost"] < ci.plan_cost(rep), "optimizer did not improve the plan"
+
+
+def _propagation_engine():
+    """Point-to-point propagation models (Qt-free): FSPL + knife-edge + plane-earth."""
+    from emstudio.coverage import propagation as pr
+
+    assert abs(pr.free_space_path_loss_db(1000.0, 300e6) - 81.98) < 0.05, "FSPL drift"
+    assert abs(pr.knife_edge_loss_db(0.0) - 6.02) < 0.1, "knife-edge J(0) drift"
+    assert pr.knife_edge_loss_db(-1.0) == 0.0, "clear path must be 0 dB"
+    # plane-earth d^4: doubling the range adds 12 dB
+    a = pr.plane_earth_loss_db(1000.0, 10.0, 10.0)
+    b = pr.plane_earth_loss_db(2000.0, 10.0, 10.0)
+    assert abs((b - a) - 12.041) < 1e-2, "plane-earth d^4 law drift"
+    assert abs(pr.field_strength_dbuv_m(1000.0, 1000.0) - 104.77) < 0.1, \
+        "field-strength relation drift"
+    res = pr.terrain_profile_loss([(0.0, 0.0), (1000.0, 50.0), (2000.0, 0.0)],
+                                  ht_m=20.0, hr_m=20.0, freq_hz=300e6)
+    assert res["edge_index"] == 1 and res["diffraction_db"] > 15.0, \
+        "terrain single-edge diffraction drift"
+    # multi-edge diffraction (Deygout recursive + Epstein-Peterson) vs NTIA TR-26-580
+    _F15 = 299792458.0 / 0.2  # lambda 0.2 m = 1500 MHz
+    _p2 = [(0.0, 0.0), (1600.0, 240.0), (4000.0, 200.0), (5600.0, 0.0)]
+    assert abs(pr.deygout_multiedge_loss_db(_p2, 0, 0, _F15) - 73.292) < 0.1, \
+        "Deygout multi-edge drift (NTIA Case 23)"
+    assert abs(pr.epstein_peterson_loss_db(_p2, 0, 0, _F15) - 70.517) < 0.2, \
+        "Epstein-Peterson multi-edge drift (NTIA Case 23)"
+    _p1 = [(0.0, 0.0), (1600.0, 240.0), (5600.0, 0.0)]
+    assert abs(pr.deygout_multiedge_loss_db(_p1, 0, 0, _F15)
+               - pr.terrain_profile_loss(_p1, 0, 0, _F15)["diffraction_db"]) < 1e-9, \
+        "multi-edge single obstacle must equal the shipped single-edge loss"
+    assert abs(pr.bullington_loss_db(_p2, 0, 0, _F15) - 43.168) < 0.1, \
+        "Bullington equivalent-edge drift (NTIA Case 23)"
+    # empirical Okumura-Hata / COST-231 (verified example + clutter ordering)
+    from emstudio.coverage import empirical as emp
+
+    assert abs(emp.okumura_hata_loss_db(4000.0, 900e6, 100.0, 2.0) - 137.048) < 0.05, \
+        "Okumura-Hata verified-example drift"
+    _lu = emp.okumura_hata_loss_db(5000.0, 900e6, 30.0, 1.5, "urban")
+    _ls = emp.okumura_hata_loss_db(5000.0, 900e6, 30.0, 1.5, "suburban")
+    _lo = emp.okumura_hata_loss_db(5000.0, 900e6, 30.0, 1.5, "open")
+    assert _lu > _ls > _lo, "Hata clutter ordering broken"
+    assert abs(emp.cost231_hata_loss_db(1000.0, 1.8e9, 30.0, 1.5, metropolitan=True)
+               - 139.197) < 0.02, "COST-231-Hata drift"
+    # §2 Cable Designer coax engine: RG-58 anchors (Belden 8262)
+    from emstudio.wire import coax as _cx
+
+    assert abs(_cx.coax_z0_ohm(0.418e-3, 1.4605e-3, 2.25) - 50.0) < 0.15, \
+        "coax RG-58 Z0 drift"
+    assert abs(_cx.velocity_factor(2.25) - 2.0 / 3.0) < 1e-9, "coax VF drift"
+    assert abs(_cx.capacitance_f_m(0.418e-3, 1.4605e-3, 2.25) * 1e12 - 101.0) < 2.0, \
+        "coax capacitance drift"
+    # §2 phase A UI slice: RG presets + single-wire (ops=[]) litz reuse
+    assert any(k.startswith("RG-58") for k in _cx.PRESETS) \
+        and any(k.startswith("RG-142") for k in _cx.PRESETS), "coax PRESETS missing"
+    _p58 = [_cx.PRESETS[k] for k in _cx.PRESETS if k.startswith("RG-58")][0]
+    assert abs(_cx.analyze(_p58["a_m"], _p58["b_m"], _p58["eps_r"],
+                           _p58["tan_delta"])["z0_ohm"] - 50.0) < 0.15, \
+        "RG-58 preset Z0 drift"
+    from emstudio.wire import litz as _lz
+    from emstudio.wire import units as _un
+
+    _w = _lz.LitzConstruction(strand_diameter_m=_un.awg_to_m(10), ops=[])
+    assert abs(_w.rdc_per_meter() * 1e3 - 3.277) < 0.02, "solid AWG-10 Rdc drift"
+    assert abs(_w.ac_factor(1e6)
+               - _lz.round_wire_ac_factor(1e6, _w.strand_radius_m)) < 1e-12, \
+        "single-wire Rac/Rdc must equal the exact Kelvin solution"
+    # §2 phase B: twisted pair — Cat6 primary anchor + the degrees control
+    from emstudio.wire import twisted_pair as _tp
+
+    assert abs(_tp.z0_diff_ohm(1.029e-3, 0.573e-3, 1.0 / 0.70 ** 2)
+               - 99.90) < 0.6, "Cat6 twisted-pair Z0 drift"
+    _th = _tp.twist_angle_deg(100.0, 0.8e-3)
+    _zd = _tp.z0_diff_ohm(0.8e-3, 0.5e-3, _tp.eps_effective(4.0, _th, "film"))
+    assert abs(_zd - 89.03) < 0.05 and abs(_zd - 94.90) > 1.0, \
+        "twisted-pair theta must be DEGREES (89.03), not the radians bug (94.90)"
+    # §2 phase C: bundle packing — the exact 7-hex anchor
+    from emstudio.wire import bundle as _bn
+
+    _pl, _re = _bn.pack_and_center([1.0] * 7)
+    assert abs(_re - 3.0) < 1e-6, "7-hex packing drift"
+    assert all(
+        (( _pl[i][0] - _pl[j][0]) ** 2 + (_pl[i][1] - _pl[j][1]) ** 2) ** 0.5
+        >= _pl[i][2] + _pl[j][2] - 1e-8
+        for i in range(7) for j in range(i + 1, 7)), "bundle members overlap"
+    # §2 phase C cont.: coupling — Paul ribbon L anchor + crosstalk MNE
+    from emstudio.wire import coupling as _cp
+
+    _MIL = 25.4e-6
+    _L = _cp.widesep_l_matrix([(0.0, 0.0), (50 * _MIL, 0.0), (100 * _MIL, 0.0)],
+                              [7.5 * _MIL] * 3)
+    assert abs(_L[0][0] * 1e6 - 0.75885) < 5e-4, "coupling wide-sep L drift"
+    _xt = _cp.crosstalk_weak(0.5077e-6, 18.716e-12, 2.0)
+    assert abs(_xt["mne_s"] - 5.5449e-9) / 5.5449e-9 < 0.005, \
+        "Paul crosstalk MNE drift"
+    # §2 extras: insulated-bundle C via MoM reproduces Paul problem 5.15
+    from emstudio.wire import electrostatics as _es
+
+    _ct = _es.bundle_c_mom([(0.0, 0.0), (50 * _MIL, 0.0), (100 * _MIL, 0.0)],
+                           [7.5 * _MIL] * 3, er=3.5, wall=10 * _MIL, ref=1)
+    assert abs(_ct["c_tl"][0][0] * 1e12 - 24.98) < 0.01 \
+        and abs(_ct["c_tl"][0][1] * 1e12 + 6.266) < 0.01, \
+        "insulated-bundle MoM C drift (Paul 5.15 24.98/-6.266 pF/m)"
+    # §2 extras: diff-pair mixed-mode — oracle closed form + eq 4-3 parity
+    from emstudio.wire import mixed_mode as _mmx
+
+    _L4 = _cp.widesep_l_matrix(
+        [(0.0, 0.0), (0.0, 10e-3), (2e-3, 10e-3),
+         (20e-3, 10e-3), (22e-3, 10e-3)], [0.5e-3] * 5)
+    _dq = _mmx.diff_pair_coupling(_L4, _cp.c_matrix_from_l(_L4))
+    assert abs(_dq["mdd"] + 2.010067171e-9) / 2.010067171e-9 < 1e-6, \
+        "diff-pair Mdd drift (full-MTL oracle closed form)"
+    assert _mmx.xi_twp(226) == 0 and _mmx.xi_twp(225) == 1 \
+        and _mmx.xi_swp(226) == 226, "eq 4-3/4-6 twist parity algebra broken"
+    # §2 thermal slice: IEC 60287-2-1 T1 worked example (full precision —
+    # the printed 0.816 is a truncation) + IEC 60949 adiabatic J0
+    from emstudio.wire import thermal as _th
+
+    assert abs(_th.layer_t_k_m_w(1.0 / 0.182, 33.7e-3, 26.02e-3)
+               - 0.8166061944818844) < 1e-9, "IEC 60287-2-1 T1 drift"
+    assert abs(_th.adiabatic_current_a(1.0, 1.0, 90.0, 250.0, "Cu")
+               - 143.08) < 0.05 \
+        and abs(_th.k_factor(90.0, 250.0, "Cu") - 143.0) < 0.5, \
+        "IEC 60949 adiabatic constants drift"
+    # §6-D P.1546-6: the vendored WP3K reference engine imports headlessly
+    # (lazy matplotlib) and the wrapper computes + enforces validity
+    from emstudio.coverage import p1546 as _p15
+
+    _e, _l = _p15.field_strength_dbuv_m(600.0, 50.0, 75.0, 10.0, 50.0)
+    assert 0.0 < _e < 120.0 and _l > 50.0, "P.1546 wrapper spot value insane"
+    try:
+        _p15.field_strength_dbuv_m(10.0, 50.0, 75.0, 10.0, 50.0)
+        raise AssertionError("P.1546 wrapper must reject 10 MHz (no "
+                             "extrapolation)")
+    except ValueError:
+        pass
+    # §6-D P.1812-6: the vendored engine imports WITHOUT the ITU digital maps
+    # (lazy load) and the delta-Bullington wrapper computes + guards validity
+    from emstudio.coverage import p1812 as _p18
+
+    _db = _p18.delta_bullington_intermediates(
+        [0.0, 5.0, 10.0], [0.0, 120.0, 0.0], 0.0, 4, 10.0, 10.0, 0.6)
+    assert _db["ld50_db"] > 0.0 and _db["lbulla"] > 0.0, \
+        "delta-Bullington spot value insane"
+    try:
+        _p18.check_validity(10.0, 50.0, 100.0)
+        raise AssertionError("P.1812 wrapper must reject 10 MHz")
+    except ValueError:
+        pass
+    # legal notices: DISCLAIMER.md ships, and generated artifacts carry the
+    # disclaimer (spec/BOM exports + PDF report footer)
+    from emstudio import legal as _lg
+
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert os.path.isfile(os.path.join(_root, "DISCLAIMER.md")), \
+        "DISCLAIMER.md missing"
+    assert "verify" in _lg.SHORT_DISCLAIMER and "WARRANT" in \
+        _lg.SHORT_DISCLAIMER.upper(), "short disclaimer text malformed"
+    assert "DISCLAIMER" in _lz.LitzConstruction(
+        strand_diameter_m=_un.awg_to_m(10), ops=[]).spec_markdown(), \
+        "wire spec export lost the disclaimer footer"
+    from emstudio.report import pdf_report as _pr
+
+    assert _lg.SHORT_DISCLAIMER in _pr.FOOTER, "PDF footer lost the disclaimer"
+
+
+def _coverage_engine():
+    """Coverage §6-B engine (Qt-free): geodesy + .hgt round-trip + heatmap + KML."""
+    import math as _math
+    import tempfile
+
+    import numpy as np
+
+    from emstudio.coverage import geodesy as geo
+    from emstudio.coverage import groundwave as gw
+    from emstudio.coverage import heatmap, kml, terrain
+    from emstudio.coverage import propagation as pr
+
+    # geodesy: 1 deg of longitude at the equator, bearing due east
+    assert abs(geo.haversine_m(0, 0, 0, 1) - 111195.0) < 400.0, "haversine drift"
+    assert abs(geo.initial_bearing_deg(0, 0, 0, 1) - 90.0) < 1e-6, "bearing drift"
+
+    # .hgt round-trip: a small tile with a central bump, bilinear at the peak
+    size = 61
+    step = 1.0 / (size - 1)
+    arr = np.zeros((size, size), dtype=">i2")
+    arr[size // 2, size // 2] = 100  # peak at tile centre (lat 0.5, lon 0.5)
+    path = os.path.join(tempfile.gettempdir(), "emstudio_smoke_N00E000.hgt")
+    # name encodes the SW corner; write then read back through the engine
+    hgt = os.path.join(tempfile.gettempdir(), "N00E000.hgt")
+    arr.tofile(hgt)
+    tile = terrain.read_hgt(hgt)
+    assert tile.data.shape == (size, size), "hgt shape wrong"
+    assert abs(tile.lat_max - 1.0) < 1e-9 and abs(tile.lon_min) < 1e-9, "hgt corner wrong"
+    assert tile.elevation(0.5, 0.5) > 50.0, "hgt bilinear lost the central peak"
+    assert _math.isnan(tile.elevation(9.0, 9.0)), "hgt out-of-tile must be NaN"
+    for _p in (path, hgt):
+        try:
+            os.remove(_p)
+        except OSError:
+            pass
+
+    # heatmap: a cleared omni link degenerates EXACTLY to EIRP - FSPL
+    cov = heatmap.coverage_grid(40.0, -100.0, 200.0, 300e6, tx_power_dbm=50.0,
+                                dem=None, radius_m=20000.0, n=21, peak_gain_dbi=0.0,
+                                rx_height_m=200.0, k_factor=1e12)
+    ci = 10
+    d = geo.haversine_m(40.0, -100.0, cov.lats[ci], cov.lons[-1])
+    exp = 50.0 - pr.free_space_path_loss_db(d, 300e6)
+    assert abs(cov.prx_dbm[ci, -1] - exp) < 0.05, \
+        "heatmap cleared-omni cell != EIRP - FSPL ({0} vs {1})".format(
+            cov.prx_dbm[ci, -1], exp)
+
+    # LF/MF ground-wave (ITU-R P.368): the ITU Handbook worked example
+    p_gw, _ = gw.numerical_distance(20e3, 2e6, 15.0, 5e-5)
+    assert abs(p_gw - 26.0) < 1.5, "ground-wave numerical distance drift: {0}".format(p_gw)
+    assert abs(gw.attenuation_factor(p_gw) - 0.0226) < 0.003, "ground-wave |A| drift"
+    assert abs(gw.field_strength_dbuv_m(1000.0, 1e6, 70.0, 5.0) - 109.54) < 1.0, \
+        "P.368 300 mV/m-at-1-km reference drift"
+    # Millington reciprocity (land<->sea swap gives the same field)
+    _ls = gw.millington_field_dbuv_m([(50e3, 5.0, 1e-3), (50e3, 70.0, 5.0)], 1e6)
+    _sl = gw.millington_field_dbuv_m([(50e3, 70.0, 5.0), (50e3, 5.0, 1e-3)], 1e6)
+    assert abs(_ls - _sl) < 1e-6, "Millington reciprocity broken"
+
+    # vendored ITU-R P.452-18 / P.2001-6 reference engines: must import
+    # WITHOUT the ITU digital maps (they are never bundled), enforce their
+    # validity ranges, and the map installer must know where maps live.
+    # (Full official-set replays live in tests/validation/{p452,p2001}.py.)
+    from emstudio.coverage import itu_maps as _im
+    from emstudio.coverage import p2001 as _p2001w
+    from emstudio.coverage import p452 as _p452w
+    from emstudio.vendor.py2001 import P2001 as _P2001  # noqa: F401
+    from emstudio.vendor.py452 import P452 as _P452  # noqa: F401
+
+    assert _im.maps_dir(), "itu_maps.maps_dir() empty"
+    assert "install_p452_maps" in _im.missing_message("P452"), \
+        "P452 missing-maps message lost its install instructions"
+    for _bad in (lambda: _p452w.check_validity(60.0, 20.0),
+                 lambda: _p452w.check_validity(1.0, 80.0),
+                 lambda: _p2001w.check_validity(60.0, 50.0, 100.0),
+                 lambda: _p2001w.check_validity(1.0, 0.0, 100.0)):
+        try:
+            _bad()
+            raise AssertionError("P.452/P.2001 validity must be enforced")
+        except ValueError:
+            pass
+
+    # P.368-10 spherical earth (the LFMF port): the same 1-km CMF reference,
+    # far more loss than flat earth at 1000 km, and the <10 kHz hard-stop.
+    # scipy-less FreeCAD bundles skip this block (the spherical engine needs
+    # scipy.special; requirements.txt says so, and the workbench + flat model
+    # keep working without it) — full numerics live in tests/validation/lfmf.py.
+    from emstudio.coverage import lfmf as _lfmf
+    if _lfmf.HAVE_SCIPY:
+        _e1 = gw.spherical_field_strength_dbuv_m(1000.0, 1e4, 70.0, 5.0)
+        assert abs(_e1 - 109.54) < 0.1, \
+            "P.368-10 1-km CMF reference drift: {0}".format(_e1)
+        _ef = gw.field_strength_dbuv_m(1000e3, 1e6, 13.0, 5e-3)
+        _es = gw.spherical_field_strength_dbuv_m(1000e3, 1e6, 13.0, 5e-3)
+        assert _es < _ef - 30.0, \
+            "spherical earth must out-attenuate flat at 1000 km"
+        try:
+            gw.spherical_field_strength_dbuv_m(100e3, 9e3, 70.0, 5.0)
+            raise AssertionError("<10 kHz must hard-stop (P.684 band)")
+        except ValueError:
+            pass
+
+    # multi-station D/U: incoherent power-sum combine (+3.0103 dB) + the two-gate
+    # classify + the source-tagged protection-ratio library (§6 phase C cont.)
+    from emstudio.coverage import multistation as ms
+
+    _e60 = np.array([[60.0]])
+    assert abs(ms.combine_fields_dbuv_m([_e60, _e60])[0, 0] - 63.0103) < 1e-3, \
+        "D/U field power-sum combine drift (two equal fields must add 10log10(2))"
+    _cls, _du = ms.classify(np.array([[50.0]]), np.array([[38.0]]), 41.0, 15.27)
+    assert _cls[0, 0] == ms.INTERFERENCE_LIMITED and abs(_du[0, 0] - 12.0) < 1e-9, \
+        "two-gate D/U classify drift"
+    assert ms.PROTECTION_RATIOS["FM co-channel (FCC 73.215)"][0] == 20.0 \
+        and ms.PROTECTION_RATIOS["AM/MF co-channel (FCC / ITU Region 2)"][0] == 26.0, \
+        "protection-ratio reference library drift"
+
+    # KML GroundOverlay xml is well-formed (N>S, E>W, href, placemark)
+    import xml.etree.ElementTree as ET
+
+    xml = kml.kml_groundoverlay_xml(1.0, 0.0, 2.0, 0.5, "coverage.png",
+                                    tx_lat=0.5, tx_lon=1.0)
+    root = ET.fromstring(xml)
+    ns = "{http://www.opengis.net/kml/2.2}"
+    box = root.find(".//{0}LatLonBox".format(ns))
+    assert box is not None, "KML missing LatLonBox"
+    assert float(box.find(ns + "north").text) > float(box.find(ns + "south").text), \
+        "KML north must exceed south"
+
+
+def _install_text_platform_segregation():
+    """Install instructions must be platform-pure: no Linux commands on Windows.
+
+    A Windows user must never see a standalone `sudo apt install` line or a
+    Linux source-build recipe mixed in with Windows guidance (that confusing
+    mix was reported 2026-07-06). Forces two backends missing and renders both
+    platforms via a monkeypatched os.name.
+    """
+    from emstudio.setup import solvers
+
+    real_detect = solvers.detect_all
+    real_os = os.name
+    linux_only = ["sudo apt install -y", "./update_openEMS", "make fasthenry", "-fcommon"]
+    try:
+        def fake_detect():
+            res = real_detect()
+            for key in ("openems", "nec2"):  # a source-build + an apt backend
+                res[key] = solvers.SolverInfo(solvers.BACKENDS[key], "")
+            return res
+        solvers.detect_all = fake_detect
+
+        os.name = "nt"
+        plan = solvers.install_plan()
+        blob = solvers.install_report_text() + "\n".join(m["steps"] for m in plan["missing"])
+        assert plan["apt_line"] == "", "Windows must not offer an apt line"
+        leaked = [s for s in linux_only if s in blob]
+        assert not leaked, "Linux commands leaked into Windows install text: {0}".format(leaked)
+        assert "WSL2" in blob, "Windows guidance should mention WSL2"
+
+        os.name = "posix"
+        plan = solvers.install_plan()
+        rpt = solvers.install_report_text()
+        assert plan["apt_line"].startswith("sudo apt install"), "Linux should offer apt"
+        assert "WSL2" not in rpt, "WSL2 (Windows-only) must not appear on Linux"
+    finally:
+        solvers.detect_all = real_detect
+        os.name = real_os
+
+
+def _axi_revolution_tolerance():
+    """The full-revolution guard accepts tessellation-shrunk boxes, rejects arcs.
+
+    Regression for the GUI bbox bug (2026-07-06): Shape.BoundBox is
+    tessellation-dependent and sits ~0.1 mm inside the true radius under the
+    GUI, so a tight tolerance rejected valid coil rings for GUI users while the
+    freecadcmd gates (exact box) stayed green.
+    """
+    from emstudio.solvers.elmer.model import AxiModelError, _check_full_revolution
+
+    # a valid 51 mm ring whose displayed bbox shrank ~0.1 mm (facet chords)
+    _check_full_revolution(51.0, (51.0, 50.90, 50.98, 50.98), "ring")  # must not raise
+    # a partial revolution (half ring: one extent collapses toward the axis)
+    try:
+        _check_full_revolution(51.0, (51.0, 0.0, 51.0, 51.0), "half")
+    except AxiModelError:
+        pass
+    else:
+        raise AssertionError("partial revolution was not rejected")
+
+
+# --- FreeCAD-dependent checks ----------------------------------------------
+def _analysis_roundtrip():
+    import FreeCAD
+
+    from emstudio.objects import (analysis, coil, material, ports, query,
+                                  solver_objs, transmission_line)
+
+    doc = FreeCAD.newDocument("emstudio_smoke")
+    obj = analysis.makeAnalysis(doc)
+    assert obj is not None, "makeAnalysis returned None"
+    assert obj.EMStudioType == "EMStudio::Analysis"
+    assert obj.isDerivedFrom("App::DocumentObjectGroupPython"), "analysis is not a group"
+
+    # data-model members survive alongside the container
+    _mat = material.makeMaterial(doc, obj, category="Dielectric")
+    # k(T) coefficient (v0.52) exists on the material, defaults to constant k
+    assert "ThermalConductivityTempCoeff" in _mat.PropertiesList \
+        and abs(_mat.ThermalConductivityTempCoeff) < 1e-12, \
+        "Material ThermalConductivityTempCoeff missing or non-zero default"
+    # σ(T) coefficient (v0.53) exists on the material, defaults to constant σ
+    assert "ConductivityTempCoeff" in _mat.PropertiesList \
+        and abs(_mat.ConductivityTempCoeff) < 1e-12, \
+        "Material ConductivityTempCoeff missing or non-zero default"
+    # B-H curve lists (v0.54) exist and default EMPTY (= linear material)
+    assert "BHCurveB" in _mat.PropertiesList and "BHCurveH" in _mat.PropertiesList \
+        and not list(_mat.BHCurveB) and not list(_mat.BHCurveH), \
+        "Material BHCurveB/BHCurveH missing or non-empty default"
+    ports.makeLumpedPort(doc, obj)
+    solver_objs.makeSolverNEC2(doc, obj)
+    solver_elmer = solver_objs.makeSolverElmer(doc, obj)
+    # radiation BC (v0.51): the emissivity/radiation-temp properties exist
+    # and default OFF (convection-only, byte-identical decks)
+    assert "SurfaceEmissivity" in solver_elmer.PropertiesList \
+        and abs(solver_elmer.SurfaceEmissivity) < 1e-12, \
+        "SolverElmer SurfaceEmissivity missing or non-zero default"
+    assert "RadiationTemperature" in solver_elmer.PropertiesList, \
+        "SolverElmer RadiationTemperature property missing"
+    # analysis-type enum (v0.54 static DC + v0.56 3-D): harmonic default
+    _modes = solver_elmer.getEnumerationsOfProperty("AnalysisType")
+    assert solver_elmer.AnalysisType == "Harmonic (AC)" \
+        and "Static (DC)" in _modes \
+        and "3-D Magnetostatic (DC)" in _modes, \
+        "SolverElmer AnalysisType missing, wrong default, or missing modes"
+    solver_pal = solver_objs.makeSolverPalace(doc, obj)
+    solver_oe = solver_objs.makeSolverOpenEMS(doc, obj)
+    # coax lumped-port analysis type (v0.17.0) is available on the Palace solver
+    assert "Driven S-parameters (coax)" in \
+        solver_pal.getEnumerationsOfProperty("AnalysisType"), \
+        "SolverPalace missing the coax AnalysisType"
+    coil_obj = coil.makeCoil(doc, obj, turns=42, current_a=2.5)
+    # transmission line (v0.61, LPDA feeder): maker args land; LineLength
+    # defaults to 0 (auto distance) and the shunt admittances to zero
+    tl_obj = transmission_line.makeTransmissionLine(doc, obj, z0_ohm=73.0,
+                                                    crossed=True)
+    assert tl_obj.EMStudioType == "EMStudio::TransmissionLine"
+    assert abs(float(tl_obj.Z0.getValueAs("Ohm")) - 73.0) < 1e-9
+    assert tl_obj.Crossed is True
+    assert abs(float(tl_obj.LineLength.getValueAs("m"))) < 1e-12, \
+        "TransmissionLine LineLength must default to 0 (auto distance)"
+    assert all(abs(getattr(tl_obj, p)) < 1e-12
+               for p in ("Y1Real", "Y1Imag", "Y2Real", "Y2Imag")), \
+        "TransmissionLine shunt admittances must default to 0"
+    assert len(query.get_materials(obj)) == 1
+    assert len(query.get_ports(obj)) == 1
+    assert len(query.get_coils(obj)) == 1
+    assert len(query.get_transmission_lines(obj)) == 1
+    assert len(query.get_solvers(obj)) == 4
+    # trace-aware mesh mode (v0.16.0) defaults to Auto — a no-op unless an MSL
+    # port is present, so antenna analyses are unaffected.
+    assert solver_oe.MicrostripMeshMode == "Auto", "MicrostripMeshMode default changed"
+    assert coil_obj.Turns == 42
+    assert abs(float(coil_obj.Current.getValueAs("A")) - 2.5) < 1e-9
+    f1, f2, npts = analysis.Analysis.freq_range_hz(obj)
+    assert f1 < f2 and npts > 1, "bad default frequency sweep"
+
+    # Save/reload round-trip through a temp file.
+    import tempfile
+
+    path = os.path.join(tempfile.gettempdir(), "emstudio_smoke.FCStd")
+    doc.saveAs(path)
+    FreeCAD.closeDocument(doc.Name)
+    doc2 = FreeCAD.openDocument(path)
+    restored = doc2.Objects[0]
+    assert restored.EMStudioType == "EMStudio::Analysis", "type lost on reload"
+    assert restored.Proxy is not None, "proxy not reattached on reload"
+    FreeCAD.closeDocument(doc2.Name)
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _icons_parse_as_xml():
+    import xml.dom.minidom as minidom
+
+    from emstudio.resources import ICON_DIR
+
+    icons = [f for f in os.listdir(ICON_DIR) if f.endswith(".svg")]
+    assert icons, "no SVG icons found in resources/icons"
+    for name in icons:
+        path = os.path.join(ICON_DIR, name)
+        minidom.parse(path)  # raises on malformed XML
+
+
+def _gui_registration_contract():
+    """Exercise InitGui.py registration against a recorder standing in for FreeCADGui.
+
+    freecadcmd's FreeCADGui is a stub without addWorkbench/addCommand/Workbench, so we
+    inject minimal recorders, exec the real InitGui.py, run Initialize(), and assert the
+    workbench + commands register correctly. This covers the whole GUI wiring path except
+    the actual on-screen render (which needs a display and is confirmed by a human).
+    """
+    import FreeCADGui
+
+    from emstudio import commands
+
+    reg = {"commands": [], "workbenches": [], "toolbars": [], "menus": []}
+
+    class _FakeBase:
+        def appendToolbar(self, name, cmds):
+            reg["toolbars"].append((name, list(cmds)))
+
+        def appendMenu(self, name, cmds):
+            reg["menus"].append((name, list(cmds)))
+
+    # Save any real attrs so we restore the stub afterwards.
+    saved = {k: getattr(FreeCADGui, k, None) for k in
+             ("Workbench", "addCommand", "addWorkbench", "addModule", "doCommand")}
+    try:
+        FreeCADGui.Workbench = _FakeBase
+        FreeCADGui.addCommand = lambda name, obj: reg["commands"].append((name, obj))
+        FreeCADGui.addWorkbench = lambda wb: reg["workbenches"].append(wb)
+        FreeCADGui.addModule = lambda m: None
+        FreeCADGui.doCommand = lambda c: None
+
+        initgui = os.path.join(_ROOT, "InitGui.py")
+        with open(initgui, "r", encoding="utf-8") as fh:
+            code = fh.read()
+        # Deliberately do NOT provide __file__: real FreeCAD does not guarantee it when
+        # exec'ing InitGui.py, so the workbench must never rely on it. This namespace
+        # mirrors the worst case.
+        ns = {"__name__": "InitGui"}
+        exec(compile(code, initgui, "exec"), ns)  # noqa: S102 (executing our own file)
+
+        assert reg["workbenches"], "InitGui did not call addWorkbench"
+        wb = reg["workbenches"][0]
+        assert wb.GetClassName() == "Gui::PythonWorkbench", "wrong GetClassName"
+        assert type(wb).MenuText == "EMStudio", "wrong MenuText"
+        assert os.path.isfile(type(wb).Icon), "workbench Icon path missing: " + str(type(wb).Icon)
+
+        wb.Initialize()
+        got_cmds = {name for name, _ in reg["commands"]}
+        expected = {c for c in commands.ALL_COMMANDS if c != "Separator"}
+        assert got_cmds == expected, (
+            "registered commands {0} != ALL_COMMANDS {1}".format(got_cmds, expected)
+        )
+        assert reg["toolbars"], "no toolbar appended"
+        assert reg["menus"], "no menu appended"
+        # every registered command must live in exactly one toolbar/menu group,
+        # and no group may reference an unregistered command (no orphans).
+        grouped = commands.grouped_commands()
+        assert len(grouped) == len(set(grouped)), "a command is in two groups"
+        assert set(grouped) == expected, (
+            "COMMAND_GROUPS must cover exactly the registered commands "
+            "(missing {0}, extra {1})".format(expected - set(grouped),
+                                               set(grouped) - expected))
+        # a toolbar (+ submenu) was appended per group
+        assert len(reg["toolbars"]) == len(commands.COMMAND_GROUPS), \
+            "expected one toolbar per command group"
+
+        # Every command exposes a valid GetResources() with an existing icon.
+        for _, cmd in reg["commands"]:
+            res = cmd.GetResources()
+            for key in ("Pixmap", "MenuText", "ToolTip"):
+                assert key in res, "command missing GetResources key: " + key
+            assert os.path.isfile(res["Pixmap"]), "command icon missing: " + res["Pixmap"]
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                try:
+                    delattr(FreeCADGui, k)
+                except AttributeError:
+                    pass
+            else:
+                setattr(FreeCADGui, k, v)
+
+
+def main():
+    _log("EMStudio smoke test")
+    _log("-------------------")
+    check("import emstudio package", _import_package)
+    check("version.py matches package.xml", _version_matches_package_xml)
+    check("package.xml keeps <subdirectory>./</subdirectory>", _package_xml_subdirectory_guard)
+    check("solver detection runs", _solver_detection_runs)
+    check("icons parse as valid XML/SVG", _icons_parse_as_xml)
+    check("installer build plans well-formed (no sudo)", _installer_build_plans)
+    check("install text is platform-segregated (Win/Linux)", _install_text_platform_segregation)
+    check("Elmer magnetics backend imports headless + writes .geo", _elmer_backend_headless)
+    check("Elmer 3-D WhitneyAV backend headless (.geo + .sif)", _elmer3d_backend_headless)
+    check("axisymmetric full-revolution tolerance (GUI bbox guard)", _axi_revolution_tolerance)
+    check("NEC2 ground-card writer (free-space byte-identical + monopole base feed)",
+          _nec2_ground_cards)
+    check("co-site interference engine (IMD products + intercept-point level)",
+          _cosite_engine)
+    check("propagation engine (FSPL + knife-edge + plane-earth + field strength)",
+          _propagation_engine)
+    check("coverage engine (geodesy + .hgt DEM + heatmap + KML)", _coverage_engine)
+
+    have_freecad = False
+    try:
+        import FreeCAD  # noqa: F401
+
+        have_freecad = True
+    except Exception:
+        _log("  skip - FreeCAD not importable; skipping document checks")
+
+    if have_freecad:
+        check("EM Analysis create + save/reload round-trip", _analysis_roundtrip)
+        check("GUI registration contract (InitGui + commands)", _gui_registration_contract)
+
+    _log("-------------------")
+    if _failures:
+        _log("SMOKE TEST FAILED: {0} failure(s)".format(len(_failures)))
+        return 1
+    _log("SMOKE TEST PASSED")
+    return 0
+
+
+# Decide whether to auto-run. Three launch paths, one rule:
+#   * plain ``python tests/smoke.py``      -> __name__ == "__main__"
+#   * ``freecadcmd tests/smoke.py``        -> __name__ == "smoke" (module basename),
+#                                             FreeCAD present, pytest absent
+#   * pytest collection                    -> do NOT auto-run (let test_* wrappers call)
+# freecadcmd does not honor ``sys.exit`` codes reliably, so on failure we also raise
+# to guarantee a non-zero process exit for CI.
+_UNDER_PYTEST = "pytest" in sys.modules
+_UNDER_FREECAD = "FreeCAD" in sys.modules
+_INVOKED_DIRECTLY = (__name__ == "__main__") or (_UNDER_FREECAD and not _UNDER_PYTEST)
+
+if _INVOKED_DIRECTLY:
+    _rc = main()
+    if _rc != 0:
+        raise SystemExit("EMStudio smoke test failed ({0} failure(s))".format(len(_failures)))
+    sys.exit(0)

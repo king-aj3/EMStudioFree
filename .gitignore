@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtualenv (project-local, not part of the workbench)
+.venv/
+venv/
+
+# IDE
+.idea/
+*.iml
+
+# FreeCAD
+*.FCStd1
+*.FCBak
+*.FCStd.lock
+
+# Solver working dirs / scratch outputs
+*.vtu
+*.pvtu
+*.msh
+/scratch/
+/run/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# A.D. Watt reference PDF — copyrighted internal dev reference, NEVER commit
+/Dr_Watt_document*
+/*.pdf

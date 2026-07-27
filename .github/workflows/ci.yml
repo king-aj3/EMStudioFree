@@ -1,0 +1,40 @@
+# EMStudio CI — the FAST regression net on every push/PR.
+#
+# Scope is deliberate:
+#   * python3 smoke (the Qt-free subset — FreeCAD document checks self-skip)
+#   * the FAST validation-gate tier via tests/validation/run_battery.py
+#     (17 gates, ~40 s; p452/p2001 SKIP here because the ITU digital maps are
+#     integral products that are never bundled and not downloaded in CI)
+# The SOLVER tier (nec2c/openEMS/Elmer/Palace/FastHenry, minutes each) stays a
+# local pre-release step: python3 tests/validation/run_battery.py --all
+#
+# Linux runners only — free for public repos. Do NOT add macOS jobs (the
+# account's macOS Actions minutes are billing-blocked; 10x multiplier).
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  fast-battery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # match the FreeCAD 1.1.1 AppImage's bundled python
+          python-version: "3.11"
+
+      - name: Install python deps
+        run: python -m pip install numpy scipy matplotlib
+
+      - name: Smoke (python3 subset)
+        run: python tests/smoke.py
+
+      - name: Validation battery (FAST tier)
+        run: python tests/validation/run_battery.py

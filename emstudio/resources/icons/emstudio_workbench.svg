@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g_emstudio_workbench" gradientUnits="userSpaceOnUse" x1="20" y1="30" x2="48" y2="30">
+      <stop offset="0" stop-color="#2b8cff"/>
+      <stop offset="1" stop-color="#8a2be2"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="url(#g_emstudio_workbench)" stroke-width="5">
+      <path d="M 21 18 A 14 14 0 0 1 21 42"/>
+      <path d="M 26 9 A 24 24 0 0 1 26 51"/>
+      <path d="M 36 4 A 34 34 0 0 1 36 56"/>
+    </g>
+    <path d="M 14 4 L 14 58" stroke="#2b8cff" stroke-width="5"/>
+    <path d="M 6 58 L 22 58" stroke="#2b8cff" stroke-width="5"/>
+  </g>
+  <circle cx="14" cy="30" r="5" fill="#ff5a5f"/>
+</svg>

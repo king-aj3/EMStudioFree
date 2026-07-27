@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Lumped port. Pads widened 40 -> 54 units of painted width; the 3-wide
+       sine that used to sit inside the ring is gone — at 16 px it was a
+       0.75 px squiggle inside a 6 px ring, i.e. invisible noise. -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="#2b8cff" stroke-width="6">
+      <line x1="9" y1="7" x2="55" y2="7"/>
+      <line x1="9" y1="57" x2="55" y2="57"/>
+      <line x1="32" y1="7" x2="32" y2="19"/>
+      <line x1="32" y1="45" x2="32" y2="57"/>
+    </g>
+    <circle cx="32" cy="32" r="13" stroke="#ff5a5f" stroke-width="6"/>
+  </g>
+</svg>

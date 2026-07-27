@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Three turns, not four: at 16 px a 5-wide stroke on a 11-unit pitch
+       antialiases into a solid slab. 16-unit pitch keeps a clear gap. -->
+  <g fill="none" stroke="#2b8cff" stroke-width="5"
+     stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="17" cy="32" rx="6" ry="22"/>
+    <ellipse cx="33" cy="32" rx="6" ry="22"/>
+    <ellipse cx="49" cy="32" rx="6" ry="22"/>
+    <line x1="4" y1="20" x2="11" y2="20"/>
+    <line x1="55" y1="44" x2="60" y2="44"/>
+  </g>
+  <circle cx="6" cy="20" r="5" fill="#ff5a5f"/>
+</svg>

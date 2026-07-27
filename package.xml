@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+  <name>EMStudio</name>
+  <description>RF and electromagnetic modeling and simulation inside FreeCAD. EMStudio provides a guided workflow (geometry - materials - ports/boundaries - mesh - solve - results) that drives open-source EM solvers (openEMS FDTD, NEC2 MoM, Elmer FEM, AWS Palace FEM) as isolated backends. A free alternative to CENOS RF and Ansys HFSS-class tools.</description>
+  <version>0.70.0</version>
+  <date>2026-07-27</date>
+  <maintainer email="king.arthur_3@yahoo.com">AJ</maintainer>
+  <license file="LICENSE">LGPL-2.1-or-later</license>
+
+  <url type="repository" branch="master">https://github.com/king-aj3/EMStudioFree</url>
+  <url type="readme">https://github.com/king-aj3/EMStudioFree/blob/master/README.md</url>
+  <url type="bugtracker">https://github.com/king-aj3/EMStudioFree/issues</url>
+
+  <icon>emstudio/resources/icons/emstudio_workbench.svg</icon>
+
+  <content>
+    <workbench>
+      <name>EMStudio</name>
+      <classname>EMStudioWorkbench</classname>
+      <!-- Init.py/InitGui.py live at the addon root. Without this, FreeCAD looks in
+           a subdirectory named after the workbench (Mod/EMStudio/EMStudio/).
+           NOTE: the element is SINGULAR <subdirectory> — FreeCAD 0.21's parser reads
+           workbench.Subdirectory; the plural form is silently ignored. -->
+      <subdirectory>./</subdirectory>
+      <description>RF / electromagnetic modeling and simulation.</description>
+      <icon>emstudio/resources/icons/emstudio_workbench.svg</icon>
+      <freecadmin>0.21</freecadmin>
+      <tag>electromagnetics</tag>
+      <tag>RF</tag>
+      <tag>antenna</tag>
+      <tag>simulation</tag>
+      <tag>FDTD</tag>
+      <tag>FEM</tag>
+    </workbench>
+  </content>
+</package>

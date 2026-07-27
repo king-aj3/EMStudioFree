@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Cable cross-section. FOUR fat strands, not seven: seven r=6 dots on a
+       15.5-unit pitch merge into one teal disc at 16 px. Four also keeps the
+       silhouette distinct from the coax icon's single centre conductor. -->
+  <circle cx="32" cy="32" r="26" fill="none" stroke="#2b8cff" stroke-width="6"/>
+  <g fill="#00c2a8">
+    <circle cx="32" cy="18.5" r="8"/>
+    <circle cx="45.5" cy="32" r="8"/>
+    <circle cx="32" cy="45.5" r="8"/>
+    <circle cx="18.5" cy="32" r="8"/>
+  </g>
+</svg>

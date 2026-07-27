@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="#2b8cff" stroke-width="5">
+      <path d="M 12 22 L 12 44 M 6 58 L 12 44 L 18 58"/>
+      <path d="M 52 22 L 52 44 M 46 58 L 52 44 L 58 58"/>
+    </g>
+    <path d="M 12 19 Q 32 -1 52 19" stroke="#00c2a8" stroke-width="5"/>
+    <line x1="24" y1="32" x2="34" y2="32" stroke="#8a2be2" stroke-width="5"/>
+  </g>
+  <polygon points="43,32 34,27 34,37" fill="#8a2be2"/>
+</svg>

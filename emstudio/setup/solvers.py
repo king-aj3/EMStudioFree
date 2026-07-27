@@ -1,0 +1,610 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+"""Backend solver discovery.
+
+EMStudio drives external open-source solvers as isolated subprocesses (the CENOS
+licensing model: we never link or bundle GPL solver code). Before a backend can run we
+must locate its executable. This module is deliberately Qt-free and GUI-free so it can
+be exercised headlessly (``freecadcmd``, plain pytest) and reused by the preferences
+page and the guided installer later.
+
+Resolution order for each binary:
+
+1. An explicit path saved in FreeCAD preferences
+   (``User parameter:BaseApp/Preferences/Mod/EMStudio/<key>``), when FreeCAD is present.
+2. The ``EMSTUDIO_<KEY>`` environment variable.
+3. A plain ``shutil.which`` lookup on ``PATH``.
+4. A short list of common platform install locations.
+
+Nothing here raises on a missing solver; callers inspect the returned
+:class:`SolverInfo` and surface guidance through the UI.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+from dataclasses import dataclass, field
+
+# Preferences group used for per-backend binary overrides.
+PREF_GROUP = "User parameter:BaseApp/Preferences/Mod/EMStudio"
+
+
+@dataclass(frozen=True)
+class Prereq:
+    """A build/runtime prerequisite that must exist before installing a backend.
+
+    ``kind`` selects the probe:
+      * ``bin``  — an executable on PATH (``token`` = program name).
+      * ``lib``  — a shared library (``token`` = library stem, e.g. ``openblas``).
+      * ``pip``  — an importable python module (``token`` = module name).
+    ``apt`` is the Debian/Ubuntu/Mint package that provides it; ``why`` explains the
+    failure it prevents (these are the install pitfalls learned the hard way).
+    """
+
+    name: str
+    kind: str  # 'bin' | 'lib' | 'pip'
+    token: str
+    apt: str = ""
+    why: str = ""
+
+
+@dataclass(frozen=True)
+class Backend:
+    """Static description of a solver backend EMStudio can drive."""
+
+    key: str  # stable identifier, e.g. "openems"
+    label: str  # human name, e.g. "openEMS (FDTD)"
+    method: str  # numerical method, e.g. "FDTD"
+    executables: tuple  # candidate binary names, first found wins
+    version_args: tuple = ("--version",)
+    # Package hints for the guided installer, per platform family.
+    apt_package: str = ""
+    pip_package: str = ""
+    manual_hint: str = ""  # free-text instructions when no package exists
+    homepage: str = ""
+    # Extra directories to probe beyond PATH (platform-specific install spots).
+    extra_dirs: tuple = ()
+    # Source-build prerequisites, checked BEFORE a build so failures like the
+    # missing-OpenBLAS one surface up front instead of mid-compile.
+    prerequisites: tuple = ()
+    # True when there is no distro package — the backend is built from source.
+    source_build: bool = False
+
+
+@dataclass
+class SolverInfo:
+    """Result of probing a :class:`Backend` on this machine."""
+
+    backend: Backend
+    path: str = ""  # resolved absolute path, or "" if not found
+    version: str = ""  # first line of `--version` output, best effort
+    source: str = ""  # how it was found: pref | env | path | probe
+    found: bool = field(init=False, default=False)
+
+    def __post_init__(self):
+        self.found = bool(self.path)
+
+
+# --- Backend registry ------------------------------------------------------
+# Phase 1 ships openEMS + NEC2; Elmer/Palace are declared now so the preferences
+# page and installer enumerate the full roadmap, even before their writers exist.
+
+BACKENDS = {
+    "openems": Backend(
+        key="openems",
+        label="openEMS (FDTD)",
+        method="EC-FDTD",
+        executables=("openEMS", "openEMS.sh", "openems"),
+        version_args=("--version",),
+        # Dropped from Ubuntu 24.04+/Mint 22 archives — source build is the
+        # official path on modern Linux; Windows has prebuilt zips.
+        manual_hint=(
+            "Linux: build from source — git clone --recursive "
+            "https://github.com/thliebig/openEMS-Project.git && "
+            "./update_openEMS.sh ~/opt/openEMS --python\n"
+            "Windows: prebuilt zip from https://www.openems.de/"
+        ),
+        homepage="https://www.openems.de/",
+        extra_dirs=(
+            os.path.expanduser("~/opt/openEMS/bin"),
+            r"C:\opt\openEMS",
+            r"C:\openEMS",
+        ),
+        source_build=True,
+        prerequisites=(
+            Prereq("C++ toolchain", "bin", "g++", "build-essential"),
+            Prereq("CMake", "bin", "cmake", "cmake"),
+            Prereq("git", "bin", "git", "git"),
+            Prereq("HDF5 dev", "lib", "hdf5", "libhdf5-dev"),
+            Prereq("VTK 9 dev", "lib", "vtkCommonCore", "libvtk9-dev"),
+            Prereq("Boost dev", "lib", "boost_system", "libboost-all-dev"),
+            Prereq("CGAL dev", "lib", "gmp", "libcgal-dev libgmp-dev"),
+            Prereq("TinyXML dev", "lib", "tinyxml", "libtinyxml-dev"),
+            Prereq("python venv", "bin", "python3", "python3-venv python3-setuptools cython3",
+                   "PEP 668: python modules must install into a venv on Ubuntu 24.04+"),
+        ),
+    ),
+    "nec2": Backend(
+        key="nec2",
+        label="NEC2 (MoM wire antennas)",
+        method="MoM",
+        executables=("nec2c", "nec2", "nec2++"),
+        version_args=("-h",),  # nec2c has no --version; -h returns quickly
+        apt_package="nec2c",
+        homepage="https://www.qsl.net/5b4az/",
+    ),
+    "fasthenry": Backend(
+        key="fasthenry",
+        label="FastHenry (quasi-static wire/bundle impedance)",
+        method="PEEC/filament",
+        executables=("fasthenry",),
+        version_args=("-help",),
+        # Not packaged in Ubuntu 24.04/Mint 22 — small C source build. Modern GCC
+        # needs -fcommon (legacy common-symbol linkage).
+        manual_hint=(
+            "Build from source (LGPL): git clone "
+            "https://github.com/ediloren/FastHenry2.git && cd FastHenry2/src/fasthenry "
+            "&& make fasthenry CFLAGS=\"-O -DFOUR -m64 -fcommon\""
+        ),
+        homepage="https://www.fastfieldsolvers.com/",
+        extra_dirs=(os.path.expanduser("~/opt/FastHenry2/bin"),),
+        source_build=True,
+        prerequisites=(
+            Prereq("C toolchain", "bin", "cc", "build-essential"),
+            Prereq("git", "bin", "git", "git"),
+            # the hard-won one: default -fno-common in GCC>=10 breaks the link
+            Prereq("(build flag)", "bin", "cc", "",
+                   "MUST compile with CFLAGS containing -fcommon on GCC >= 10 "
+                   "(legacy common-symbol linkage) or the link fails with "
+                   "'multiple definition of timestuff'"),
+        ),
+    ),
+    "elmer": Backend(
+        key="elmer",
+        label="Elmer (FEM magnetodynamics / VectorHelmholtz)",
+        method="FEM",
+        executables=("ElmerSolver", "ElmerSolver_mpi"),
+        version_args=("--version",),
+        apt_package="elmerfem-csc",
+        manual_hint=(
+            "Needs the official CSC PPA first:\n"
+            "sudo add-apt-repository -y ppa:elmer-csc-ubuntu/elmer-csc-ppa && "
+            "sudo apt update && sudo apt install -y elmerfem-csc"
+        ),
+        homepage="https://www.elmerfem.org/",
+    ),
+    "palace": Backend(
+        key="palace",
+        label="Palace (FEM full-wave, eigenmode, AMR)",
+        method="FEM",
+        executables=("palace",),
+        version_args=("--help",),
+        # No distro package — CMake superbuild, no sudo needed:
+        manual_hint=(
+            "Build from source (Apache-2.0): git clone "
+            "https://github.com/awslabs/palace.git ~/opt/palace-src && cmake -S "
+            "~/opt/palace-src -B ~/opt/palace-src/build "
+            "-DCMAKE_INSTALL_PREFIX=$HOME/opt/palace && cmake --build "
+            "~/opt/palace-src/build -j $(nproc)"
+        ),
+        homepage="https://github.com/awslabs/palace",
+        extra_dirs=(
+            os.path.expanduser("~/opt/palace/bin"),
+            os.path.expanduser("~/opt/palace-src/build/bin"),
+        ),
+        source_build=True,
+        prerequisites=(
+            Prereq("C++/Fortran toolchain", "bin", "gfortran", "build-essential gfortran"),
+            Prereq("CMake >= 3.21", "bin", "cmake", "cmake"),
+            Prereq("git", "bin", "git", "git"),
+            Prereq("MPI", "bin", "mpicc", "libopenmpi-dev openmpi-bin"),
+            # the one that bit us: Palace's superbuild requires OpenBLAS
+            # specifically, not the reference BLAS
+            Prereq("OpenBLAS", "lib", "openblas", "libopenblas-dev",
+                   "Palace's configure fails with 'Could NOT find BLAS' unless "
+                   "OpenBLAS (not reference BLAS) is installed"),
+        ),
+    ),
+    # Meshing/support tools, discovered the same way.
+    "gmsh": Backend(
+        key="gmsh",
+        label="Gmsh (mesh generator)",
+        method="mesh",
+        executables=("gmsh",),
+        version_args=("--version",),
+        apt_package="gmsh",
+        pip_package="gmsh",
+        homepage="https://gmsh.info/",
+    ),
+}
+
+
+def _pref_path(key):
+    """Return a user-configured binary path from FreeCAD prefs, or ''.
+
+    Import of FreeCAD is done lazily so this module stays usable without it.
+    """
+    try:
+        import FreeCAD  # noqa: PLC0415  (intentional lazy import)
+    except Exception:
+        return ""
+    try:
+        params = FreeCAD.ParamGet(PREF_GROUP)
+        return params.GetString(key, "")
+    except Exception:
+        return ""
+
+
+def _probe_version(path, version_args):
+    """Best-effort version string: first output line that carries a digit."""
+    try:
+        out = subprocess.run(
+            [path, *version_args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        text = (out.stdout or out.stderr or "").strip()
+        for line in text.splitlines():
+            line = line.strip()
+            if line and any(c.isdigit() for c in line) and "usage" not in line.lower() \
+                    and "option" not in line.lower():
+                return line[:70]
+        return ""
+    except Exception:
+        return ""
+
+
+def find_backend(key):
+    """Locate a single backend by registry key. Returns a :class:`SolverInfo`."""
+    backend = BACKENDS[key]
+
+    # 1) explicit FreeCAD preference
+    pref = _pref_path(key)
+    if pref and os.path.isfile(pref) and os.access(pref, os.X_OK):
+        return SolverInfo(backend, pref, _probe_version(pref, backend.version_args), "pref")
+
+    # 2) environment override
+    env = os.environ.get("EMSTUDIO_" + key.upper(), "")
+    if env and os.path.isfile(env) and os.access(env, os.X_OK):
+        return SolverInfo(backend, env, _probe_version(env, backend.version_args), "env")
+
+    # 3) PATH lookup on each candidate name
+    for name in backend.executables:
+        hit = shutil.which(name)
+        if hit:
+            return SolverInfo(backend, hit, _probe_version(hit, backend.version_args), "path")
+
+    # 4) common platform-specific directories (probe .exe/.bat variants on Windows)
+    suffixes = ("", ".exe", ".bat", ".cmd") if os.name == "nt" else ("",)
+    for directory in backend.extra_dirs:
+        for name in backend.executables:
+            for sfx in suffixes:
+                cand = os.path.join(directory, name + sfx)
+                if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                    return SolverInfo(
+                        backend, cand, _probe_version(cand, backend.version_args), "probe"
+                    )
+
+    return SolverInfo(backend, "")
+
+
+def detect_all():
+    """Probe every registered backend. Returns ``{key: SolverInfo}``.
+
+    CAUTION for future preferences UI: detected paths may be EPHEMERAL. Inside the
+    FreeCAD AppImage, PATH exposes bundled tools under /tmp/.mount_FreeCAxxxx/ (e.g.
+    gmsh), and that mount point changes every launch. Detected paths are safe to USE
+    within the current session but must never be auto-persisted to preferences —
+    re-detect each session; only user-entered paths belong in prefs.
+    """
+    return {key: find_backend(key) for key in BACKENDS}
+
+
+def is_ephemeral_path(path):
+    """True if a detected path lives in a transient location (AppImage mount)."""
+    return path.startswith("/tmp/.mount_")
+
+
+def _lib_present(stem):
+    """True if a shared library with this stem is registered with the loader."""
+    try:
+        out = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True,
+                             timeout=10).stdout
+        return ("lib" + stem) in out
+    except Exception:
+        return False
+
+
+def check_prereqs(backend):
+    """Probe a backend's build prerequisites. Returns list of (Prereq, ok: bool).
+
+    Advisory entries (empty apt AND a why-note, like FastHenry's -fcommon flag)
+    always report ok=True — they are surfaced as notes, not blockers.
+    """
+    results = []
+    for p in backend.prerequisites:
+        if not p.apt and p.why:
+            results.append((p, True))  # advisory note
+            continue
+        if p.kind == "bin":
+            ok = shutil.which(p.token) is not None
+        elif p.kind == "lib":
+            ok = _lib_present(p.token)
+        elif p.kind == "pip":
+            try:
+                __import__(p.token)
+                ok = True
+            except Exception:
+                ok = False
+        else:
+            ok = False
+        results.append((p, ok))
+    return results
+
+
+def install_plan():
+    """Complete machine-readable install report — the guided installer's engine.
+
+    Returns dict:
+      found:    [SolverInfo, ...]
+      missing:  [{info, apt_line or '', steps, prereqs_ok, missing_prereqs,
+                  advisories}, ...]
+      apt_line: one combined 'sudo apt install ...' covering every missing
+                apt-installable backend AND every missing build prerequisite,
+                so a user gets ONE command for the sudo part.
+    """
+    is_win = os.name == "nt"
+    found, missing = [], []
+    apt_pkgs = []
+    for info in detect_all().values():
+        if info.found:
+            found.append(info)
+            continue
+        b = info.backend
+        if is_win:
+            # Windows: no apt, no from-source build prerequisites — native
+            # installers / WSL2 only. Keep the entry free of Linux concepts.
+            missing.append({
+                "info": info,
+                "steps": install_hint(b),
+                "prereqs_ok": True,
+                "missing_prereqs": [],
+                "advisories": [],
+            })
+            continue
+        prereqs = check_prereqs(b)
+        missing_prereqs = [p for p, ok in prereqs if not ok]
+        advisories = [p for p, ok in prereqs if ok and p.why and not p.apt]
+        for p in missing_prereqs:
+            apt_pkgs.extend(p.apt.split())
+        if b.apt_package and not b.source_build:
+            apt_pkgs.extend(b.apt_package.split())
+        missing.append({
+            "info": info,
+            "steps": install_hint(b),
+            "prereqs_ok": not missing_prereqs,
+            "missing_prereqs": missing_prereqs,
+            "advisories": advisories,
+        })
+    # dedupe, keep order
+    seen = set()
+    apt_pkgs = [p for p in apt_pkgs if not (p in seen or seen.add(p))]
+    return {
+        "found": found,
+        "missing": missing,
+        # apt is a Linux concept — never surfaced on Windows
+        "apt_line": "" if is_win else (
+            ("sudo apt install -y " + " ".join(apt_pkgs)) if apt_pkgs else ""),
+    }
+
+
+# Windows install guidance per backend (native installers where they exist,
+# honest WSL pointers where they don't).
+WINDOWS_HINTS = {
+    "openems": "Prebuilt Windows zip: https://www.openems.de/ (unzip to C:\\opt\\openEMS). "
+               "Python-driven runs are not wired up on native Windows yet — use WSL2 "
+               "for the full pipeline.",
+    "nec2": "No official Windows build of nec2c — install via WSL2 (sudo apt install "
+            "nec2c) or MSYS2.",
+    "fasthenry": "FastFieldSolvers ships Windows builds (https://www.fastfieldsolvers.com/), "
+                 "but EMStudio's command-line integration currently targets the Linux "
+                 "build — use WSL2 for wire/litz cross-checks.",
+    "elmer": "Official Windows installer: https://www.elmerfem.org/ (ElmerFEM release "
+             "with ElmerSolver + ElmerGrid).",
+    "palace": "No native Windows support (Linux/macOS only) — use WSL2.",
+    "gmsh": "Official Windows binaries: https://gmsh.info/ — add gmsh.exe to PATH.",
+}
+
+
+def install_report_text():
+    """Human-readable installation report (Detect Solvers, docs, CLI).
+
+    Platform-aware: on Windows the apt line is replaced by per-backend Windows
+    guidance (native installers where they exist, WSL2 pointers where they don't).
+    """
+    plan = install_plan()
+    if os.name == "nt":
+        lines = ["EMStudio solver installation report (Windows)", ""]
+        for info in plan["found"]:
+            ver = (" — " + info.version) if info.version else ""
+            lines.append("  [OK]      {0}: {1}{2}".format(info.backend.label, info.path, ver))
+        for m in plan["missing"]:
+            b = m["info"].backend
+            lines.append("  [MISSING] {0}".format(b.label))
+        lines += ["", "Windows install guidance:"]
+        for m in plan["missing"]:
+            b = m["info"].backend
+            lines.append("  {0}: {1}".format(
+                b.label, WINDOWS_HINTS.get(b.key, b.homepage or "see documentation")))
+        lines += ["", "For the complete 6-backend experience on Windows, install "
+                      "FreeCAD + EMStudio inside WSL2 (Ubuntu) — every Linux recipe "
+                      "then applies unchanged."]
+        return "\n".join(lines)
+
+    lines = ["EMStudio solver installation report", ""]
+    for info in plan["found"]:
+        ver = (" — " + info.version) if info.version else ""
+        lines.append("  [OK]      {0}: {1}{2}".format(info.backend.label, info.path, ver))
+    for m in plan["missing"]:
+        b = m["info"].backend
+        lines.append("  [MISSING] {0}".format(b.label))
+    if plan["apt_line"]:
+        lines += ["", "One command covers all missing packages/prerequisites:",
+                  "  " + plan["apt_line"]]
+    for m in plan["missing"]:
+        b = m["info"].backend
+        lines += ["", "Then for {0}:".format(b.label),
+                  "  " + m["steps"].replace("\n", "\n  ")]
+        for p in m["missing_prereqs"]:
+            note = (" — " + p.why) if p.why else ""
+            lines.append("  requires first: {0} (apt: {1}){2}".format(p.name, p.apt, note))
+        for p in m["advisories"]:
+            lines.append("  note: {0}".format(p.why))
+    return "\n".join(lines)
+
+
+def install_hint(backend):
+    """Return a human-readable install suggestion for a missing backend.
+
+    Platform-segregated: on Windows this returns ONLY the Windows guidance
+    (native installer / WSL2); on Linux ONLY the apt/pip/source-build recipe.
+    Callers never mix the two.
+    """
+    if os.name == "nt":
+        win = WINDOWS_HINTS.get(backend.key)
+        if win:
+            return win
+        return "Docs:  " + backend.homepage if backend.homepage else \
+            "See the backend's documentation to install it."
+    parts = []
+    if backend.apt_package:
+        parts.append("Debian/Ubuntu/Mint:  sudo apt install " + backend.apt_package)
+    if backend.pip_package:
+        parts.append("pip:  pip install " + backend.pip_package)
+    if backend.manual_hint:
+        parts.append(backend.manual_hint)
+    if backend.homepage:
+        parts.append("Docs:  " + backend.homepage)
+    return "\n".join(parts) if parts else "See the backend's documentation to install it."
+
+
+# --- guided source builds ----------------------------------------------------
+# Machine-runnable, NO-SUDO build recipes for the source-built backends — the
+# exact commands that produced the working installs on the reference machine
+# (2026-07-05): openEMS at ~/opt/openEMS (+ sibling PEP-668 venv), FastHenry at
+# ~/opt/FastHenry2/bin (the -fcommon build), Palace superbuild ~/opt/palace-src
+# -> ~/opt/palace. Steps are idempotent (`test -d || git clone`) so a wizard
+# retry resumes instead of failing on an existing clone.
+
+_HOME = os.path.expanduser("~")
+
+BUILD_PLANS = {
+    "openems": {
+        "estimate": "15–60 min (large C++ build; all cores)",
+        "prefix": os.path.join(_HOME, "opt", "openEMS"),
+        "steps": [
+            ("clone openEMS-Project (recursive)",
+             ["bash", "-c",
+              "test -d ~/opt/openEMS-Project || git clone --recursive "
+              "https://github.com/thliebig/openEMS-Project.git ~/opt/openEMS-Project"]),
+            ("create PEP-668-safe python venv",
+             ["bash", "-c",
+              "mkdir -p ~/opt/openEMS && python3 -m venv --system-site-packages "
+              "~/opt/openEMS/venv"]),
+            ("build openEMS + python modules (this is the long step)",
+             ["bash", "-c",
+              "source ~/opt/openEMS/venv/bin/activate && cd ~/opt/openEMS-Project "
+              "&& ./update_openEMS.sh ~/opt/openEMS --python"]),
+        ],
+    },
+    "fasthenry": {
+        "estimate": "~1 min",
+        "prefix": os.path.join(_HOME, "opt", "FastHenry2"),
+        "steps": [
+            ("clone FastHenry2",
+             ["bash", "-c",
+              "test -d ~/opt/FastHenry2 || git clone "
+              "https://github.com/ediloren/FastHenry2.git ~/opt/FastHenry2"]),
+            ("build (GCC>=10 needs -fcommon)",
+             ["bash", "-c",
+              "cd ~/opt/FastHenry2/src/fasthenry && "
+              "make fasthenry CFLAGS=\"-O -DFOUR -m64 -fcommon\""]),
+        ],
+    },
+    "palace": {
+        "estimate": "30–90 min (CMake superbuild; all cores)",
+        "prefix": os.path.join(_HOME, "opt", "palace"),
+        "steps": [
+            ("clone Palace",
+             ["bash", "-c",
+              "test -d ~/opt/palace-src || git clone "
+              "https://github.com/awslabs/palace.git ~/opt/palace-src"]),
+            ("configure superbuild",
+             ["bash", "-c",
+              "cmake -S ~/opt/palace-src -B ~/opt/palace-src/build "
+              "-DCMAKE_INSTALL_PREFIX=$HOME/opt/palace"]),
+            ("build + install (the long step)",
+             ["bash", "-c",
+              "cmake --build ~/opt/palace-src/build -j $(nproc)"]),
+        ],
+    },
+}
+
+
+def build_plan(key):
+    """The no-sudo source-build recipe for a backend, or None.
+
+    None when the backend is not source-built, has no recipe, or the platform
+    has no bash (native Windows — use WINDOWS_HINTS there).
+    """
+    if os.name == "nt":
+        return None
+    backend = BACKENDS.get(key)
+    if backend is None or not backend.source_build:
+        return None
+    return BUILD_PLANS.get(key)
+
+
+def run_build(key, line_callback=None, job_slot=None):
+    """Run a backend's source build, streaming output lines. Returns SolverInfo.
+
+    Preflights :func:`check_prereqs` FIRST and raises ``SolverError`` with the
+    missing packages (and the apt one-liner) before any compile starts — the
+    Palace/OpenBLAS lesson. ``job_slot``, when given, receives each live
+    ``SolverJob`` so a GUI can abort the current step.
+    """
+    from emstudio.solvers.base import SolverError, SolverJob
+
+    plan = build_plan(key)
+    if plan is None:
+        raise SolverError("no guided build available for '{0}' on this platform".format(key))
+    backend = BACKENDS[key]
+
+    missing = [p for p, ok in check_prereqs(backend) if not ok]
+    if missing:
+        pkgs = " ".join(dict.fromkeys(" ".join(p.apt for p in missing).split()))
+        raise SolverError(
+            "build prerequisites missing for {0}:\n{1}\n\nInstall them first:\n"
+            "  sudo apt install -y {2}".format(
+                backend.label,
+                "\n".join("  - {0}{1}".format(p.name, (" — " + p.why) if p.why else "")
+                          for p in missing),
+                pkgs))
+
+    emit = line_callback or (lambda line: None)
+    for desc, cmd in plan["steps"]:
+        emit("==> {0}".format(desc))
+        job = SolverJob(cmd, cwd=_HOME, line_callback=line_callback)
+        if job_slot is not None:
+            job_slot(job)
+        job.run_blocking(timeout=4 * 3600)
+
+    info = find_backend(key)
+    if not info.found:
+        raise SolverError(
+            "build finished but {0} was not detected afterwards — check the log; "
+            "expected under {1}".format(backend.label, plan["prefix"]))
+    emit("==> {0} installed: {1}".format(backend.label, info.path))
+    return info

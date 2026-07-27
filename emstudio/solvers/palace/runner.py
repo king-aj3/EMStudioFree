@@ -1,0 +1,404 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+"""Palace eigenmode pipeline: Prepare -> Mesh -> Solve -> Results.
+
+Pipeline::
+
+    msh    = gmsh_box.mesh_box(size_mm, workdir)      # 3-D tet mesh (msh2.2)
+    config = writer.build_eigenmode_config(...)        # config.json
+    palace -np 1 config.json                           # solve
+    modes  = parser.parse_eigenvalues(postpro/eig.csv) # results
+
+Palace is invoked through its MPI wrapper (``palace -np N config.json``);
+the binary is resolved via ``emstudio.setup.solvers.find_backend("palace")``.
+FreeCAD-free ``run_cavity`` for gates; ``run`` for the FreeCAD analysis.
+"""
+from __future__ import annotations
+
+import math
+import os
+
+from emstudio.meshing import gmsh_box, gmsh_brep, gmsh_coax
+from emstudio.setup import solvers as solver_setup
+from emstudio.solvers.base import SolverError, SolverJob, make_workdir
+
+from . import parser, writer
+
+_SOLVE_TIMEOUT_S = 3600
+_C0 = 299792458.0
+
+
+def _estimate_target_ghz(size_mm, eps_r=1.0):
+    """Rough TE101-ish frequency (GHz) for the shift-invert target.
+
+    Uses the two largest box dimensions (the fundamental has one node across
+    each). Only needs to be in the right ballpark to seed the eigensolver.
+    """
+    dims_m = sorted(s * 1e-3 for s in size_mm)
+    a, d = dims_m[-1], dims_m[-2]  # two largest
+    f = (_C0 / (2.0 * math.sqrt(eps_r))) * math.sqrt((1.0 / a) ** 2 + (1.0 / d) ** 2)
+    return f / 1e9
+
+
+def run_cavity(size_mm, n_modes=8, order=2, elem_mm=None, eps_r=1.0, mu_r=1.0,
+               loss_tan=0.0, target_ghz=None, workdir=None, line_callback=None,
+               mesh_refinement=0, refinement_tol=0.01):
+    """Solve the resonant modes of a rectangular PEC cavity. Returns EigenModeResult.
+
+    :param size_mm: (dx, dy, dz) cavity dimensions in mm.
+    :param order: FEM polynomial order. 2 is the default (well under 1% on a
+        coarse tet mesh, and much faster than 3 — the order-3 geometric
+        multigrid preconditioner setup dominates wall-clock); raise to 3-4 for
+        spectral-quality accuracy.
+    :param mesh_refinement: AMR iterations (0 = off; adaptive refinement re-solves
+        on a mesh refined where the error indicator is largest).
+    """
+    import time
+
+    t0 = time.time()
+    workdir = _prepare_workdir(workdir)
+    msh = gmsh_box.mesh_box(size_mm, workdir, elem_mm=elem_mm,
+                            line_callback=line_callback)
+    if target_ghz is None:
+        target_ghz = _estimate_target_ghz(size_mm, eps_r) * 0.95  # just below the fundamental
+    return _solve_eigenmodes(
+        msh, workdir, t0, n_modes=n_modes, order=order, eps_r=eps_r, mu_r=mu_r,
+        loss_tan=loss_tan, target_ghz=target_ghz,
+        extra_meta={"size_mm": tuple(size_mm)}, line_callback=line_callback,
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+
+
+def run_cavity_brep(brep_path, target_ghz, n_modes=8, order=2, eps_r=1.0, mu_r=1.0,
+                    loss_tan=0.0, elem_mm=None, workdir=None, line_callback=None,
+                    mesh_refinement=0, refinement_tol=0.01):
+    """Solve the resonant modes of a general PEC-walled solid (BREP). Returns EigenModeResult.
+
+    The whole outer boundary of the imported solid is the PEC wall — any single
+    closed solid works (cylinder, sphere, chamfered box, …), not just a box.
+
+    :param brep_path: BREP file of the cavity interior (mm).
+    :param target_ghz: shift-invert target just below the fundamental (the
+        caller seeds it from the geometry bounding box — a raw BREP carries no
+        size for the box heuristic).
+    :param mesh_refinement: AMR iterations (0 = off; adaptive refinement re-solves
+        on a mesh refined where the error indicator is largest).
+    """
+    import time
+
+    t0 = time.time()
+    workdir = _prepare_workdir(workdir)
+    msh = gmsh_brep.mesh_brep(brep_path, workdir, elem_mm=elem_mm,
+                              line_callback=line_callback)
+    return _solve_eigenmodes(
+        msh, workdir, t0, n_modes=n_modes, order=order, eps_r=eps_r, mu_r=mu_r,
+        loss_tan=loss_tan, target_ghz=float(target_ghz),
+        extra_meta={"geometry": "brep"}, line_callback=line_callback,
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+
+
+def _prepare_workdir(workdir):
+    info = solver_setup.find_backend("palace")
+    if not info.found:
+        raise SolverError("Palace not found.\n" + solver_setup.install_hint(info.backend))
+    return make_workdir("emstudio_palace_", base=workdir)
+
+
+def _solve_eigenmodes(msh, workdir, t0, n_modes, order, eps_r, mu_r, loss_tan,
+                      target_ghz, extra_meta=None, line_callback=None,
+                      mesh_refinement=0, refinement_tol=0.01):
+    """Shared eigenmode solve/parse tail for run_cavity and run_cavity_brep.
+
+    Identical config + Palace invocation + parsing for every geometry, so the
+    box and BREP paths never diverge.
+    """
+    import time
+
+    from emstudio.post.eigenmodes import EigenModeResult
+
+    info = solver_setup.find_backend("palace")
+    config = writer.build_eigenmode_config(
+        os.path.basename(msh), n_modes=n_modes, target_ghz=target_ghz, order=order,
+        eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output="postpro",
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+    cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
+
+    job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
+                    cwd=workdir, line_callback=line_callback)
+    job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
+
+    eig_csv = os.path.join(workdir, "postpro", "eig.csv")
+    if not os.path.isfile(eig_csv):
+        raise SolverError("Palace produced no eigenvalues at {0}".format(eig_csv))
+    modes = parser.parse_eigenvalues(eig_csv)
+    meta = {"backend": "palace", "workdir": workdir, "duration_s": time.time() - t0}
+    meta.update(extra_meta or {})
+    result = EigenModeResult(modes, meta=meta)
+    result.save_csv(os.path.join(workdir, "eigenmodes.csv"))
+    return result
+
+
+def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=3,
+                  eps_r=1.0, mu_r=1.0, loss_tan=0.0, elem_mm=None, workdir=None,
+                  line_callback=None, fast_sweep=False, adaptive_tol=1.0e-3,
+                  mesh_refinement=0, refinement_tol=0.01):
+    """Driven S-parameter solve of a 2-port waveguide section. Returns SweepResult.
+
+    :param size_mm: (dx, dy, dz) box dimensions in mm.
+    :param axis: propagation axis (0=x, 1=y, 2=z); the two faces perpendicular
+        to it are the wave ports.
+    :param mesh_refinement: AMR iterations (0 = off; adaptive refinement re-solves
+        on a mesh refined where the error indicator is largest).
+    """
+    import time
+
+    import numpy as np
+
+    from emstudio.post.sparams import SweepResult
+
+    t0 = time.time()
+    info = solver_setup.find_backend("palace")
+    if not info.found:
+        raise SolverError("Palace not found.\n" + solver_setup.install_hint(info.backend))
+    workdir = make_workdir("emstudio_palace_", base=workdir)
+
+    msh = gmsh_box.mesh_waveguide(size_mm, workdir, axis=axis, elem_mm=elem_mm,
+                                  line_callback=line_callback)
+    config = writer.build_driven_config(
+        os.path.basename(msh), f1_ghz, f2_ghz, step_ghz, order=order,
+        eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output="postpro",
+        fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+    cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
+
+    job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
+                    cwd=workdir, line_callback=line_callback)
+    job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
+
+    port_s = os.path.join(workdir, "postpro", "port-S.csv")
+    if not os.path.isfile(port_s):
+        raise SolverError("Palace produced no S-parameters at {0}".format(port_s))
+    data = parser.parse_sparams(port_s)
+    freqs = np.array(data["freq_hz"])
+    n = len(freqs)
+    s11 = np.array(data["s"].get((1, 1), [0j] * n))
+    s21 = np.array(data["s"].get((2, 1), [0j] * n))
+    z0 = 50.0  # nominal; wave-port S-params are already modally normalized
+    zin = z0 * (1.0 + s11) / (1.0 - s11)
+    result = SweepResult(freqs, zin, z0=z0, s11=s11, meta={
+        "backend": "palace",
+        "workdir": workdir,
+        "duration_s": time.time() - t0,
+        "analysis_type": "driven",
+    })
+    result.s_others = {(2, 1): s21}
+    result.save_csv(os.path.join(workdir, "port_1.csv"))
+    return result
+
+
+def run_waveguide_brep(brep_path, axis, bbox_mm, f1_ghz=8.0, f2_ghz=12.0,
+                       step_ghz=0.5, order=2, eps_r=1.0, mu_r=1.0, loss_tan=0.0,
+                       elem_mm=None, workdir=None, line_callback=None,
+                       fast_sweep=False, adaptive_tol=1.0e-3, mesh_refinement=0,
+                       refinement_tol=0.01):
+    """Driven S-parameter solve of a 2-port waveguide on a GENERAL solid (BREP).
+
+    The general-geometry analogue of :func:`run_waveguide`: any closed solid
+    (circular cylinder, tapered/stepped guide, …) exported to a BREP, with its
+    two end faces perpendicular to ``axis`` tagged as wave ports and the rest
+    PEC. Palace's ``Mode 1`` wave port finds the dominant mode on each port face
+    automatically (e.g. TE11 on a circular face). Returns a SweepResult. Verified
+    vs the box waveguide (WR-90) and a circular-waveguide TE11 cutoff 2026-07-07.
+
+    :param axis: propagation axis (0=x, 1=y, 2=z).
+    :param bbox_mm: ``(xmin, ymin, zmin, xmax, ymax, zmax)`` of the solid, mm.
+    :param order: FEM order — default 2 (order 3 is very slow per point on a
+        curved guide, especially at deep-evanescent below-cutoff points).
+    """
+    import time
+
+    import numpy as np
+
+    from emstudio.post.sparams import SweepResult
+
+    t0 = time.time()
+    info = solver_setup.find_backend("palace")
+    if not info.found:
+        raise SolverError("Palace not found.\n" + solver_setup.install_hint(info.backend))
+    workdir = make_workdir("emstudio_palace_", base=workdir)
+
+    msh = gmsh_brep.mesh_brep_driven(brep_path, workdir, axis, bbox_mm,
+                                     elem_mm=elem_mm, line_callback=line_callback)
+    config = writer.build_driven_config(
+        os.path.basename(msh), f1_ghz, f2_ghz, step_ghz, order=order,
+        eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output="postpro",
+        fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+    cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
+
+    job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
+                    cwd=workdir, line_callback=line_callback)
+    job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
+
+    port_s = os.path.join(workdir, "postpro", "port-S.csv")
+    if not os.path.isfile(port_s):
+        raise SolverError("Palace produced no S-parameters at {0}".format(port_s))
+    data = parser.parse_sparams(port_s)
+    freqs = np.array(data["freq_hz"])
+    n = len(freqs)
+    s11 = np.array(data["s"].get((1, 1), [0j] * n))
+    s21 = np.array(data["s"].get((2, 1), [0j] * n))
+    z0 = 50.0  # nominal; wave-port S-params are already modally normalized
+    zin = z0 * (1.0 + s11) / (1.0 - s11)
+    result = SweepResult(freqs, zin, z0=z0, s11=s11, meta={
+        "backend": "palace",
+        "workdir": workdir,
+        "duration_s": time.time() - t0,
+        "analysis_type": "driven_brep",
+    })
+    result.s_others = {(2, 1): s21}
+    result.save_csv(os.path.join(workdir, "port_1.csv"))
+    return result
+
+
+def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=2,
+             eps_r=1.0, mu_r=1.0, loss_tan=0.0, elem_mm=None, workdir=None,
+             line_callback=None, fast_sweep=False, adaptive_tol=1.0e-3,
+             mesh_refinement=0, refinement_tol=0.01):
+    """Driven S-parameter solve of a 2-port coaxial line (radial lumped ports).
+
+    Returns a SweepResult (S11 + s_others[(2,1)]=S21). The port reference
+    impedance is the analytic coax Z0, so a uniform line is matched.
+
+    :param a_mm: inner conductor radius (mm); :param b_mm: outer radius (mm).
+    :param mesh_refinement: AMR iterations (0 = off; adaptive refinement re-solves
+        on a mesh refined where the error indicator is largest).
+    """
+    import time
+
+    import numpy as np
+
+    from emstudio.post.sparams import SweepResult
+
+    t0 = time.time()
+    info = solver_setup.find_backend("palace")
+    if not info.found:
+        raise SolverError("Palace not found.\n" + solver_setup.install_hint(info.backend))
+    workdir = make_workdir("emstudio_palace_", base=workdir)
+
+    msh = gmsh_coax.mesh_coax(a_mm, b_mm, length_mm, workdir, elem_mm=elem_mm,
+                              line_callback=line_callback)
+    config = writer.build_lumped_coax_config(
+        os.path.basename(msh), f1_ghz, f2_ghz, step_ghz, a_mm, b_mm, order=order,
+        eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output="postpro",
+        fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+    cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
+
+    job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
+                    cwd=workdir, line_callback=line_callback)
+    job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
+
+    port_s = os.path.join(workdir, "postpro", "port-S.csv")
+    if not os.path.isfile(port_s):
+        raise SolverError("Palace produced no S-parameters at {0}".format(port_s))
+    data = parser.parse_sparams(port_s)
+    freqs = np.array(data["freq_hz"])
+    n = len(freqs)
+    s11 = np.array(data["s"].get((1, 1), [0j] * n))
+    s21 = np.array(data["s"].get((2, 1), [0j] * n))
+    z0 = writer.coax_z0(a_mm, b_mm, eps_r)  # analytic coax impedance
+    zin = z0 * (1.0 + s11) / (1.0 - s11)
+    result = SweepResult(freqs, zin, z0=z0, s11=s11, meta={
+        "backend": "palace",
+        "workdir": workdir,
+        "duration_s": time.time() - t0,
+        "analysis_type": "driven_coax",
+        "z0_ohm": z0,
+    })
+    result.s_others = {(2, 1): s21}
+    result.save_csv(os.path.join(workdir, "port_1.csv"))
+    return result
+
+
+def _is_coax(solver):
+    return str(getattr(solver, "AnalysisType", "Eigenmode")) == \
+        "Driven S-parameters (coax)"
+
+
+def _is_driven(solver):
+    return str(getattr(solver, "AnalysisType", "Eigenmode")) == "Driven S-parameters"
+
+
+def run(analysis, solver, workdir=None, line_callback=None):
+    """Run the Palace pipeline for a FreeCAD analysis (eigenmode or driven).
+
+    Eigenmode -> EigenModeResult (cavity modes). Driven -> SweepResult
+    (waveguide S-parameters). Dispatch on the solver's ``AnalysisType``.
+    """
+    from emstudio.objects.analysis import Analysis
+
+    fast_sweep = bool(getattr(solver, "FastSweep", False))
+    adaptive_tol = float(getattr(solver, "AdaptiveTol", 1.0e-3))
+    mesh_refinement = int(getattr(solver, "MeshRefinement", 0))
+    refinement_tol = float(getattr(solver, "RefinementTol", 0.01))
+
+    if _is_coax(solver):
+        from .model import build_coax_model
+
+        model = build_coax_model(analysis, solver)
+        f1, f2, npts = Analysis.freq_range_hz(analysis)
+        f1_ghz, f2_ghz = f1 / 1e9, f2 / 1e9
+        step_ghz = (f2_ghz - f1_ghz) / max(npts - 1, 1) if npts > 1 else 0.5
+        result = run_coax(
+            model["a_mm"], model["b_mm"], model["length_mm"],
+            f1_ghz=f1_ghz, f2_ghz=f2_ghz, step_ghz=step_ghz,
+            order=int(getattr(solver, "Order", 2)),
+            eps_r=model.get("eps_r", 1.0), mu_r=model.get("mu_r", 1.0),
+            loss_tan=model.get("loss_tan", 0.0),
+            elem_mm=(model.get("elem_mm") or None),
+            workdir=workdir, line_callback=line_callback,
+            fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
+            mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+        result.meta["analysis"] = analysis.Label
+        return result
+
+    if _is_driven(solver):
+        from .model import build_waveguide_model
+
+        model = build_waveguide_model(analysis, solver)
+        f1, f2, npts = Analysis.freq_range_hz(analysis)
+        f1_ghz, f2_ghz = f1 / 1e9, f2 / 1e9
+        step_ghz = (f2_ghz - f1_ghz) / max(npts - 1, 1) if npts > 1 else 0.5
+        common = dict(
+            f1_ghz=f1_ghz, f2_ghz=f2_ghz, step_ghz=step_ghz,
+            order=int(getattr(solver, "Order", 3)),
+            eps_r=model.get("eps_r", 1.0), mu_r=model.get("mu_r", 1.0),
+            loss_tan=model.get("loss_tan", 0.0),
+            elem_mm=(model.get("elem_mm") or None),
+            workdir=workdir, line_callback=line_callback,
+            fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
+            mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+        if model.get("kind") == "brep":
+            result = run_waveguide_brep(
+                model["brep_path"], model["axis"], model["bbox_mm"], **common)
+        else:
+            result = run_waveguide(model["size_mm"], axis=model["axis"], **common)
+        result.meta["analysis"] = analysis.Label
+        return result
+
+    from .model import build_cavity_model
+
+    model = build_cavity_model(analysis, solver)
+    common = dict(
+        n_modes=int(getattr(solver, "NumModes", 8)),
+        order=int(getattr(solver, "Order", 3)),
+        elem_mm=(model.get("elem_mm") or None),
+        eps_r=model.get("eps_r", 1.0), mu_r=model.get("mu_r", 1.0),
+        loss_tan=model.get("loss_tan", 0.0),
+        workdir=workdir, line_callback=line_callback,
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+    if model.get("kind") == "brep":
+        result = run_cavity_brep(model["brep_path"], model["target_ghz"], **common)
+    else:
+        result = run_cavity(model["size_mm"], **common)
+    result.meta["analysis"] = analysis.Label
+    return result
