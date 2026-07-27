@@ -99,34 +99,31 @@ ALL_COMMANDS = [
 # GUI layout; a smoke check asserts it covers exactly the registered commands.
 COMMAND_GROUPS = [
     ("Analysis", [
-        CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_COIL, "Separator",
-        CMD_SOLVER_NEC2, CMD_SOLVER_OPENEMS, CMD_SOLVER_ELMER, CMD_SOLVER_PALACE,
-        "Separator", CMD_RUN, CMD_SWEEP_GAP,
+        Analysis,
     ]),
     ("Templates", [
-        # antennas
-        CMD_TPL_DIPOLE, CMD_TPL_MONOPOLE, CMD_TPL_PATCH, CMD_TPL_COSITE_PAIR,
-        "Separator",
-        # waveguide / resonator / transmission-line RF
-        CMD_TPL_CAVITY, CMD_TPL_CYLCAVITY, CMD_TPL_WAVEGUIDE, CMD_TPL_CIRCWG,
-        CMD_TPL_COAX, CMD_TPL_MSL,
-        "Separator",
-        # magnetics
-        CMD_TPL_INDUCTION, CMD_TPL_WPT, CMD_TPL_SOLENOID3D,
+        Templates,
     ]),
+    # §1 and §2: designing ONE thing.
     ("Tools", [
-        CMD_LITZ, CMD_ELEMENT, CMD_SMALL_ANTENNA,
-        CMD_ISOLATION, CMD_COSITE,
-        CMD_LINK, CMD_COVERAGE, CMD_MULTICOVERAGE,
+        Tools,
+    ]),
+    # §7 and §5: designing a SYSTEM of them. Grouped together (S7) because the
+    # user question is different — not "what shape is this antenna" but "how do
+    # these pieces work together". In EMStudioFree the matching/array/RFDF
+    # entries are absent and this group holds the co-site pair; EMStudio Pro
+    # adds them back through the emstudio_pro extension point.
+    ("System", [
+        System,
     ]),
     ("Setup", [
-        CMD_DETECT,
+        Setup,
     ]),
     # Help is LAST so About / Legal sit at the bottom of the EMStudio menu
     # where users look for them. Both are always enabled — a user must be able
     # to reach the disclaimer with no document open and no solver installed.
     ("Help", [
-        CMD_ABOUT, CMD_LEGAL,
+        Help,
     ]),
 ]
 
