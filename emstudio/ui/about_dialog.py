@@ -30,7 +30,7 @@ _PREF_GROUP = "User parameter:BaseApp/Preferences/Mod/EMStudio"
 _NOTICE_VERSION_KEY = "LegalNoticeAcknowledgedVersion"
 
 REPO_URL = "https://github.com/king-aj3/EMStudioFree"
-SITE_URL = "https://ajj3.com"
+SITE_URL = "https://ajj3.us"
 
 #: solver backends are separate programs under their own licences — naming
 #: them is both a courtesy and part of staying honest about what is ours
@@ -278,6 +278,8 @@ class AboutDialog(QtWidgets.QDialog):
                 "Elmer, Palace, FastHenry and Gmsh projects — plus the "
                 "published work of C.R. Sullivan, J.A. Ferreira and A.D. Watt "
                 "on winding losses and VLF engineering.")
+        section("EMStudio Pro — in development",
+                legal.PRO_SUMMARY)
         vb.addWidget(_banner(legal.TRADEMARK_NOTICE, "#5a3d00", "#f6efdd"))
         vb.addStretch(1)
         layout.addWidget(_scrolled(body), 1)
@@ -287,7 +289,7 @@ class AboutDialog(QtWidgets.QDialog):
         b_legal = QtWidgets.QPushButton("Legal notice && disclaimer…")
         b_legal.clicked.connect(self._show_legal)
         btns.addWidget(b_legal)
-        b_site = QtWidgets.QPushButton("AJJ³ site")
+        b_site = QtWidgets.QPushButton("AJJ³ site (ajj3.us)")
         b_site.clicked.connect(
             lambda: QtGui.QDesktopServices.openUrl(QtCore.QUrl(SITE_URL)))
         btns.addWidget(b_site)

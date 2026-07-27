@@ -12,6 +12,10 @@ Full manual with step-by-step tutorials: [docs/USER_MANUAL.md](docs/USER_MANUAL.
 > and anything built from these outputs. See [DISCLAIMER.md](DISCLAIMER.md) —
 > or read it in the app under **EMStudio → Help → Legal notice & disclaimer**.
 
+> **EMStudio Pro (in development)** adds the System Designer — matching,
+> filters/diplexers, phased arrays with tapers, and RF direction finding.
+> See [docs/PRO.md](docs/PRO.md).
+
 ## Toolbar commands
 
 EMStudio's commands are presented in five grouped toolbars/menus — **Analysis**,

@@ -73,7 +73,7 @@ NOT_SAFETY_CRITICAL = (
 # brand — LGPL covers copyright, NOT trademark (see TRADEMARK.md)
 # --------------------------------------------------------------------------- #
 TRADEMARK_NOTICE = (
-    "\"EMStudio\", \"AJJ³\", the AJJ³ logo and ajj3.com are marks of the "
+    "\"EMStudio\", \"AJJ³\", the AJJ³ logo and ajj3.us are marks of the "
     "AJJ³ project and are NOT licensed under the LGPL with the code. The "
     "source is free to copy, modify and redistribute under the LGPL; the "
     "NAMES AND BRANDING ARE NOT. Forks and redistributions carrying "
@@ -129,3 +129,29 @@ def console_banner(version=None):
         "UNDER ACTIVE DEVELOPMENT — more to come; results and interfaces may "
         "change between versions.",
         SHORT_DISCLAIMER))
+
+# --------------------------------------------------------------------------- #
+# EMStudio Pro — the separate System Designer add-on, in development
+# --------------------------------------------------------------------------- #
+PRO_URL = "https://ajj3.us"
+
+#: One honest line, shown WHERE THE NEED APPEARS rather than as a nag. No date
+#: is promised: "in development" cannot be late.
+PRO_TEASER_MATCHING = (
+    "Matching this element to your system impedance — L / pi / T / "
+    "quarter-wave / stub synthesis with E-series snapping and a live verify — "
+    "is part of EMStudio Pro (the System Designer), in development. "
+    "See ajj3.us."
+)
+PRO_TEASER_ARRAY = (
+    "Combining elements into a steered or tapered array — currents solved "
+    "through the real mutual-impedance matrix, not naive equal voltages — is "
+    "part of EMStudio Pro (the System Designer), in development. See ajj3.us."
+)
+PRO_SUMMARY = (
+    "EMStudio Pro adds the System Designer: impedance matching, filter and "
+    "diplexer synthesis, phased arrays with amplitude tapers, and RF direction "
+    "finding. In development — no release date promised. This free workbench "
+    "keeps every solver, template, the Element and Cable Designers, magnetics, "
+    "coverage and ALL of its validation gates."
+)

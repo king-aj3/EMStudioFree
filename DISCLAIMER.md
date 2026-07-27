@@ -137,7 +137,7 @@ as the software. Verify them against primary sources before use.
 ## 10. Names and branding
 
 The source code is licensed under the LGPL; the **EMStudio** and **AJJ³**
-names, the AJJ³ logo and icon set, and ajj3.com are **not** licensed with it.
+names, the AJJ³ logo and icon set, and ajj3.us are **not** licensed with it.
 Forks and modified redistributions must rename and remove AJJ³ branding, and
 nothing here grants any right to imply endorsement by or affiliation with the
 AJJ³ project. See [TRADEMARK.md](TRADEMARK.md).

@@ -18,7 +18,7 @@ licensed to you under the LGPL or by any other implication:
 - the name and mark **AJJ³** (including the forms *AJJ3*, *AJJ^3* and *AJJ 3*)
 - the **AJJ³ logo**, cube mark, brain/wireframe mark, and the EMStudio
   workbench icon and icon set
-- the domain **ajj3.com** and the branding used on it
+- the domain **ajj3.us** and the branding used on it
 - any name or mark confusingly similar to the above
 
 Rights in these marks are reserved whether or not they are registered.
@@ -45,7 +45,7 @@ must:
 1. **Choose a different name.** Do not call your version "EMStudio", nor any
    name likely to be confused with it.
 2. **Remove AJJ³ branding** — the AJJ³ name and logos, the EMStudio workbench
-   icon and icon set, and ajj3.com branding — and replace it with your own.
+   icon and icon set, and ajj3.us branding — and replace it with your own.
 3. **Not imply endorsement.** Do not present your version as official,
    approved, endorsed by, affiliated with, sponsored by, or originating from
    the AJJ³ project or its owner.
@@ -72,7 +72,7 @@ otherwise.
 Attribution to this project — in documentation, papers, reports, videos and
 product pages — should use the **AJJ³ brand**:
 
-> Built with **EMStudio**, an AJJ³ project — https://ajj3.com
+> Built with **EMStudio**, an AJJ³ project — https://ajj3.us
 
 ## 6. Third-party names
 
@@ -89,7 +89,7 @@ Uses not covered above — including any use of the marks in a product name,
 company name, domain, or marketing — need written permission. Ask first:
 open an issue on the
 [repository](https://github.com/king-aj3/EMStudioFree/issues) or
-contact the project through https://ajj3.com.
+contact the project through https://ajj3.us.
 
 ---
 

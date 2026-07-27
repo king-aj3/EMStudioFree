@@ -86,7 +86,7 @@ completes at 0.70.0 and this number went to the deploy work instead.
 - **Console banner on every activation** naming the version, the
   educational/hobbyist/experimental scope and the under-development status.
 - **[TRADEMARK.md](TRADEMARK.md)** — full brand reservation. The code is
-  LGPL; **EMStudio**, **AJJ³**, the logo/icon set and ajj3.com are not. Says
+  LGPL; **EMStudio**, **AJJ³**, the logo/icon set and ajj3.us are not. Says
   plainly what needs no permission (use, nominative reference, unmodified
   redistribution) and what requires renaming (any modified redistribution),
   plus no-endorsement and third-party-marks sections. Flagged as a to-do in
