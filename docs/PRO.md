@@ -70,4 +70,4 @@ through [ajj3.us](https://ajj3.us).
 
 *EMStudio and EMStudio Pro are for educational, hobbyist and experimental use.
 Engineering estimates only — verify independently. See
-[DISCLAIMER.md](../DISCLAIMER.md).*
+[DISCLAIMER](../DISCLAIMER.md).*

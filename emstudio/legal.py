@@ -79,7 +79,7 @@ TRADEMARK_NOTICE = (
     "NAMES AND BRANDING ARE NOT. Forks and redistributions carrying "
     "modifications must use a different name and must remove AJJ³ branding, "
     "and nothing in the licence grants the right to imply endorsement by, "
-    "affiliation with, or origin from the AJJ³ project. See TRADEMARK.md."
+    "affiliation with, or origin from the AJJ³ project. See the Trademark notice."
 )
 
 # --------------------------------------------------------------------------- #
@@ -89,7 +89,7 @@ TRADEMARK_NOTICE = (
 SHORT_DISCLAIMER = (
     "For educational/hobbyist/experimental use — engineering ESTIMATES only; "
     "independently verify all results before any reliance; NO WARRANTY and NO "
-    "LIABILITY, use entirely at your own risk (see DISCLAIMER.md)."
+    "LIABILITY, use entirely at your own risk (see the Disclaimer)."
 )
 
 # markdown footer block for generated spec/BOM documents
@@ -103,7 +103,7 @@ SPEC_DISCLAIMER = (
     "Provided AS IS with NO WARRANTY of any kind; the author, contributors "
     "and the AJJ³ project accept NO RESPONSIBILITY OR LIABILITY for any "
     "damage, injury, loss, interference or cost arising from use of this "
-    "document or the software that produced it. See DISCLAIMER.md in the "
+    "document or the software that produced it. See the Disclaimer in the "
     "EMStudio distribution.*"
 )
 

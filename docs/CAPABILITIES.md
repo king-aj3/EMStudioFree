@@ -158,7 +158,7 @@ drive-one-of-N; two λ/2 dipoles at 0.5λ → |S21| −13.78 dB vs Balanis, reci
 1e-14) and a **frequency-plan optimizer** (v0.27.0) that retunes transmitters to
 clear IMD/desense/co-channel collisions. **§5 co-site is complete (phases A+B+C).**
 **Geographic coverage/propagation** (§6) remains a design spec — see
-[ROADMAP.md](ROADMAP.md) §5–§6.
+[ROADMAP](ROADMAP.md) §5–§6.
 
 **§7 System Designer — network core + matching synthesis (S1) — ✅ validated
 (v0.64.0):** the linear two-port network core (`emstudio/system/network.py`) —
@@ -281,7 +281,7 @@ of gain. Gates: `tests/validation/system_tapers.py` (FAST, mutation-tested
 12/12) + `tests/validation/array_taper_nec2.py` (SOLVER, live).
 
 **Later §7 slices — RF direction finding (S6) and the System group (S7) —
-remain planned** (see [ROADMAP.md](ROADMAP.md)).
+remain planned** (see [ROADMAP](ROADMAP.md)).
 
 ## Antennas & RF
 
@@ -293,8 +293,8 @@ remain planned** (see [ROADMAP.md](ROADMAP.md)).
 | Resonance detection | ✅ | derived | dipole 296 MHz |
 | Touchstone (.s1p) export | ✅ | — | — |
 | **Far-field radiation pattern** | ✅ validated | openEMS NF2FF, NEC2 RP | dipole 2.13 dBi + axial null; patch 6.6 dBi; full sphere 37×72 |
-| **3-D pattern balloon (rotate/zoom/pan)** | ✅ | mplot3d tab + FreeCAD viewport object | headless VTU→pipeline gate |
-| **3-D currents / field plane in viewport** | ✅ | FemPostPipeline VTU | dipole currents + patch plane |
+| **3-D pattern balloon (rotate/zoom/pan)** | ✅ validated (v0.72.0) | mplot3d tab + FreeCAD viewport object; reachable from Results, Element Designer and Array Designer | `pattern_vtu.py`: 27 checks — radius follows the gain law pointwise, phase-centre registration, closed-phi wrap, read back by our own VTU parser; mutation-tested 7/7 |
+| **3-D currents / field plane in viewport** | ✅ validated (v0.72.0) | FemPostPipeline VTU | `pattern_vtu.py`: polyline cell + m→mm + mA conversion; quad cells, fixed-axis offset, dB self-normalisation |
 | **Near-field \|E\| map** | ✅ validated | openEMS FD dump | patch XY-plane map |
 | **Current distribution** | ✅ validated | NEC2 | dipole half-sine |
 | **Monopole over ground (VLF/LF)** | ✅ validated | NEC2 (GN card) | short λ/10 Re 4.02 Ω vs Rr 3.95 Ω; λ/4 39.5+j22.6 Ω; finite-ground efficiency ≈5% |

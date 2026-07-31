@@ -53,13 +53,13 @@ designs, for regulatory and RF-safety compliance, and for anything built or
 operated from these outputs. The software is provided AS IS with no warranty of
 any kind; the author, contributors, and the AJJ³ project accept **no
 responsibility and no liability** for any damage, injury, loss, interference or
-cost. Read [DISCLAIMER.md](DISCLAIMER.md) before use.
+cost. Read [DISCLAIMER](DISCLAIMER.md) before use.
 
 ## Names and branding
 
 The code is LGPL; the **EMStudio** and **AJJ³** names, logo and icon set are
 not. Forks must rename and drop AJJ³ branding — see
-[TRADEMARK.md](TRADEMARK.md).
+[TRADEMARK](TRADEMARK.md).
 
 ## Credits
 

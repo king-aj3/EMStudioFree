@@ -111,8 +111,8 @@ class LegalDialog(QtWidgets.QDialog):
             "replace the software licence. The GNU Lesser General Public "
             "License v2.1 (LICENSE) governs the software, including its "
             "warranty disclaimer (§15) and limitation of liability "
-            "(§16). The full texts ship with EMStudio as DISCLAIMER.md "
-            "and TRADEMARK.md. Nothing here is legal advice.")
+            "(§16). The full texts ship with EMStudio as the Disclaimer "
+            "and Trademark notice. Nothing here is legal advice.")
         tail.setWordWrap(True)
         tail.setStyleSheet("QLabel { color: palette(mid); }")
         vb.addWidget(tail)
@@ -120,9 +120,12 @@ class LegalDialog(QtWidgets.QDialog):
         layout.addWidget(_scrolled(body), 1)
 
         btns = QtWidgets.QHBoxLayout()
-        for label, fname in (("Open DISCLAIMER.md", "DISCLAIMER.md"),
-                             ("Open TRADEMARK.md", "TRADEMARK.md"),
-                             ("Open LICENSE", "LICENSE")):
+        # The label is what the user reads; fname is the real file to open.
+        # Only the label loses the extension — stripping it from fname
+        # would open nothing.
+        for label, fname in (("Open Disclaimer", "DISCLAIMER.md"),
+                             ("Open Trademark notice", "TRADEMARK.md"),
+                             ("Open Licence", "LICENSE")):
             b = QtWidgets.QPushButton(label)
             b.clicked.connect(lambda _=False, n=fname: _open_repo_file(n))
             btns.addWidget(b)

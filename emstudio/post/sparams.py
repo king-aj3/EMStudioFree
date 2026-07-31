@@ -43,18 +43,46 @@ class SweepResult:
         return float(self.freq[i]), float(db[i])
 
     def resonances(self):
-        """Frequencies where the reactance Im(Zin) crosses zero (interpolated)."""
+        """Frequencies where the reactance Im(Zin) crosses zero (interpolated).
+
+        Two degenerate cases are answered honestly rather than literally:
+
+        * A PURELY RESISTIVE load has Im(Z) == 0 at every sample. Counting each
+          exact zero as a crossing would report one "resonance" per frequency
+          point (400 of them on a 401-point sweep) — technically true and
+          completely useless, because a flat load has no DISTINCT resonance.
+          Such a sweep returns []. Callers that print the first few (the PDF
+          summary table) would otherwise show confident nonsense.
+        * A RUN of consecutive exact zeros is ONE crossing, not one per sample;
+          it is reported at the midpoint of the run.
+
+        The flat test is relative to the resistance, so a numerical residue of
+        1e-12 ohm on a 70-ohm feed still counts as flat.
+        """
         x = np.imag(self.zin)
+        n = len(x)
+        if n == 0:
+            return []
+        scale = float(np.max(np.abs(np.real(self.zin))))
+        if float(np.max(np.abs(x))) <= 1e-9 * max(scale, 1.0):
+            return []
         crossings = []
-        for i in range(len(x) - 1):
+        i = 0
+        while i < n - 1:
             if x[i] == 0.0:
-                crossings.append(float(self.freq[i]))
-            elif x[i] * x[i + 1] < 0.0:
+                j = i
+                while (j < n - 1) and (x[j + 1] == 0.0):
+                    j += 1
+                crossings.append(0.5 * (float(self.freq[i]) + float(self.freq[j])))
+                i = j + 1
+                continue
+            if x[i] * x[i + 1] < 0.0:
                 # linear interpolation between the two samples
                 f = self.freq[i] + (self.freq[i + 1] - self.freq[i]) * (
                     -x[i] / (x[i + 1] - x[i])
                 )
                 crossings.append(float(f))
+            i += 1
         return crossings
 
     def r_at(self, freq_hz):

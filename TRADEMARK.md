@@ -81,7 +81,7 @@ product pages — should use the **AJJ³ brand**:
 here only nominatively to identify those projects and products. EMStudio is
 **not** affiliated with, endorsed by, or sponsored by any of them. The solvers
 EMStudio drives are separate, unmodified programs under their own licences —
-see [DISCLAIMER.md](DISCLAIMER.md) §8.
+see [DISCLAIMER](DISCLAIMER.md) §8.
 
 ## 7. Questions and permission
 

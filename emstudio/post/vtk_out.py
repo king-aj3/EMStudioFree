@@ -16,6 +16,7 @@ The writers are Qt-free and FreeCAD-free (plain XML), unit-testable headlessly; 
 from __future__ import annotations
 
 import math
+import os
 
 import numpy as np
 
@@ -67,13 +68,31 @@ def _vtu(points, cells, cell_type, scalars):
 
 
 # ------------------------------------------------------------------ pattern balloon
-def write_pattern_vtu(farfield, path, radius_mm=100.0, floor_db=-30.0):
+def auto_radius_mm(extent_mm, fraction=0.5, minimum_mm=50.0):
+    """A balloon radius that reads well beside geometry ``extent_mm`` across.
+
+    The fixed 100 mm default is right for a single patch and useless for an
+    8-element array 450 mm wide — the balloon disappears inside its own antenna.
+    Scale with the geometry instead, with a floor so a tiny (or degenerate)
+    extent still yields something visible rather than a point at the origin.
+    """
+    return max(float(minimum_mm), float(fraction) * abs(float(extent_mm)))
+
+
+def write_pattern_vtu(farfield, path, radius_mm=100.0, floor_db=-30.0,
+                      center_mm=(0.0, 0.0, 0.0)):
     """Gain balloon: r = normalized (gain - floor), colored by gain in dBi.
 
     Needs a far field sampled over a (theta, phi) GRID (full-sphere sweeps from
     v0.7 solvers). Balloon max radius = ``radius_mm`` in the FreeCAD view.
+
+    ``center_mm`` places the balloon on the radiator's phase centre. It defaults
+    to the origin, which is where NEC2 patterns belong; an antenna modelled away
+    from the origin needs the real centre, or the overlay sits beside its own
+    geometry looking perfectly plausible and meaning nothing.
     """
     ff = farfield
+    cx, cy, cz = (float(v) for v in center_mm)
     theta = np.deg2rad(ff.theta)
     phi = np.deg2rad(ff.phi)
     gain = ff.gain  # (Nt, Np) dBi
@@ -87,9 +106,9 @@ def write_pattern_vtu(farfield, path, radius_mm=100.0, floor_db=-30.0):
         for j in range(npnts):
             r = radius_mm * r_norm[i, j]
             st, ct = math.sin(theta[i]), math.cos(theta[i])
-            pts[i * npnts + j] = (r * st * math.cos(phi[j]),
-                                  r * st * math.sin(phi[j]),
-                                  r * ct)
+            pts[i * npnts + j] = (cx + r * st * math.cos(phi[j]),
+                                  cy + r * st * math.sin(phi[j]),
+                                  cz + r * ct)
             scal[i * npnts + j] = gain[i, j]
 
     cells = []
@@ -151,6 +170,26 @@ def write_field_plane_vtu(nearfield, path):
 
 
 # ------------------------------------------------------------------ FreeCAD display
+def show_pattern(farfield, label, extent_mm=None, center_mm=(0.0, 0.0, 0.0),
+                 floor_db=-30.0, doc=None, workdir=None):
+    """Write a gain balloon and load it straight into the FreeCAD 3-D view.
+
+    The one call a dialog needs: ``extent_mm`` sizes the balloon against the
+    geometry it has to sit beside (see ``auto_radius_mm``), and ``center_mm``
+    puts it on the radiator. Omitting both reproduces the historical fixed
+    100 mm balloon at the origin.
+    """
+    import tempfile
+
+    if not workdir or not os.path.isdir(workdir):
+        workdir = tempfile.mkdtemp(prefix="emstudio_vis_")
+    radius = auto_radius_mm(extent_mm) if extent_mm else 100.0
+    path = write_pattern_vtu(farfield, os.path.join(workdir, "pattern3d.vtu"),
+                             radius_mm=radius, floor_db=floor_db,
+                             center_mm=center_mm)
+    return show_in_freecad(path, label, doc)
+
+
 def show_in_freecad(vtu_path, label, doc=None):
     """Load a VTU into the active document as a colored FemPostPipeline surface.
 

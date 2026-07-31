@@ -8,7 +8,7 @@
 > purchase, deployment, or any other reliance. Provided AS IS with no warranty;
 > the authors and the AJJ³ project accept no liability for damage, injury,
 > interference, or loss of any kind. Regulatory and RF-safety compliance is the
-> user's sole responsibility. Full text: [DISCLAIMER.md](../DISCLAIMER.md).
+> user's sole responsibility. Full text: [DISCLAIMER](../DISCLAIMER.md).
 
 EMStudio is a FreeCAD workbench for RF / electromagnetic analysis and simulation. Its
 goal: make antenna, RF, and wire/cable engineering **as simple as possible** — real-world
@@ -332,7 +332,24 @@ Every results window offers two levels of 3-D:
   your geometry*, with full native rotate/zoom/pan/tilt navigation: the gain
   balloon, the wire path colored by current magnitude, and the near-field |E|
   plane. Each arrives as a colored surface object in the model tree; select it to
-  adjust the color scale in its view properties, toggle visibility, or delete it.
+  adjust the color scale in its view properties, toggle visibility with the
+  spacebar, or delete it. Because they are ordinary document objects, one camera
+  drives geometry and overlay together — there is no separate pattern viewer to
+  keep in sync.
+
+The **Element Designer** and the **Array Designer** (Pro) carry the same button,
+labelled **Show pattern in 3-D view**. It stays greyed out until a **Verify** has
+actually produced a far field: a predicted array factor is not a measured
+pattern, and EMStudio will not draw a balloon the solver never computed. The
+balloon is sized to the geometry it sits beside, so an eight-element array gets
+an array-sized pattern rather than the fixed 100 mm one that suits a single
+patch.
+
+One honest limitation on the Array Designer: its Verify builds the array in a
+scratch document that is closed when the run finishes, so there is no array
+geometry left to attach the pattern to. That overlay is centred on the **origin**
+of your active document, not on an antenna. Element Designer patterns and the
+Results-dialog overlays are placed relative to the geometry they came from.
 
 ## 6e. Tutorial: induction heating & wireless power (Elmer magnetics)
 
@@ -589,7 +606,7 @@ while combiners, arrays and direction-finding remain future §7 slices. Open
    ham bands 80 m-70 cm, CB, 433 ISM, LoRa 868/915, Wi-Fi 2.4/5 GHz, GPS L1,
    ADS-B) auto-fill the frequency/band/polarization/pattern schema, with the
    regional variants noted (US values primary; provenance in
-   docs/upstream/service-presets-anchors.md). Then: frequency (for a BAND
+   docs/upstream/service-presets-anchors). Then: frequency (for a BAND
    design this is the low
    edge f_lo), an optional **Band top (f_hi)** (a band ratio above ~1.5 routes
    the recommender to the log-periodic), an optional target gain (dBd or dBi —

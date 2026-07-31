@@ -125,6 +125,7 @@ COMMAND_GROUPS = [
     # entries are absent and this group holds the co-site pair; EMStudio Pro
     # adds them back through the emstudio_pro extension point.
     ("System", [
+        "Separator",
         CMD_ISOLATION, CMD_COSITE,
     ]),
     ("Setup", [
@@ -134,6 +135,7 @@ COMMAND_GROUPS = [
     # where users look for them. Both are always enabled — a user must be able
     # to reach the disclaimer with no document open and no solver installed.
     ("Help", [
+        "Separator",
         CMD_ABOUT, CMD_LEGAL,
     ]),
 ]
@@ -911,8 +913,6 @@ class _ElementDesigner:
         dlg.exec()
 
 
-
-
 class _SmallAntennaDesigner:
     def GetResources(self):
         return {
@@ -1040,7 +1040,6 @@ class _DetectSolvers:
         SolverInstallerDialog(parent=FreeCADGui.getMainWindow()).exec()
 
 
-
 class _About:
     def GetResources(self):
         return {
@@ -1106,11 +1105,13 @@ def register():
     FreeCADGui.addCommand(CMD_SWEEP_GAP, _SweepGap())
     FreeCADGui.addCommand(CMD_LITZ, _CableDesigner())
     FreeCADGui.addCommand(CMD_ELEMENT, _ElementDesigner())
+
     FreeCADGui.addCommand(CMD_SMALL_ANTENNA, _SmallAntennaDesigner())
     FreeCADGui.addCommand(CMD_COSITE, _CositeCalculator())
     FreeCADGui.addCommand(CMD_LINK, _LinkBudget())
     FreeCADGui.addCommand(CMD_COVERAGE, _Coverage())
     FreeCADGui.addCommand(CMD_MULTICOVERAGE, _MultiStationCoverage())
+
     FreeCADGui.addCommand(CMD_DETECT, _DetectSolvers())
     FreeCADGui.addCommand(CMD_ABOUT, _About())
     FreeCADGui.addCommand(CMD_LEGAL, _Legal())

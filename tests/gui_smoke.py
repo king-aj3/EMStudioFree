@@ -571,6 +571,16 @@ def _element_designer_dialog():
     assert "PREDICTED" in txt and "dBd" in txt, "predicted read-out empty"
     assert "Band" in dlg.banner.text(), "band->method banner empty"
 
+    # 3-D overlay: the button must be DEAD until a Verify has produced a far
+    # field, and pressing it early must add nothing. A live button would offer
+    # to show a pattern that does not exist.
+    assert not dlg.show3d_btn.isEnabled(), \
+        "the 3-D pattern button must start disabled (no verify has run)"
+    _n0 = len(FreeCAD.ActiveDocument.Objects) if FreeCAD.ActiveDocument else 0
+    dlg._show_in_3d()
+    _n1 = len(FreeCAD.ActiveDocument.Objects) if FreeCAD.ActiveDocument else 0
+    assert _n0 == _n1, "_show_in_3d with no verify result must add no object"
+
     # recommender: 12 dBd @ 432 MHz -> Yagi with the honest ships-in flag
     dlg.freq.setValue(432.0)
     dlg.gain_on.setChecked(True)
@@ -847,6 +857,249 @@ def _isolation_matrix():
     finally:
         FreeCAD.closeDocument(doc.Name)
 
+
+def _array_peak(currents, d_over_lambda):
+    """(gamma_peak_deg, |F|max) — a gui_smoke-local peak finder so the dialog's
+    scan convention is pinned independently of the engine's own helper."""
+    import numpy as np
+
+    from emstudio.system import array_system as A
+
+    gam = np.linspace(0.0, 180.0, 180001)
+    f = A.array_factor(currents, d_over_lambda, gam)
+    i = int(np.argmax(f))
+    return float(gam[i]), float(f[i])
+
+
+def _array_designer_dialog():
+    """The Array Designer dialog (§7 slice S4) under the real GUI.
+
+    Construction derives the default broadside 4-element drive; the named
+    distributions produce the right target currents (cardioid forces N=2 and
+    quadrature; Hansen-Woodyard notes the enhanced end-fire); the predicted
+    read-outs come from the gated engine (exact directivity, HPBW, the
+    grating-lobe guard fires for a steered array at d = 1 lambda). No solver —
+    the live drive chain is gated in tests/validation/array_nec2.py.
+    """
+    import math
+
+    try:
+        from emstudio.system import array_system as A  # noqa: F401
+        from emstudio.ui import array_dialog as ad
+    except ImportError:
+        # EMStudioFree ships this gate but NOT §7 (Pro-side), so the check
+        # stands down on its own. A denied module must never need code
+        # surgery in the free repo to keep its tests green -- that
+        # maintenance burden is what killed the first, larger tier split.
+        return "skipped — the Array Designer is Pro-only and absent in this build"
+
+    # pure helpers first (headless contract)
+    c, beta, _note = ad.currents_for("broadside", 4, 0.5)
+    assert beta == 0.0 and len(c) == 4 and all(abs(x - 1.0) < 1e-12 for x in c), \
+        "broadside currents must be uniform in phase"
+    c, beta, _note = ad.currents_for("cardioid", 2, 0.25)
+    assert abs(c[0] - 1.0) < 1e-12 and abs(c[1] - complex(0, -1)) < 1e-12, \
+        "cardioid pair must be quadrature [1, -1j]"
+    c, beta, _note = ad.currents_for("hansen_woodyard", 10, 0.25)
+    assert abs(beta + (math.pi / 2.0 + 0.294)) < 1e-12, \
+        "HW beta must be -(kd + 2.94/N)"
+    txt = ad.predicted_text("broadside", 4, 0.5, *ad.currents_for(
+        "broadside", 4, 0.5)[:2])
+    assert "directivity" in txt and "beamwidth" in txt, \
+        "predicted read-out missing directivity/beamwidth"
+    assert "grating-lobe-free" in txt, "broadside d=0.5 must be lobe-free"
+    txt = ad.predicted_text("endfire", 4, 1.0, *ad.currents_for(
+        "endfire", 4, 1.0)[:2])
+    assert "GRATING LOBE" in txt, \
+        "end-fire at d = 1 lambda must warn (limit 0.5)"
+    assert "phase (deg)" in ad.targets_text([1.0, -1j]), "targets table header"
+
+    # the dialog itself
+    dlg = ad.ArrayDesignerDialog()
+    assert dlg._currents is not None, "default drive not derived"
+    assert "Broadside" in dlg.banner.text(), "banner missing the distribution"
+    assert "directivity" in dlg.pred_view.toPlainText(), \
+        "predicted pane not populated"
+
+    # 3-D overlay: dead until Verify produces an ACHIEVED far field. The
+    # predicted array factor is not a pattern — offering to draw it would show a
+    # balloon the solver never computed.
+    import FreeCAD
+
+    assert not dlg.show3d_btn.isEnabled(), \
+        "the 3-D pattern button must start disabled (no verify has run)"
+    _n0 = len(FreeCAD.ActiveDocument.Objects) if FreeCAD.ActiveDocument else 0
+    dlg._show_in_3d()
+    _n1 = len(FreeCAD.ActiveDocument.Objects) if FreeCAD.ActiveDocument else 0
+    assert _n0 == _n1, "_show_in_3d with no verify result must add no object"
+    dlg.dist.setCurrentIndex(dlg.dist.findData("cardioid"))
+    assert dlg.n_elems.value() == 2 and not dlg.n_elems.isEnabled(), \
+        "cardioid must force and lock N = 2"
+    tgt = dlg.targets_view.toPlainText()
+    assert "-90.00" in tgt and "1.0000" in tgt, \
+        "cardioid targets must be unit magnitude at 0 and -90 deg"
+    # the quadrature pair is only a cardioid at lambda/4; the dialog's default
+    # spacing is 0.5, and the banner must SAY so rather than promise a null
+    assert "NOT a cardioid" in dlg.banner.text(), \
+        "cardioid banner must flag that d != 0.25 lambda has no rear null"
+    dlg.spacing.setValue(0.25)
+    assert "EXACT null" in dlg.banner.text(), \
+        "at d = 0.25 lambda the banner must state the exact rear null"
+    # ...and the cardioid's grating limit is 0.75, not the broadside 1.0
+    assert "0.75" in dlg.pred_view.toPlainText(), \
+        "cardioid grating-lobe limit must be 0.75 lambda"
+    dlg.spacing.setValue(0.8)
+    assert "GRATING LOBE" in dlg.pred_view.toPlainText(), \
+        "cardioid at 0.8 lambda must warn"
+    dlg.spacing.setValue(0.5)
+
+    dlg.dist.setCurrentIndex(dlg.dist.findData("scan"))
+    assert dlg.scan.isEnabled() and dlg.n_elems.isEnabled(), \
+        "scan mode must enable the angle and unlock N"
+    # the dialog measures scan from BROADSIDE, the engine from the AXIS:
+    # gamma0 = 90 - scan. A 90+scan transposition would live only here.
+    dlg.n_elems.setValue(10)
+    dlg.spacing.setValue(0.5)
+    dlg.scan.setValue(30.0)
+    c30, beta30, _n = ad.currents_for("scan", 10, 0.5, 30.0)
+    gpk, _f = _array_peak(c30, 0.5)
+    assert abs(gpk - 60.0) < 0.1, \
+        "scan +30 deg from broadside must peak at gamma = 60 from the axis, " \
+        "got {0:.2f}".format(gpk)
+    c_neg, _b, _n2 = ad.currents_for("scan", 10, 0.5, -30.0)
+    gneg, _f2 = _array_peak(c_neg, 0.5)
+    assert abs(gneg - 120.0) < 0.1, \
+        "scan -30 deg must peak at gamma = 120 (the BACK half), got " \
+        "{0:.2f}".format(gneg)
+
+    dlg.dist.setCurrentIndex(dlg.dist.findData("broadside"))
+    dlg.n_elems.setValue(4)
+    assert dlg.verify_btn.isEnabled(), "verify must be armed"
+
+    # ---- S5 amplitude tapers ----
+    c_u, _n1 = ad.apply_taper([1.0, 1.0, 1.0, 1.0], "uniform")
+    assert list(c_u) == [1.0, 1.0, 1.0, 1.0], "uniform taper must be identity"
+    c_b, note_b = ad.apply_taper([1.0] * 5, "binomial")
+    assert abs(c_b[2] - 1.0) < 1e-12 and abs(c_b[0] - 1.0 / 6.0) < 1e-12, \
+        "binomial 5-element amplitudes must be the 1:4:6 row (peak-normalized)"
+    c_d, note_d = ad.apply_taper([1.0] * 10, "dolph", sll_db=26.0)
+    assert "d_max" in note_d, "dolph note must carry the d_max limit"
+    assert abs(max(abs(x) for x in c_d) - 1.0) < 1e-12 and abs(c_d[0]) < 0.5, \
+        "dolph amplitudes must be peak-normalized and edge-tapered"
+    try:
+        ad.apply_taper([1.0] * 4, "bogus")
+        raise AssertionError("unknown taper must raise")
+    except ValueError:
+        pass
+
+    dlg.n_elems.setValue(10)
+    dlg.taper.setCurrentIndex(dlg.taper.findData("dolph"))
+    assert dlg.sll.isEnabled() and not dlg.nbar.isEnabled(), \
+        "dolph enables SLL, not n-bar"
+    pred = dlg.pred_view.toPlainText()
+    assert "taper efficiency 0.893" in pred and "dynamic range 2.8:1" in pred, \
+        "taper metrics line must carry the RIGHT numbers in the RIGHT order"
+    # the SLL spin must actually reach apply_taper (a hardcoded 26.0 passes a
+    # bare 'taper efficiency' substring check)
+    dlg.sll.setValue(40.0)
+    assert "0.1253" in dlg.targets_view.toPlainText(), \
+        "SLL spin not wired: 40 dB Dolph edge current must be 1/7.9837"
+    dlg.sll.setValue(26.0)
+    assert "0.3611" in dlg.targets_view.toPlainText(), \
+        "SLL spin not wired back: 26 dB edge current is 1/2.7745"
+    tgt = dlg.targets_view.toPlainText()
+    assert "1.0000" in tgt and "0.36" in tgt, \
+        "dolph targets must show the edge-tapered amplitudes (edge 1/2.7745)"
+    dlg.spacing.setValue(0.9)
+    assert "exceeds d_max" in dlg.pred_view.toPlainText(), \
+        "dolph beyond d_max must warn (design floor violated at the edge)"
+    dlg.spacing.setValue(0.5)
+    dlg.taper.setCurrentIndex(dlg.taper.findData("taylor"))
+    assert dlg.sll.isEnabled() and dlg.nbar.isEnabled(), \
+        "taylor enables SLL and n-bar"
+    assert "n/a" not in dlg.pred_view.toPlainText().split("first sidelobe")[0], \
+        "taylor prediction must populate"
+    assert "taper efficiency" in dlg.pred_view.toPlainText(), \
+        "the metrics line must appear for EVERY taper, not just Dolph"
+    # the n-bar spin must reach apply_taper too
+    t_before = dlg.targets_view.toPlainText()
+    dlg.nbar.setValue(2)
+    assert dlg.targets_view.toPlainText() != t_before, \
+        "n-bar spin not wired: changing it must change the currents"
+    dlg.nbar.setValue(4)
+    # a taper on a tiny aperture must DEGRADE the metrics line, not abort the
+    # slot and strand the pane on the previous array's numbers
+    dlg.taper.setCurrentIndex(dlg.taper.findData("binomial"))
+    dlg.n_elems.setValue(4)
+    dlg.spacing.setValue(0.05)
+    pred_small = dlg.pred_view.toPlainText()
+    assert "N = 4, d = 0.05" in pred_small, \
+        "the predicted pane must still describe the CURRENT array"
+    assert "n/a" in pred_small or "unavailable" in pred_small, \
+        "an unavailable metric must be reported, not raised"
+    dlg.spacing.setValue(0.5)
+    dlg.n_elems.setValue(10)
+    dlg.taper.setCurrentIndex(dlg.taper.findData("taylor"))
+    dlg.taper.setCurrentIndex(dlg.taper.findData("uniform"))
+    dlg.dist.setCurrentIndex(dlg.dist.findData("cardioid"))
+    assert not dlg.taper.isEnabled(), \
+        "cardioid must lock the taper (its amplitudes ARE the distribution)"
+    dlg.dist.setCurrentIndex(dlg.dist.findData("broadside"))
+    assert dlg.taper.isEnabled(), "leaving cardioid must unlock the taper"
+    dlg.n_elems.setValue(4)
+    assert not dlg.export_btn.isEnabled(), \
+        "pattern export must stay disabled until a Verify succeeds"
+
+    # a Verify result must be INVALIDATED by any design edit — exporting a
+    # stale far field would feed the §6 coverage tools the wrong array
+    from emstudio.post.farfield import FarFieldResult
+    import numpy as _np
+    _th = list(range(0, 181, 5))
+    _ph = list(range(0, 360, 5))
+    dlg._result = {"farfield": FarFieldResult(
+        300e6, _th, _ph, _np.zeros((len(_th), len(_ph))))}
+    dlg.export_btn.setEnabled(True)
+    dlg.spacing.setValue(0.6)
+    assert dlg._result is None and not dlg.export_btn.isEnabled(), \
+        "changing the design must clear the stale Verify result and disarm export"
+
+    # a freshly-constructed dialog greys the taper-only spins
+    fresh = ad.ArrayDesignerDialog()
+    assert not fresh.sll.isEnabled() and not fresh.nbar.isEnabled(), \
+        "SLL/n-bar must start greyed while the taper is Uniform"
+
+    # a very short array has no 3 dB crossing — the panel must degrade one
+    # line, not blank out
+    dlg.n_elems.setValue(2)
+    dlg.spacing.setValue(0.05)
+    pred = dlg.pred_view.toPlainText()
+    assert "directivity" in pred and "n/a" in pred, \
+        "an unavailable HPBW must not blank the whole predicted pane"
+    dlg.spacing.setValue(0.5)
+    dlg.n_elems.setValue(4)
+
+    # the Verify scratch model: built headlessly here (no solver), and it must
+    # honour the dialog's wire radius + be writable by the multi-EX writer
+    import FreeCAD
+    from emstudio.objects import query as _query
+    from emstudio.solvers.nec2 import writer as _writer
+    doc = FreeCAD.newDocument("gui_smoke_array")
+    try:
+        ana = ad._build_array_analysis(doc, 300e6, 4, 0.5,
+                                       half_len_frac=0.2389,
+                                       wire_radius_mm=0.5)
+        mats = _query.get_materials(ana)
+        assert abs(float(mats[0].WireRadius.getValueAs("mm")) - 0.5) < 1e-9, \
+            "the dialog's wire radius must reach the scratch model"
+        pts = _query.get_ports(ana)
+        assert len(pts) == 4 and all(p.Excited for p in pts), \
+            "every array element needs its own excited port"
+        wires, feeds, _sweep = _writer.build_wire_model_multi(
+            ana, _query.get_solvers(ana)[0])
+        assert len(wires) == 4 and len(feeds) == 4, \
+            "the multi-EX writer must see 4 wires and 4 feeds"
+    finally:
+        FreeCAD.closeDocument(doc.Name)
 
 
 def _cable_designer_dialog():
@@ -1219,6 +1472,313 @@ def _multistation_dialog():
     return "D/U contours + service map + best-server OK ({0:.0%} served)".format(served)
 
 
+def _system_matching_dialog():
+    """The System Matching Designer dialog (§7 slice S2) under the real GUI.
+
+    Construction synthesizes the default typed element (72 ohm) to 50 ohm with
+    the lowpass L-match; the schedule + banner read-outs must render; the
+    recommender ranks the topologies; switching to pi / quarter-wave re-designs;
+    the E-series snap tags the schedule; and _current_report_design returns a
+    reportable design. No solver — the live NEC2 ingest is gated in
+    tests/validation/system_match_nec2.py.
+    """
+    try:
+        from emstudio.ui.matching_dialog import SystemMatchingDialog
+    except ImportError:
+        # EMStudioFree ships this gate but NOT §7 (Pro-side), so the check
+        # stands down on its own. A denied module must never need code
+        # surgery in the free repo to keep its tests green -- that
+        # maintenance burden is what killed the first, larger tier split.
+        return "skipped — the System Matching Designer is Pro-only and absent in this build"
+
+    dlg = SystemMatchingDialog()          # __init__ -> default 72->50 L-match
+    assert dlg._design is not None, "default matching synthesis produced nothing"
+    sched = dlg.sched_view.toPlainText()
+    assert ("inductor" in sched or "capacitor" in sched), \
+        "L-match component schedule empty"
+    assert "VSWR" in dlg.banner.text(), "matching banner has no VSWR read-out"
+
+    # recommender ranks the topologies with rationale
+    dlg._recommend()
+    assert "L-match" in dlg.rec_view.toPlainText(), "recommender read-out empty"
+
+    # pi topology: three elements, chosen loaded Q
+    dlg.loaded_q.setValue(5.0)
+    dlg.topology.setCurrentIndex(dlg.topology.findData("pi"))
+    assert dlg._design is not None and dlg._design["kind"] == "pimatch", \
+        "pi-match did not synthesize"
+
+    # quarter-wave transformer: 50->72 -> Zc = sqrt(50*72) = 60 ohm in schedule
+    dlg.topology.setCurrentIndex(dlg.topology.findData("quarter_wave"))
+    assert "60.0" in dlg.sched_view.toPlainText(), \
+        "quarter-wave section impedance missing from schedule"
+
+    # E-series snap tags the schedule on a lumped topology
+    dlg.topology.setCurrentIndex(dlg.topology.findData("l_lowpass"))
+    dlg.eseries.setCurrentIndex(dlg.eseries.findData(24))
+    assert "E24" in dlg.sched_view.toPlainText(), "E-series snap not applied"
+
+    # report design is pure + present
+    assert dlg._current_report_design() is not None, "no report design"
+
+    # a REACTIVE element on a real-load-only topology must REFUSE (not report a
+    # false perfect match): editing X live re-designs, pi cannot absorb it
+    dlg.eseries.setCurrentIndex(dlg.eseries.findData(0))
+    dlg.elem_x.setValue(-30.0)            # connected -> live recompute
+    dlg.topology.setCurrentIndex(dlg.topology.findData("pi"))
+    assert dlg._design is None, "pi must refuse a reactive element, not fake a match"
+    assert "Cannot synthesize" in dlg.banner.text(), "no refusal banner shown"
+    assert not dlg.report_btn.isEnabled(), "Report enabled on a failed design"
+    # and an L-match (which absorbs reactance) recovers cleanly
+    dlg.topology.setCurrentIndex(dlg.topology.findData("l_lowpass"))
+    assert dlg._design is not None and dlg._design["kind"] == "lmatch", \
+        "L-match should absorb the reactive element"
+    return ("system matching dialog OK (L/pi/quarter-wave + recommender + E24 "
+            "+ reactive-load refusal)")
+
+
+def _assistant_dock():
+    """The Assistant dock builds, is a singleton, and degrades with NO endpoint.
+
+    The important case is the LAST one. This panel is the only feature whose
+    backend is optional and off by default, so the failure that matters is not
+    "does it work with a model" but "does it stay harmless without one" — a
+    dock that raises on construction would break the workbench for every user
+    who never configures an endpoint.
+    """
+    import os
+    try:
+        from emstudio.ui import assistant_dock as AD
+    except ImportError:
+        # EMStudioFree ships this gate but NOT the assistant (Pro-side), so the
+        # check must stand down on its own. Requiring a manual edit after every
+        # export is the exact maintenance burden that killed the first, larger
+        # tier split — a denied module must never need code surgery in the free
+        # repo to keep its tests green.
+        return "skipped — assistant is Pro-only and absent in this build"
+
+    # Point at a dead port for the whole check: gui_smoke must never depend on
+    # a running LLM, and this is exactly the state most users start in.
+    old = os.environ.get("EMSTUDIO_LLM_ENDPOINT")
+    os.environ["EMSTUDIO_LLM_ENDPOINT"] = "http://127.0.0.1:59996/v1"
+    try:
+        dock = AD.AssistantDock()
+        assert dock.objectName() == AD._OBJECT_NAME, "dock objectName not set"
+        assert dock.widget() is not None, "dock has no body widget"
+
+        # the controls the command depends on
+        for attr in ("question_edit", "answer_view", "ask_btn", "recheck_btn",
+                     "status_label", "context_check"):
+            assert hasattr(dock, attr), "missing control: {0}".format(attr)
+
+        # Asking with no question must be a no-op, not an exception or a call.
+        dock.question_edit.setPlainText("")
+        dock._on_ask()
+
+        # With no reachable backend the ask button must be disabled rather than
+        # dispatching a request that cannot succeed.
+        dock._render_caps({"reachable": False, "notes": ["no endpoint"]})
+        dock._set_busy(False)
+        assert not dock.ask_btn.isEnabled(), \
+            "ask must be disabled while the backend is unreachable"
+        assert "unavailable" in dock.status_label.text().lower(), \
+            "unreachable backend must say so: {0!r}".format(dock.status_label.text())
+
+        # ...and enabled once a backend reports in.
+        dock._caps = {"reachable": True, "model": "m", "tools": True,
+                      "json_schema": True, "notes": []}
+        dock._render_caps(dock._caps)
+        dock._set_busy(False)
+        assert dock.ask_btn.isEnabled(), "ask must enable when the backend is up"
+
+        # An answer with no retrieval hits must SAY it is ungrounded rather than
+        # presenting itself as documentation-backed.
+        dock._render_answer("q", "an answer", [])
+        assert "not grounded" in dock.answer_view.toPlainText().lower(), \
+            "an ungrounded answer must be labelled as such"
+
+        # ...and with hits, the sources must be shown.
+        dock._render_answer("q", "an answer",
+                            [{"source": "HELP.md", "heading": "Ports",
+                              "text": "x", "score": 1.0}])
+        shown = dock.answer_view.toPlainText()
+        assert "HELP.md" in shown, "sources must be cited in the answer"
+
+        # An empty model reply must not render as a blank panel.
+        dock._render_answer("q", "   ", [])
+        assert "empty" in dock.answer_view.toPlainText().lower()
+
+        # ...and it must still report ACTIONS that already happened. The panel
+        # returned early on empty content and threw the notes away, so a user
+        # who had just approved a document change was told only "empty answer,
+        # try rephrasing" -- an invitation to build the same thing twice.
+        dock._render_answer("q", "", [], notes=["Done: Create a yagi"])
+        _empty = dock.answer_view.toPlainText()
+        assert "empty" in _empty.lower(), "the empty-answer wording must survive"
+        assert "Create a yagi" in _empty, \
+            "actions already carried out must be reported on an empty answer"
+
+        # --- A4: agentic mode is gated on the BACKEND, not on a preference.
+        # A model that cannot call tools must never be offered "Let it act" --
+        # it would answer in prose and look to the user like it had acted.
+        dock._render_caps({"reachable": True, "model": "m", "tools": False,
+                           "json_schema": True, "notes": []})
+        assert not dock.agentic_check.isEnabled(), \
+            "agentic mode must be disabled when the model cannot tool-call"
+        assert not dock.agentic_check.isChecked(), \
+            "agentic mode must also be unchecked, not merely greyed"
+        dock._render_caps({"reachable": True, "model": "m", "tools": True,
+                           "json_schema": True, "notes": []})
+        assert dock.agentic_check.isEnabled(), \
+            "agentic mode must enable when the model can tool-call"
+
+        # A refused tool call must be reported, not silently swallowed, and it
+        # must never reach the document.
+        from emstudio.assistant import tools as AT   # present iff AD imported
+        try:
+            AT.prepare("create_template", {"template": "dipole",
+                                           "frequency_hz": 435})
+            raise AssertionError("435 Hz should have been refused")
+        except AT.ToolError:
+            pass
+
+        # tree summary is defensive: no document must not raise
+        assert isinstance(AD._tree_summary(), str)
+
+        # --- A4: the CONFIRMED mutation path. Nothing in the FAST tier can
+        # reach it -- that tier is python3-only and importing FreeCAD raises
+        # there -- so the entire transaction contract was uncovered. Poisoning
+        # the whole of _create_template left the battery at 23 ok.
+        import FreeCAD
+
+        _doc = FreeCAD.newDocument("assistant_txn_gate")
+        try:
+            _mine = _doc.addObject("App::FeaturePython", "UserObject")
+            _before = [o.Name for o in _doc.Objects]
+            _plan = AT.prepare("create_template",
+                               {"template": "dipole", "frequency_hz": 145e6})
+            assert _plan["needs_confirmation"], "a mutation must need confirming"
+            AT.execute(_plan, confirmed=True)
+            assert len(_doc.Objects) > len(_before), "nothing was created"
+            # ONE undoable transaction, named -- not a pile of loose changes.
+            assert _doc.UndoNames and "dipole" in _doc.UndoNames[0], \
+                "expected one named transaction, got {0}".format(_doc.UndoNames)
+            # ...and undoing it must restore EXACTLY the prior document. Without
+            # openTransaction, one Ctrl+Z deletes the user's own object instead
+            # and leaves the assistant's five behind: real data loss.
+            _doc.undo()
+            assert [o.Name for o in _doc.Objects] == _before, \
+                ("one undo must restore the document exactly; got {0} want {1}"
+                 .format([o.Name for o in _doc.Objects], _before))
+            assert _mine.Name in [o.Name for o in _doc.Objects], \
+                "the user's own object must survive an undo of the assistant's"
+
+            # The no-result branch is only reachable WITH a document. Solver
+            # results are never attached to the object, so this fires even after
+            # a successful solve -- it must not tell the user to run a solver
+            # they just ran.
+            _ir = AT.execute(AT.prepare("interpret_results", {}))
+            assert "run a solver first" not in _ir.get("error", ""), \
+                "interpret_results must not blame the user for a missing result"
+
+            # --- DECLINING must actually decline. The dock calls
+            # tools.execute(plan, confirmed=True), so the engine's own refusal
+            # guard cannot catch a dock-side regression: dropping the
+            # `if plan["needs_confirmation"]` branch leaves BOTH the FAST
+            # battery and this file green while No silently means Yes.
+            from PySide import QtWidgets as _QtW
+
+            _asked = []
+            _real_question = _QtW.QMessageBox.question
+            _real_run = AD.run_gui.run_generic_gui
+
+            def _always_no(*a, **k):
+                _asked.append(1)
+                return _QtW.QMessageBox.No
+
+            _QtW.QMessageBox.question = staticmethod(_always_no)
+            AD.run_gui.run_generic_gui = lambda *a, **k: None
+            try:
+                _n_before = len(_doc.Objects)
+                dock._handle_tool_calls(
+                    "build me a dipole", [],
+                    [{"id": "1", "function": {"name": "create_template",
+                                              "arguments":
+                                                  '{"template":"dipole",'
+                                                  '"frequency_hz":145000000}'}}],
+                    [])
+                assert len(_asked) == 1, \
+                    "the user must be asked exactly once, got {0}".format(len(_asked))
+                assert len(_doc.Objects) == _n_before, \
+                    ("a DECLINED action changed the document ({0} -> {1})"
+                     .format(_n_before, len(_doc.Objects)))
+            finally:
+                _QtW.QMessageBox.question = _real_question
+                AD.run_gui.run_generic_gui = _real_run
+        finally:
+            FreeCAD.closeDocument(_doc.Name)
+    finally:
+        if old is None:
+            os.environ.pop("EMSTUDIO_LLM_ENDPOINT", None)
+        else:
+            os.environ["EMSTUDIO_LLM_ENDPOINT"] = old
+
+
+def _rfdf_dialog():
+    """The RFDF dialog constructs and every technique page computes (§7 S6).
+
+    No document and no solver needed for the analytic pages — the four
+    techniques are closed-form. Verify (live NEC2) is exercised by
+    tests/validation/rfdf_nec2.py, not here.
+    """
+    try:
+        from emstudio.ui import rfdf_dialog as RD
+    except ImportError:
+        # EMStudioFree ships this gate but NOT §7 (Pro-side), so the check
+        # stands down on its own. A denied module must never need code
+        # surgery in the free repo to keep its tests green -- that
+        # maintenance burden is what killed the first, larger tier split.
+        return "skipped — the RFDF designer is Pro-only and absent in this build"
+
+    dlg = RD.RFDFDialog()
+
+    # every technique page must produce a read-out, not an exception
+    seen = []
+    for i, (key, _label) in enumerate(RD.TECHNIQUES):
+        dlg.tech.setCurrentIndex(i)
+        assert dlg._key() == key, "technique page {0} mis-wired".format(key)
+        txt = dlg.readout.toPlainText()
+        assert txt and "cannot compute" not in txt, \
+            "{0} page produced no read-out: {1!r}".format(key, txt[:120])
+        seen.append(key)
+    assert len(seen) == 4, "expected 4 technique pages, got {0}".format(seen)
+
+    # Verify is correlative-only — it is the only page with a live chain
+    dlg.tech.setCurrentIndex(3)
+    assert dlg.verify_btn.isEnabled(), "Verify must be live on the correlative page"
+    dlg.tech.setCurrentIndex(0)
+    assert not dlg.verify_btn.isEnabled(), \
+        "Verify must be disabled on the analytic-only pages"
+
+    # the honest aperture ladder: lambda/8 ideal, lambda/2 unusable
+    ideal = RD.watson_watt_text(0.125)
+    dead = RD.watson_watt_text(0.5)
+    assert "ideal" in ideal, "R = lambda/8 should read as ideal"
+    assert "UNUSABLE" in dead, "R = lambda/2 is the hard ceiling"
+    # and the lambda/3 conflation is called out where it belongs
+    assert "lambda/3" in RD.doppler_text(150e6, 4, 0.1556), \
+        "the lambda/3 rule belongs on the Doppler page"
+
+    # the degeneracy that motivates odd element counts must SHOW
+    deg = RD.correlative_text(4, 0.5, 300e6)
+    good = RD.correlative_text(5, 0.5, 300e6)
+    assert "DEGENERATE" in deg, "a 4-ring at R = lambda/2 must flag degenerate"
+    assert "DEGENERATE" not in good, "a 5-ring at the same R must not"
+
+    # an over-long interferometer baseline ratio must be refused, not flattered
+    bad = RD.interferometer_text(0.5, 40.0, 20.0, 20.0, 1)
+    assert "TOO LARGE" in bad, "an 80:1 ratio at sigma 20 deg must be refused"
+    return "RFDF dialog OK (4 technique pages + aperture/degeneracy/ratio guards)"
 
 
 def _about_and_legal_dialogs():
@@ -1268,10 +1828,20 @@ def _about_and_legal_dialogs():
     grouped = commands.grouped_commands()
     assert commands.CMD_ABOUT in grouped and commands.CMD_LEGAL in grouped, \
         "About/Legal must be in a COMMAND_GROUPS group (the EMStudio menu)"
+    # The invariant is that About + Legal sit at the BOTTOM of the menu, where
+    # users look for them and where the disclaimer must always be reachable.
+    # This used to assert the Help group held ONLY those two, which was a proxy
+    # for the same thing — too strict once §3 put the Assistant in Help (it is
+    # help, and it is where a user hunting for help looks). Assert the real
+    # property: whatever else is in the group, these two come last.
     help_group = [g for g in commands.COMMAND_GROUPS if g[0] == "Help"]
-    assert help_group and set(help_group[0][1]) == {commands.CMD_ABOUT,
-                                                    commands.CMD_LEGAL}, \
-        "the Help group must hold exactly About + Legal"
+    assert help_group, "there must be a Help group"
+    entries = [c for c in help_group[0][1] if c != "Separator"]
+    assert entries[-2:] == [commands.CMD_ABOUT, commands.CMD_LEGAL], \
+        ("About + Legal must be the LAST two Help entries so the disclaimer "
+         "sits at the bottom of the menu; got {0}".format(entries))
+    assert help_group[0][0] == commands.COMMAND_GROUPS[-1][0], \
+        "the Help group itself must be last"
     return "about + legal + first-run notice OK (text asserted, Help group)"
 
 
@@ -1295,6 +1865,10 @@ def main():
     check("small-antenna designer dialog (VLF/LF)", _small_antenna_dialog)
     check("element designer dialog (wire + Yagi + patch + LPDA + recommender, "
           "§1-E2/E3/E4/E5)", _element_designer_dialog)
+    check("system matching designer dialog (L/pi/T/transformer/stub + "
+          "recommender + E-series, §7-S2)", _system_matching_dialog)
+    check("array designer dialog (named drive distributions + predicted "
+          "read-outs, §7-S4)", _array_designer_dialog)
     check("cable designer dialog (litz | coax | wire | pair | bundle, §2)",
           _cable_designer_dialog)
     check("co-site interference calculator dialog", _cosite_dialog)
@@ -1302,6 +1876,10 @@ def main():
     check("point-to-point link-budget dialog", _link_budget_dialog)
     check("area coverage map dialog (§6-B)", _coverage_dialog)
     check("multi-station D/U service/interference dialog (§6-C)", _multistation_dialog)
+    check("RFDF dialog (Watson-Watt / interferometer / Doppler / correlative, "
+          "§7-S6)", _rfdf_dialog)
+    check("Assistant dock (§3-A3: builds, degrades with no endpoint, "
+          "labels ungrounded answers)", _assistant_dock)
     check("results dialogs construct", _dialogs_construct)
     check("About + Legal notice dialogs (intended use / liability / brand)",
           _about_and_legal_dialogs)

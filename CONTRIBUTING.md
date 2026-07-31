@@ -39,7 +39,7 @@ You agree that:
 3. **You have the right to grant it** — the work is yours, and if your employer
    has rights in it you have their permission.
 4. Your contribution is provided **as-is, without warranty**, consistent with
-   [DISCLAIMER.md](DISCLAIMER.md).
+   [DISCLAIMER](DISCLAIMER.md).
 
 ### Why this is asked for, stated plainly
 
@@ -60,7 +60,7 @@ much.
 
 The code is LGPL; the **EMStudio** and **AJJ³** names, logo and icon set are
 not. Contributing does not grant you any right to use them, and a fork must
-rename. See [TRADEMARK.md](TRADEMARK.md).
+rename. See [TRADEMARK](TRADEMARK.md).
 
 ## Running the checks
 

@@ -958,3 +958,106 @@ def matching_report(design, path, title="Matching Network", project="",
 
         _set_metadata(pdf, "EMStudio " + title, author)
     return path
+
+
+# --------------------------------------------------------------------------- #
+# §7 S7 — the cumulative SYSTEM report
+# --------------------------------------------------------------------------- #
+def _system_rows(section):
+    """(label, value) rows for one section, tolerant of partial data."""
+    rows = []
+    for label, key, fmt in section.get("fields", []):
+        if key not in section.get("data", {}):
+            continue
+        v = section["data"][key]
+        try:
+            rows.append((label, fmt.format(v) if fmt else str(v)))
+        except (ValueError, TypeError):
+            rows.append((label, str(v)))
+    return rows
+
+
+def system_report(sections, path, title="System Design", project="",
+                  author="", summary=None):
+    """Write the cumulative §7 SYSTEM report.
+
+    Unlike the per-tool reports, this one does NOT recompute anything. Each
+    caller hands in a finished section:
+
+        {"name": "Impedance matching",
+         "data": {...},
+         "fields": [("Topology", "kind", None),
+                    ("Achieved VSWR", "vswr", "{0:.3f}")],
+         "notes": ["..."]}
+
+    That is deliberate. A system report that re-derived its own numbers could
+    disagree with the dialog the user just read them from, and the user would
+    have no way to tell which was right. Sections are rendered in the order
+    given; unknown keys are skipped rather than raising, so a partially
+    completed system still produces a document.
+
+    Works with whatever sections exist — matching, array and DF sections come
+    from EMStudio Pro; isolation and co-site are available in the free
+    workbench. Returns the path.
+    """
+    import textwrap
+
+    sections = [s for s in (sections or []) if s and s.get("name")]
+    if not sections:
+        raise ValueError(
+            "system_report needs at least one section — an empty system "
+            "report would look like a complete design with nothing in it")
+
+    n_pages = 1 + (len(sections) + 2) // 3
+    with PdfPages(path) as pdf:
+        # ---- page 1: what this system IS ------------------------------- #
+        fig = _new_page()
+        _header(fig, title, project, 1, n_pages)
+        y = 0.87
+        fig.text(0.10, y, "System overview", fontsize=11, fontweight="bold")
+        y -= 0.040
+        if summary:
+            for ln in textwrap.wrap(str(summary), 96):
+                fig.text(0.10, y, ln, fontsize=9)
+                y -= 0.018
+            y -= 0.012
+        contents = [(s["name"], "{0} value(s)".format(len(_system_rows(s))))
+                    for s in sections]
+        _table(fig, contents, y0=y, title="Contents", fontsize=9)
+        fig.text(0.10, 0.16,
+                 "Every figure in this report is an engineering ESTIMATE "
+                 "produced by simulation or\nanalytic models, carried over "
+                 "from the tool that computed it. Nothing here has been\n"
+                 "re-derived for this document. Verify independently before "
+                 "building, buying or\ntransmitting.",
+                 fontsize=8, color="#664400")
+        pdf.savefig(fig)
+
+        # ---- following pages: three sections each ---------------------- #
+        page = 2
+        for i in range(0, len(sections), 3):
+            fig = _new_page()
+            _header(fig, title, project, page, n_pages)
+            y = 0.88
+            for s in sections[i:i + 3]:
+                rows = _system_rows(s)
+                if rows:
+                    y = _table(fig, rows, y0=y, title=s["name"], fontsize=9)
+                else:
+                    fig.text(0.10, y, s["name"], fontsize=11,
+                             fontweight="bold")
+                    y -= 0.030
+                    fig.text(0.10, y, "(no values recorded)", fontsize=8,
+                             color="#888888")
+                    y -= 0.020
+                for note in (s.get("notes") or [])[:6]:
+                    for ln in textwrap.wrap("- " + str(note), 96):
+                        fig.text(0.10, y, ln, fontsize=7.5, color="#444444")
+                        y -= 0.015
+                    y -= 0.003
+                y -= 0.020
+            pdf.savefig(fig)
+            page += 1
+
+        _set_metadata(pdf, "EMStudio " + title, author)
+    return path

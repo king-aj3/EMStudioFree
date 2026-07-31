@@ -17,13 +17,13 @@ patterns, build specs and BOMs).
 > regulatory/RF-safety compliance, and for anything built or operated from these
 > outputs. Provided AS IS; the author, contributors and the AJJ³ project accept
 > **no responsibility and no liability** for any damage, injury, loss,
-> interference or cost. **Read [DISCLAIMER.md](DISCLAIMER.md) before use** — it
+> interference or cost. **Read [DISCLAIMER](DISCLAIMER.md) before use** — it
 > is also in the app under **EMStudio → Help → Legal notice & disclaimer**.
 
 > ™ **Names and branding.** The code is LGPL-2.1-or-later; the **EMStudio** and
 > **AJJ³** names, logo and icon set are **not** licensed with it. Forks and
 > modified redistributions must rename and remove AJJ³ branding — see
-> [TRADEMARK.md](TRADEMARK.md).
+> [TRADEMARK](TRADEMARK.md).
 
 ---
 
@@ -98,7 +98,7 @@ python3 tests/validation/run_battery.py       # the FAST validation tier
 
 A gate passing means those specific cases reproduced those specific reference
 values, on the developer's machine, at that time. It is **not** a guarantee of
-accuracy for your case — see [DISCLAIMER.md](DISCLAIMER.md).
+accuracy for your case — see [DISCLAIMER](DISCLAIMER.md).
 
 ## Install
 
@@ -117,11 +117,11 @@ without any solver installed; the analytic tools work regardless.
 
 ## Documentation
 
-[HELP.md](HELP.md) — every command, at a glance ·
-[docs/USER_MANUAL.md](docs/USER_MANUAL.md) — step-by-step tutorials ·
-[ABOUT.md](ABOUT.md) — what this is for ·
-[CONTRIBUTING.md](CONTRIBUTING.md) — how to help, and the CLA ·
-[DISCLAIMER.md](DISCLAIMER.md) · [TRADEMARK.md](TRADEMARK.md)
+[HELP](HELP.md) — every command, at a glance ·
+[docs/USER_MANUAL](docs/USER_MANUAL.md) — step-by-step tutorials ·
+[ABOUT](ABOUT.md) — what this is for ·
+[CONTRIBUTING](CONTRIBUTING.md) — how to help, and the CLA ·
+[DISCLAIMER](DISCLAIMER.md) · [TRADEMARK](TRADEMARK.md)
 
 ## EMStudio Pro — in development
 
@@ -132,7 +132,7 @@ gates** — Pro is what you need when one antenna becomes a *system*, not "the
 useful half".
 
 No release date is promised. Details and the measured numbers behind it:
-[docs/PRO.md](docs/PRO.md) · [ajj3.us](https://ajj3.us)
+[docs/PRO](docs/PRO.md) · [ajj3.us](https://ajj3.us)
 
 ## Licence
 

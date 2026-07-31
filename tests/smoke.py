@@ -744,6 +744,35 @@ def _axi_revolution_tolerance():
 
 
 # --- FreeCAD-dependent checks ----------------------------------------------
+def _examples_open():
+    """Every shipped example opens and contains a real EMStudio analysis.
+
+    These are the first thing a new user double-clicks, and they are the one
+    shipped artifact with no other regression net: a document that opens empty,
+    or fails to open at all, reads as "this workbench is broken" before the user
+    has run anything. Regenerate with ``freecadcmd tools/gen_examples.py``.
+    """
+    import glob
+
+    import FreeCAD
+
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    paths = sorted(glob.glob(os.path.join(here, "examples", "*.FCStd")))
+    assert paths, "examples/ contains no .FCStd — run tools/gen_examples.py"
+    for path in paths:
+        name = os.path.basename(path)
+        doc = FreeCAD.openDocument(path)
+        try:
+            assert len(doc.Objects) >= 2, \
+                "{0} opened with {1} object(s)".format(name, len(doc.Objects))
+            assert any(getattr(o, "EMStudioType", "") == "EMStudio::Analysis"
+                       for o in doc.Objects), \
+                "{0} has no EMStudio::Analysis — it would open as inert geometry".format(name)
+        finally:
+            FreeCAD.closeDocument(doc.Name)
+    return "{0} examples open with an analysis".format(len(paths))
+
+
 def _analysis_roundtrip():
     import FreeCAD
 
@@ -962,6 +991,8 @@ def main():
     if have_freecad:
         check("EM Analysis create + save/reload round-trip", _analysis_roundtrip)
         check("GUI registration contract (InitGui + commands)", _gui_registration_contract)
+        check("shipped examples open and carry an EMStudio analysis",
+              _examples_open)
 
     _log("-------------------")
     if _failures:

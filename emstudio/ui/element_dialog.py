@@ -293,9 +293,17 @@ class ElementDesignerDialog(QtWidgets.QDialog):
             "Save a build report (design summary + dimensioned sketch + "
             "element schedule) — the deliverable a build house needs.")
         self.report_btn.clicked.connect(self._save_report)
+        self.show3d_btn = QtWidgets.QPushButton("Show pattern in 3-D view")
+        self.show3d_btn.setEnabled(False)
+        self.show3d_btn.setToolTip(
+            "Load the verified far field into FreeCAD's 3-D view as a gain "
+            "balloon — rotate, pan and zoom with the standard navigation, "
+            "toggle it with the spacebar. Needs a Verify run first.")
+        self.show3d_btn.clicked.connect(self._show_in_3d)
         act_row.addWidget(self.verify_btn)
         act_row.addWidget(self.accept_btn)
         act_row.addWidget(self.report_btn)
+        act_row.addWidget(self.show3d_btn)
         left.addLayout(act_row)
         left.addStretch(1)
         root.addLayout(left, 0)
@@ -1510,6 +1518,10 @@ class ElementDesignerDialog(QtWidgets.QDialog):
 
         def on_success(result):
             self._close_verify_doc()
+            # Retained so the pattern can be shown in the 3-D view; the message
+            # below is a read-out, not the only thing the run is good for.
+            self._verify_result = result
+            self.show3d_btn.setEnabled(getattr(result, "farfield", None) is not None)
             if fam == "yagi":
                 msg = self._verify_message_yagi(result, design)
             elif fam == "patch":
@@ -1531,6 +1543,40 @@ class ElementDesignerDialog(QtWidgets.QDialog):
             run_fn, on_success, parent=self,
             on_error=lambda _exc: self._close_verify_doc(),
             on_cancel=self._close_verify_doc)
+
+    def _show_in_3d(self):
+        """Load the verified element pattern into FreeCAD's 3-D view."""
+        result = getattr(self, "_verify_result", None)
+        ff = getattr(result, "farfield", None) if result is not None else None
+        if ff is None:
+            return
+        import FreeCAD
+
+        from emstudio.post import vtk_out
+
+        # An element is at most a wavelength or two across, so size the balloon
+        # off the wavelength rather than guessing at document geometry.
+        lam_mm = 299792458.0 / ff.freq * 1e3
+        doc = FreeCAD.ActiveDocument or FreeCAD.newDocument("EMStudio")
+        try:
+            obj = vtk_out.show_pattern(
+                ff, "Element pattern @ {0:.4g} MHz".format(ff.freq / 1e6),
+                extent_mm=lam_mm, doc=doc,
+                workdir=result.meta.get("workdir") if result.meta else None)
+        except Exception as exc:  # noqa: BLE001
+            QtWidgets.QMessageBox.critical(
+                self, "EMStudio — 3-D view failed", str(exc))
+            return
+        try:
+            import FreeCADGui
+
+            FreeCADGui.SendMsgToActiveView("ViewFit")
+        except Exception:  # noqa: BLE001 — headless or no view yet
+            pass
+        QtWidgets.QMessageBox.information(
+            self, "EMStudio",
+            "Added '{0}' to {1}.\n\nToggle it with the spacebar; rotate, pan "
+            "and zoom with the usual navigation.".format(obj.Label, doc.Name))
 
     def _verify_message(self, result, design, kind):
         """Pure predicted-vs-achieved formatter (headlessly gated in
