@@ -171,7 +171,7 @@ def write_field_plane_vtu(nearfield, path):
 
 # ------------------------------------------------------------------ FreeCAD display
 def show_pattern(farfield, label, extent_mm=None, center_mm=(0.0, 0.0, 0.0),
-                 floor_db=-30.0, doc=None, workdir=None):
+                 floor_db=-30.0, doc=None, workdir=None, transparency=0):
     """Write a gain balloon and load it straight into the FreeCAD 3-D view.
 
     The one call a dialog needs: ``extent_mm`` sizes the balloon against the
@@ -187,10 +187,10 @@ def show_pattern(farfield, label, extent_mm=None, center_mm=(0.0, 0.0, 0.0),
     path = write_pattern_vtu(farfield, os.path.join(workdir, "pattern3d.vtu"),
                              radius_mm=radius, floor_db=floor_db,
                              center_mm=center_mm)
-    return show_in_freecad(path, label, doc)
+    return show_in_freecad(path, label, doc, transparency=transparency)
 
 
-def show_in_freecad(vtu_path, label, doc=None):
+def show_in_freecad(vtu_path, label, doc=None, transparency=0):
     """Load a VTU into the active document as a colored FemPostPipeline surface.
 
     The object lives in FreeCAD's 3D view: rotate/zoom/pan/tilt with the standard
@@ -206,8 +206,21 @@ def show_in_freecad(vtu_path, label, doc=None):
     if FreeCAD.GuiUp:
         try:
             obj.ViewObject.DisplayMode = "Surface"
-            # color by the first (default) field
-            fields = list(getattr(obj.ViewObject, "Field", []) or [])
+            # Colour by the VTU's own scalar field. This used to read the
+            # property into a local and throw it away, so every overlay rendered
+            # flat grey with a colour legend beside it that explained nothing —
+            # the one thing the overlay exists to show.
+            #
+            # `Field` is an ENUMERATION: reading it returns the CURRENT value (a
+            # string), not the choices, so list() on it yields that string's
+            # characters. The choices come from getEnumerationsOfProperty.
+            choices = [f for f in
+                       (obj.ViewObject.getEnumerationsOfProperty("Field") or [])
+                       if f and f != "None"]
+            if choices:
+                obj.ViewObject.Field = choices[0]
+            if transparency:
+                obj.ViewObject.Transparency = int(transparency)
         except Exception:
             pass
     doc.recompute()

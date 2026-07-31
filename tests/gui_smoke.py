@@ -1724,6 +1724,43 @@ def _assistant_dock():
             os.environ["EMSTUDIO_LLM_ENDPOINT"] = old
 
 
+def _pattern_overlay_coloured():
+    """A 3-D result overlay arrives COLOURED by its scalar field, not flat grey.
+
+    The colouring line used to read the Field property into a local and throw it
+    away, inside a swallowing try/except — so every balloon rendered monochrome
+    with a colour legend beside it that explained nothing, which is the one thing
+    the overlay exists to show. `Field` is an ENUMERATION: reading it returns the
+    CURRENT value, so the choices must come from getEnumerationsOfProperty.
+    """
+    import numpy as np
+
+    import FreeCAD
+
+    from emstudio.post.farfield import FarFieldResult
+    from emstudio.post import vtk_out
+
+    th = np.arange(0.0, 180.1, 10.0)
+    ph = np.arange(0.0, 360.0, 10.0)
+    gain = 6.0 * np.cos(np.deg2rad(th))[:, None] * np.ones((1, ph.size)) - 3.0
+    ff = FarFieldResult(300e6, th, ph, gain)
+
+    doc = FreeCAD.newDocument("emstudio_overlay_gate")
+    try:
+        obj = vtk_out.show_pattern(ff, "gate balloon", extent_mm=400.0, doc=doc,
+                                   transparency=40)
+        vo = obj.ViewObject
+        assert vo.DisplayMode == "Surface", \
+            "overlay must render as a surface, got {0!r}".format(vo.DisplayMode)
+        assert vo.Field == "Gain_dBi", \
+            "overlay must be coloured by its own field, got {0!r}".format(vo.Field)
+        assert int(vo.Transparency) == 40, \
+            "transparency was not applied ({0!r})".format(vo.Transparency)
+    finally:
+        FreeCAD.closeDocument(doc.Name)
+    return "overlay coloured by Gain_dBi, transparency honoured"
+
+
 def _rfdf_dialog():
     """The RFDF dialog constructs and every technique page computes (§7 S6).
 
@@ -1880,6 +1917,8 @@ def main():
           "§7-S6)", _rfdf_dialog)
     check("Assistant dock (§3-A3: builds, degrades with no endpoint, "
           "labels ungrounded answers)", _assistant_dock)
+    check("3-D result overlay is coloured by its field, not flat grey",
+          _pattern_overlay_coloured)
     check("results dialogs construct", _dialogs_construct)
     check("About + Legal notice dialogs (intended use / liability / brand)",
           _about_and_legal_dialogs)

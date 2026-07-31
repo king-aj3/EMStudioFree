@@ -3,6 +3,37 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.75.0] — 2026-07-31 — the 3-D overlays were never actually coloured
+
+### Fixed
+- **Every 3-D result overlay rendered flat grey with a colour legend beside it
+  that explained nothing.** `show_in_freecad` read the `Field` property into a
+  local variable and threw it away — a dead line inside a swallowing
+  `try/except`, under a comment claiming it coloured by the default field.
+  Compounding it: `Field` is an **enumeration**, so reading it returns the
+  CURRENT value (a string), and `list()` on that yields the string's
+  *characters*; the choices only come from `getEnumerationsOfProperty`. Gain
+  balloons, wire-current paths and near-field planes were all monochrome.
+  **This shipped in v0.74.0** — found while taking a screenshot for the launch
+  post, which is the first time anyone had looked at the output.
+- `show_pattern` / `show_in_freecad` gained a `transparency` argument, so a
+  balloon can be seen through to the geometry it belongs to.
+
+### Added
+- A gui_smoke check asserting an overlay arrives coloured by its own field and
+  with transparency honoured. Mutation-tested: restoring the dead line fails it
+  with `got 'None'`. Colouring is GUI-side, so the headless `pattern_vtu` gate
+  structurally could not have caught this — the VTU it writes was always correct.
+
+### Known
+- **v0.74.0 as published to EMStudioFree contains the grey-overlay bug.** The
+  fix is here; the public repo needs another export and push to carry it.
+- The overlay is still centred on the **origin**, which for a NEC2 wire antenna
+  built from x=0 puts a Yagi's pattern at the reflector end rather than over the
+  array. Physically the far field IS referenced to that origin, so this is a
+  presentation question, not a correctness one — left as an open decision rather
+  than changed silently.
+
 ## [0.74.0] — 2026-07-30 — LAUNCH: accepted into the FreeCAD Addon Index, examples ship, the export is one command
 
 ### The submission was ACCEPTED
