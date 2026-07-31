@@ -79,6 +79,42 @@ def auto_radius_mm(extent_mm, fraction=0.5, minimum_mm=50.0):
     return max(float(minimum_mm), float(fraction) * abs(float(extent_mm)))
 
 
+def geometry_extent_mm(objects):
+    """``(center_mm, extent_mm)`` of the drawable geometry in ``objects``.
+
+    Used to sit a pattern balloon ON its antenna. A far field is referenced to
+    the SOLVER's origin, and a template built from x=0 puts that origin at one
+    end of the structure — a Yagi's balloon then hangs off the reflector rather
+    than covering the array. Directions are unaffected either way; only where the
+    plot is drawn changes, so this is presentation, and every EM tool draws it
+    over the radiator.
+
+    This is the bounding-box centre, which is NOT the phase centre — the solvers
+    do not report one. It is an honest "where the antenna is", not a claim about
+    where the fields appear to originate.
+
+    Returns ``(None, None)`` when nothing has a usable bounding box, so a caller
+    falls back rather than centring on a point it invented.
+    """
+    lo = [None, None, None]
+    hi = [None, None, None]
+    for obj in objects or ():
+        shape = getattr(obj, "Shape", None)
+        bb = getattr(shape, "BoundBox", None) if shape is not None else None
+        if bb is None or not getattr(bb, "isValid", lambda: False)():
+            continue
+        mins = (bb.XMin, bb.YMin, bb.ZMin)
+        maxs = (bb.XMax, bb.YMax, bb.ZMax)
+        for i in range(3):
+            lo[i] = mins[i] if lo[i] is None else min(lo[i], mins[i])
+            hi[i] = maxs[i] if hi[i] is None else max(hi[i], maxs[i])
+    if lo[0] is None:
+        return None, None
+    center = tuple(0.5 * (lo[i] + hi[i]) for i in range(3))
+    extent = max(hi[i] - lo[i] for i in range(3))
+    return center, extent
+
+
 def write_pattern_vtu(farfield, path, radius_mm=100.0, floor_db=-30.0,
                       center_mm=(0.0, 0.0, 0.0)):
     """Gain balloon: r = normalized (gain - floor), colored by gain in dBi.

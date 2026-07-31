@@ -1554,14 +1554,23 @@ class ElementDesignerDialog(QtWidgets.QDialog):
 
         from emstudio.post import vtk_out
 
-        # An element is at most a wavelength or two across, so size the balloon
-        # off the wavelength rather than guessing at document geometry.
-        lam_mm = 299792458.0 / ff.freq * 1e3
         doc = FreeCAD.ActiveDocument or FreeCAD.newDocument("EMStudio")
+        # Sit the balloon ON the antenna. The far field is referenced to the
+        # SOLVER's origin, and a template built from x=0 puts that origin at one
+        # END of the structure -- a Yagi's pattern then hangs off the reflector
+        # instead of covering the array. Only where the plot is DRAWN moves;
+        # the directions it shows are unchanged.
+        centre, extent = vtk_out.geometry_extent_mm(doc.Objects)
+        if centre is None:
+            # No geometry to sit on (results loaded without a model, say): fall
+            # back to the wavelength for size and the origin for position, which
+            # is where a NEC2 pattern belongs anyway.
+            centre = (0.0, 0.0, 0.0)
+            extent = 299792458.0 / ff.freq * 1e3
         try:
             obj = vtk_out.show_pattern(
                 ff, "Element pattern @ {0:.4g} MHz".format(ff.freq / 1e6),
-                extent_mm=lam_mm, doc=doc,
+                extent_mm=extent, center_mm=centre, doc=doc,
                 workdir=result.meta.get("workdir") if result.meta else None)
         except Exception as exc:  # noqa: BLE001
             QtWidgets.QMessageBox.critical(

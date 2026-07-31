@@ -3,6 +3,43 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.76.0] — 2026-07-31 — the balloon sits on the antenna, and the examples are visible
+
+### Changed
+- **Pattern overlays are centred on the geometry, not the origin** (AJ's call).
+  A far field is referenced to the SOLVER's origin, and a template built from
+  x=0 puts that origin at one END of the structure — the shipped 400 MHz Yagi
+  hung its balloon off the reflector instead of covering the array. Only where
+  the plot is DRAWN moves; the directions it shows are unchanged, which is why
+  this is presentation rather than physics. New `vtk_out.geometry_extent_mm()`
+  returns the bounding-box centre and span, and both the Element Designer and
+  the Results dialog now pass them. It is explicitly NOT the phase centre — the
+  solvers do not report one — and it returns `(None, None)` when there is no
+  geometry, so a caller falls back rather than centring on an invented point.
+  The Array Designer still draws at the origin, because its Verify builds the
+  array in a scratch document that is closed before the overlay exists.
+
+### Fixed
+- **Every shipped example opened with its geometry HIDDEN.** `gen_examples.py`
+  ran under `freecadcmd`, which creates no ViewObjects, so the saved documents
+  carried no visibility state and all 15 examples opened to an **empty 3-D
+  view** — the first thing a new user double-clicks, looking like a broken
+  workbench. This shipped in v0.74.0 and v0.75.0. The generator now runs under
+  GUI FreeCAD, sets visibility explicitly, refuses to write a document with no
+  visible shape, and exits cleanly instead of leaving FreeCAD open forever.
+
+### Added
+- Headless gate for `geometry_extent_mm` (bbox centre not origin, multiple
+  objects unioned, shapeless objects skipped, `(None, None)` rather than a
+  guess) — mutation-tested three ways.
+- gui_smoke check that every shipped example opens with visible geometry.
+  Mutation-tested by hiding one: "opens with ALL 1 shapes hidden — an empty
+  viewport". `smoke.py` cannot catch this; without a GUI there is no ViewObject
+  to ask.
+
+### Known
+- v0.74.0 and v0.75.0 are public with the hidden-geometry examples.
+
 ## [0.75.0] — 2026-07-31 — the 3-D overlays were never actually coloured
 
 ### Fixed
@@ -26,8 +63,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   structurally could not have caught this — the VTU it writes was always correct.
 
 ### Known
-- **v0.74.0 as published to EMStudioFree contains the grey-overlay bug.** The
-  fix is here; the public repo needs another export and push to carry it.
+- v0.74.0 was public for about a day with the grey overlays. **Fixed and
+  re-released as EMStudioFree v0.75.0 the same day**, verified as a product
+  before the push: the built tree's own battery 16 ok, FreeCAD smoke and
+  gui_smoke exit 0, and the new overlay check proven to discriminate INSIDE the
+  exported tree (mutating it there turns gui_smoke red).
 - The overlay is still centred on the **origin**, which for a NEC2 wire antenna
   built from x=0 puts a Yagi's pattern at the reflector end rather than over the
   array. Physically the far field IS referenced to that origin, so this is a

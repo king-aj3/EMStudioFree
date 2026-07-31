@@ -246,7 +246,16 @@ class SweepResultsDialog(QtWidgets.QDialog):
         try:
             ff = getattr(self.result, "farfield", None)
             if ff is not None and ff.phi.size > 4:
-                p = vtk_out.write_pattern_vtu(ff, os.path.join(workdir, "pattern3d.vtu"))
+                # Sit the balloon ON the antenna and size it to the model. The
+                # far field is referenced to the SOLVER's origin, which for a
+                # structure built from x=0 is one END of it, so an origin-drawn
+                # balloon hangs off the edge of its own geometry. Only the draw
+                # position moves; the directions shown are unchanged.
+                centre, extent = vtk_out.geometry_extent_mm(doc.Objects)
+                p = vtk_out.write_pattern_vtu(
+                    ff, os.path.join(workdir, "pattern3d.vtu"),
+                    radius_mm=(vtk_out.auto_radius_mm(extent) if extent else 100.0),
+                    center_mm=(centre or (0.0, 0.0, 0.0)))
                 created.append(vtk_out.show_in_freecad(
                     p, "Pattern balloon @ {0:.3f} GHz".format(ff.freq / 1e9), doc).Label)
             cur = getattr(self.result, "currents", None)

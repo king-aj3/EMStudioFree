@@ -1724,6 +1724,38 @@ def _assistant_dock():
             os.environ["EMSTUDIO_LLM_ENDPOINT"] = old
 
 
+def _examples_are_visible():
+    """Every shipped example opens with its geometry VISIBLE.
+
+    The first generated set was built under freecadcmd, which creates no
+    ViewObjects — so the saved documents carried no visibility state and every
+    wire opened HIDDEN. A user double-clicking the example saw an empty 3-D view
+    and would reasonably conclude the workbench was broken. smoke.py cannot
+    catch this: without a GUI there is no ViewObject to ask.
+    """
+    import glob
+
+    import FreeCAD
+
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    paths = sorted(glob.glob(os.path.join(here, "examples", "*.FCStd")))
+    assert paths, "examples/ contains no .FCStd"
+    for path in paths:
+        name = os.path.basename(path)
+        doc = FreeCAD.openDocument(path)
+        try:
+            shapes = [o for o in doc.Objects if getattr(o, "Shape", None) is not None]
+            assert shapes, "{0} has no shape objects at all".format(name)
+            visible = [o for o in shapes
+                       if getattr(getattr(o, "ViewObject", None), "Visibility", False)]
+            assert visible, \
+                ("{0} opens with ALL {1} shapes hidden — an empty viewport"
+                 .format(name, len(shapes)))
+        finally:
+            FreeCAD.closeDocument(doc.Name)
+    return "{0} examples open with visible geometry".format(len(paths))
+
+
 def _pattern_overlay_coloured():
     """A 3-D result overlay arrives COLOURED by its scalar field, not flat grey.
 
@@ -1917,6 +1949,7 @@ def main():
           "§7-S6)", _rfdf_dialog)
     check("Assistant dock (§3-A3: builds, degrades with no endpoint, "
           "labels ungrounded answers)", _assistant_dock)
+    check("shipped examples open with VISIBLE geometry", _examples_are_visible)
     check("3-D result overlay is coloured by its field, not flat grey",
           _pattern_overlay_coloured)
     check("results dialogs construct", _dialogs_construct)

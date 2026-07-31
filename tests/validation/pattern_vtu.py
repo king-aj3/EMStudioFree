@@ -164,6 +164,48 @@ def main():
     check("default centre is still the origin (unchanged behaviour)",
           np.allclose(_points(p), pts))
 
+    # -------------------------------------------- geometry centre and extent
+    # The balloon must sit ON the antenna. A far field is referenced to the
+    # SOLVER's origin, and a template built from x=0 puts that origin at one END
+    # of the structure, so an origin-drawn balloon hangs off the reflector of
+    # its own Yagi. Pure helper, so it is gated HERE rather than only through
+    # the GUI.
+    class _BB(object):
+        def __init__(self, lo, hi):
+            (self.XMin, self.YMin, self.ZMin) = lo
+            (self.XMax, self.YMax, self.ZMax) = hi
+
+        def isValid(self):
+            return True
+
+    class _Obj(object):
+        def __init__(self, bb):
+            self.Shape = type("S", (), {"BoundBox": bb})()
+
+    # a boom running 0..600 in x, elements +/-180 in z — the Yagi case
+    boom = [_Obj(_BB((0.0, 0.0, -180.0), (600.0, 0.0, 180.0)))]
+    ctr, ext = vtk_out.geometry_extent_mm(boom)
+    check("geometry centre is the bbox centre, NOT the origin",
+          ctr == (300.0, 0.0, 0.0), str(ctr))
+    check("geometry extent is the largest span", ext == 600.0, str(ext))
+    # several objects must be UNIONED, not just the first one taken
+    two = [_Obj(_BB((0.0, 0.0, 0.0), (10.0, 10.0, 10.0))),
+           _Obj(_BB((90.0, 0.0, 0.0), (100.0, 10.0, 10.0)))]
+    ctr2, ext2 = vtk_out.geometry_extent_mm(two)
+    check("multiple objects are unioned into one box",
+          ctr2 == (50.0, 5.0, 5.0) and ext2 == 100.0, "{0} {1}".format(ctr2, ext2))
+    # objects with no shape are skipped, not crashed on
+    class _Bare(object):
+        pass
+
+    ctr3, _e3 = vtk_out.geometry_extent_mm([_Bare()] + boom)
+    check("objects without a shape are skipped", ctr3 == (300.0, 0.0, 0.0))
+    # ...and nothing usable must yield None so the caller falls back rather than
+    # centring the balloon on a point it invented
+    check("no usable geometry returns (None, None) rather than a guess",
+          vtk_out.geometry_extent_mm([]) == (None, None)
+          and vtk_out.geometry_extent_mm([_Bare()]) == (None, None))
+
     # ------------------------------------------------------------- auto radius
     check("auto_radius_mm scales with the geometry it must sit beside",
           vtk_out.auto_radius_mm(450.0) > vtk_out.auto_radius_mm(40.0))
