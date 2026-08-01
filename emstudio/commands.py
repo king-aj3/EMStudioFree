@@ -51,6 +51,7 @@ CMD_MULTICOVERAGE = "EMStudio_MultiCoverage"
 CMD_DETECT = "EMStudio_DetectSolvers"
 CMD_ABOUT = "EMStudio_About"
 CMD_LEGAL = "EMStudio_Legal"
+CMD_LICENCE = "EMStudio_Licence"
 
 ALL_COMMANDS = [
     CMD_ANALYSIS,
@@ -88,6 +89,7 @@ ALL_COMMANDS = [
     "Separator",
     CMD_DETECT,
     "Separator",
+    CMD_LICENCE,
     CMD_ABOUT,
     CMD_LEGAL,
 ]
@@ -135,7 +137,7 @@ COMMAND_GROUPS = [
     # where users look for them. Both are always enabled — a user must be able
     # to reach the disclaimer with no document open and no solver installed.
     ("Help", [
-        "Separator",
+        CMD_LICENCE, "Separator",
         CMD_ABOUT, CMD_LEGAL,
     ]),
 ]
@@ -1040,6 +1042,27 @@ class _DetectSolvers:
         SolverInstallerDialog(parent=FreeCADGui.getMainWindow()).exec()
 
 
+class _Licence:
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_licence.svg"),
+            "MenuText": "EMStudio Pro — install / activate",
+            "ToolTip": "Install the EMStudio Pro module from the zip you "
+                       "downloaded after purchase, and enter your licence key. "
+                       "Also shows whether Pro is currently active.",
+        }
+
+    def IsActive(self):
+        # Always available: a user must be able to reach this with no document
+        # open, and BEFORE Pro is installed — that is the whole point of it.
+        return True
+
+    def Activated(self):
+        from emstudio.ui.licence_dialog import show_licence_dialog
+
+        show_licence_dialog(FreeCADGui.getMainWindow())
+
+
 class _About:
     def GetResources(self):
         return {
@@ -1115,3 +1138,4 @@ def register():
     FreeCADGui.addCommand(CMD_DETECT, _DetectSolvers())
     FreeCADGui.addCommand(CMD_ABOUT, _About())
     FreeCADGui.addCommand(CMD_LEGAL, _Legal())
+    FreeCADGui.addCommand(CMD_LICENCE, _Licence())

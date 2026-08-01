@@ -281,7 +281,7 @@ class AboutDialog(QtWidgets.QDialog):
                 "Elmer, Palace, FastHenry and Gmsh projects — plus the "
                 "published work of C.R. Sullivan, J.A. Ferreira and A.D. Watt "
                 "on winding losses and VLF engineering.")
-        section("EMStudio Pro — in development",
+        section("EMStudio Pro — available now, {0}".format(legal.PRO_PRICE),
                 legal.PRO_SUMMARY)
         vb.addWidget(_banner(legal.TRADEMARK_NOTICE, "#5a3d00", "#f6efdd"))
         vb.addStretch(1)

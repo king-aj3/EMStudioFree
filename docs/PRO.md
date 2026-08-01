@@ -1,14 +1,14 @@
-# EMStudio Pro — in development
+# EMStudio Pro — available now, $149
 
 EMStudio (this workbench) is free, open-source and stays that way. **EMStudio
-Pro** is a separate add-on, currently in development, that adds the
-**System Designer**: the tools for when you stop designing *one* antenna and
-start designing a *system* of them.
+Pro** is a separate add-on that adds the **System Designer**: the tools for
+when you stop designing *one* antenna and start designing a *system* of them.
 
-> **Status: in development. Not yet available, and no release date is
-> promised.** Everything below is already built and gated — the numbers on this
-> page are measured, not projected — but it is not finished as a product. Watch
-> **[ajj3.us](https://ajj3.us)**.
+> **$149, one-time. Perpetual licence, no subscription, no account, no
+> telemetry.** Buy it at **[ajj3us.gumroad.com](https://ajj3us.gumroad.com)** —
+> you get a zip and a licence key. Install it from inside FreeCAD:
+> **EMStudio → Help → EMStudio Pro — install / activate**. The numbers on this
+> page are measured by the validation gates, not projected.
 
 ## Where the line falls
 

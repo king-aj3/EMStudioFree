@@ -131,27 +131,33 @@ def console_banner(version=None):
         SHORT_DISCLAIMER))
 
 # --------------------------------------------------------------------------- #
-# EMStudio Pro — the separate System Designer add-on, in development
+# EMStudio Pro — the separate System Designer add-on. AVAILABLE since v0.77.0.
 # --------------------------------------------------------------------------- #
 PRO_URL = "https://ajj3.us"
+PRO_STORE_URL = "https://ajj3us.gumroad.com"
+PRO_PRICE = "$149 one-time"
 
-#: One honest line, shown WHERE THE NEED APPEARS rather than as a nag. No date
-#: is promised: "in development" cannot be late.
+#: One honest line, shown WHERE THE NEED APPEARS rather than as a nag. It names
+#: the price, because a pointer that makes you go and find out is a nag with
+#: extra steps.
 PRO_TEASER_MATCHING = (
     "Matching this element to your system impedance — L / pi / T / "
     "quarter-wave / stub synthesis with E-series snapping and a live verify — "
-    "is part of EMStudio Pro (the System Designer), in development. "
+    "is part of EMStudio Pro (the System Designer), " + PRO_PRICE + ". "
     "See ajj3.us."
 )
 PRO_TEASER_ARRAY = (
     "Combining elements into a steered or tapered array — currents solved "
     "through the real mutual-impedance matrix, not naive equal voltages — is "
-    "part of EMStudio Pro (the System Designer), in development. See ajj3.us."
+    "part of EMStudio Pro (the System Designer), " + PRO_PRICE + ". "
+    "See ajj3.us."
 )
 PRO_SUMMARY = (
     "EMStudio Pro adds the System Designer: impedance matching, filter and "
     "diplexer synthesis, phased arrays with amplitude tapers, and RF direction "
-    "finding. In development — no release date promised. This free workbench "
-    "keeps every solver, template, the Element and Cable Designers, magnetics, "
-    "coverage and ALL of its validation gates."
+    "finding, plus the AI assistant. " + PRO_PRICE + ", perpetual, no "
+    "subscription and no account — buy it at ajj3us.gumroad.com and install it "
+    "from EMStudio → Help → EMStudio Pro. This free workbench keeps every "
+    "solver, template, the Element and Cable Designers, magnetics, coverage "
+    "and ALL of its validation gates."
 )

@@ -685,8 +685,10 @@ while combiners, arrays and direction-finding remain future §7 slices. Open
 
 Note on tiers: the Element Designer as shipped — all five families, service
 presets, Verify, PDF reports — is part of the **free** EMStudio core and
-stays free. A future Pro tier (solver-in-the-loop optimization, exotic
-families, AI-guided intent) will be offered separately via the AJJ³ project.
+stays free. **EMStudio Pro ($149, available now) does not change this dialog**;
+it adds the §7 System Designer and the AI assistant. Separately, ideas still
+only on the roadmap and promised to nobody — solver-in-the-loop optimization,
+exotic families, AI-guided intent — are NOT part of what Pro sells today.
 
 The **Small antenna** family routes to the dedicated VLF/LF/MF designer below
 (§6j) — under ~λ/10 the Chu regime rules and that dialog's loading/efficiency

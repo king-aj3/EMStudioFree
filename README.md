@@ -123,16 +123,18 @@ without any solver installed; the analytic tools work regardless.
 [CONTRIBUTING](CONTRIBUTING.md) — how to help, and the CLA ·
 [DISCLAIMER](DISCLAIMER.md) · [TRADEMARK](TRADEMARK.md)
 
-## EMStudio Pro — in development
+## EMStudio Pro — available now, $149
 
 A separate add-on adds the **System Designer**: impedance-matching synthesis,
 filter and diplexer design, phased arrays with amplitude tapers, and RF
-direction finding. **This workbench stays free and keeps all of its validation
-gates** — Pro is what you need when one antenna becomes a *system*, not "the
-useful half".
+direction finding, plus the AI assistant. **This workbench stays free and keeps
+all of its validation gates** — Pro is what you need when one antenna becomes a
+*system*, not "the useful half".
 
-No release date is promised. Details and the measured numbers behind it:
-[docs/PRO](docs/PRO.md) · [ajj3.us](https://ajj3.us)
+**$149 one-time, perpetual, no subscription and no account.** Buy at
+[ajj3us.gumroad.com](https://ajj3us.gumroad.com), then install it from
+**EMStudio → Help → EMStudio Pro — install / activate**. Details and the
+measured numbers behind it: [docs/PRO](docs/PRO.md) · [ajj3.us](https://ajj3.us)
 
 ## Licence
 

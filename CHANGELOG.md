@@ -3,6 +3,39 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.77.0] — 2026-07-31 — EMStudio Pro is on sale
+
+### Added
+- **EMStudio Pro is purchasable — $149 one-time, perpetual, no subscription and
+  no account.** The paid tier adds the §7 System Designer (impedance matching,
+  filter and diplexer synthesis, phased arrays with amplitude tapers, RF
+  direction finding) and the §3 AI assistant. This workbench stays free, LGPL,
+  and keeps every solver, template, designer and validation gate it has today.
+- **New command: EMStudio → Help → EMStudio Pro — install / activate.** Installs
+  the purchased zip and activates it, with no terminal and no pip. It unpacks
+  into `Mod/EMStudioPro`, a *sibling* of `Mod/EMStudio` — the Add-on Manager
+  owns the latter and overwrites it on every update, which would silently delete
+  a paid module installed inside it. Archive members are validated before
+  extraction (absolute paths, `..` traversal and symlinks are all refused), and
+  the dialog reports install/activation state rather than making you guess.
+
+### Changed
+- Every surface that said EMStudio Pro was "in development" now states the
+  price and how to buy it: `docs/PRO.md`, the free README, `HELP.md`,
+  `emstudio/legal.py` (the single source the dialogs and report footers read),
+  and the About dialog.
+- The Element Designer's tier note used to point at "a future Pro tier
+  (solver-in-the-loop optimizer, exotic families, AI intent)". With Pro now on
+  sale that read as a promise about what a buyer had just paid for. It now says
+  plainly that Pro does not change that dialog, and that those ideas are
+  roadmap only and part of nothing that is sold today.
+
+### Note
+- The Pro module itself is not in this repository, by design. Nothing here
+  verifies a licence: a check shipped in LGPL code is deleted in thirty seconds,
+  entirely within the user's rights, so all verification lives in the paid
+  module where it means something.
+
 ## [0.76.0] — 2026-07-31 — the balloon sits on the antenna, and the examples are visible
 
 ### Changed
