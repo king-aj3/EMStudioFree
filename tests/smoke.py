@@ -688,13 +688,21 @@ def _install_text_platform_segregation():
 
     A Windows user must never see a standalone `sudo apt install` line or a
     Linux source-build recipe mixed in with Windows guidance (that confusing
-    mix was reported 2026-07-06). Forces two backends missing and renders both
-    platforms via a monkeypatched os.name.
+    mix was reported 2026-07-06). Forces two backends missing and renders each
+    platform via a monkeypatched os.name / sys.platform.
+
+    macOS was added 2026-08-01 after a forum report: `os.name` is "posix" on a
+    Mac, so it fell through the Windows check into the Debian branch and Solver
+    Setup told Mac users to run `sudo apt install`. The Windows half of this
+    check passed the whole time — testing two of three platforms is what let
+    it ship.
     """
+    import sys as _sys
     from emstudio.setup import solvers
 
     real_detect = solvers.detect_all
     real_os = os.name
+    real_platform = _sys.platform
     linux_only = ["sudo apt install -y", "./update_openEMS", "make fasthenry", "-fcommon"]
     try:
         def fake_detect():
@@ -713,13 +721,58 @@ def _install_text_platform_segregation():
         assert "WSL2" in blob, "Windows guidance should mention WSL2"
 
         os.name = "posix"
+        _sys.platform = "linux"
         plan = solvers.install_plan()
         rpt = solvers.install_report_text()
         assert plan["apt_line"].startswith("sudo apt install"), "Linux should offer apt"
+        assert plan["brew_line"] == "", "Linux must not offer a brew line"
         assert "WSL2" not in rpt, "WSL2 (Windows-only) must not appear on Linux"
+
+        # macOS: posix like Linux, but apt does not exist there.
+        _sys.platform = "darwin"
+        plan = solvers.install_plan()
+        rpt = solvers.install_report_text()
+        blob = rpt + "\n".join(m["steps"] for m in plan["missing"])
+        assert plan["apt_line"] == "", "macOS must not offer an apt line"
+        assert "sudo apt" not in blob, \
+            "apt commands leaked into the macOS install text"
+        assert "WSL2" not in blob, "WSL2 (Windows-only) must not appear on macOS"
+        # What THIS machine happens to have installed must not decide whether
+        # the check can fail, so force a known-missing prerequisite. Without
+        # this the whole macOS branch of install_plan() could be deleted and
+        # every other assertion here would still pass (proved by mutation).
+        real_prereqs = solvers.check_prereqs
+        try:
+            vtk = [p for p in solvers.BACKENDS["openems"].prerequisites
+                   if p.brew == "vtk"][0]
+            solvers.check_prereqs = lambda b: [(vtk, False)]
+            forced = solvers.install_plan()
+            assert forced["brew_line"] == "brew install vtk", (
+                "macOS must roll missing prerequisites into ONE brew command, got: %r"
+                % forced["brew_line"])
+            assert forced["apt_line"] == "", "still no apt on macOS"
+        finally:
+            solvers.check_prereqs = real_prereqs
+
+        assert (not plan["brew_line"]) or plan["brew_line"].startswith("brew install"), \
+            "a non-empty brew line must be a brew command: " + plan["brew_line"]
+        gmsh_hint = solvers.install_hint(solvers.BACKENDS["gmsh"])
+        assert "brew install gmsh" in gmsh_hint, \
+            "macOS gmsh guidance should use Homebrew, got: " + gmsh_hint
+        assert "apt" not in gmsh_hint, "apt leaked into macOS gmsh guidance"
+        assert "macOS" in rpt, "the macOS report should say so"
+        assert "xcode-select" in rpt, \
+            "macOS needs the compiler step; the source builds are useless without it"
+        # nproc is coreutils — absent on a stock Mac. The Palace build step must
+        # not depend on it.
+        for plan_steps in (solvers.BUILD_PLANS.get("palace") or {}).get("steps", []):
+            cmd = " ".join(plan_steps[1])
+            assert "$(nproc)" not in cmd, \
+                "build step uses bare $(nproc), which fails on macOS: " + cmd
     finally:
         solvers.detect_all = real_detect
         os.name = real_os
+        _sys.platform = real_platform
 
 
 def _axi_revolution_tolerance():

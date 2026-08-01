@@ -24,7 +24,19 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
+
+
+def _is_mac():
+    """True on macOS. Read at CALL time so tests can patch ``sys.platform``.
+
+    macOS is ``os.name == "posix"``, so every ``if os.name == "nt" ... else``
+    in this module used to hand Mac users Debian apt commands. That is not a
+    cosmetic wording bug: `sudo apt install …` cannot run on macOS at all, so
+    Solver Setup was unusable there. Reported on the FreeCAD forum, 2026-08-01.
+    """
+    return sys.platform == "darwin"
 
 # Preferences group used for per-backend binary overrides.
 PREF_GROUP = "User parameter:BaseApp/Preferences/Mod/EMStudio"
@@ -38,8 +50,11 @@ class Prereq:
       * ``bin``  — an executable on PATH (``token`` = program name).
       * ``lib``  — a shared library (``token`` = library stem, e.g. ``openblas``).
       * ``pip``  — an importable python module (``token`` = module name).
-    ``apt`` is the Debian/Ubuntu/Mint package that provides it; ``why`` explains the
-    failure it prevents (these are the install pitfalls learned the hard way).
+    ``apt`` is the Debian/Ubuntu/Mint package that provides it, ``brew`` the
+    Homebrew formula; ``why`` explains the failure it prevents (these are the
+    install pitfalls learned the hard way). Leave ``brew`` empty when no
+    formula is known — an invented formula name is worse than silence, because
+    the user runs it, it fails, and they no longer trust any of the guidance.
     """
 
     name: str
@@ -47,6 +62,7 @@ class Prereq:
     token: str
     apt: str = ""
     why: str = ""
+    brew: str = ""
 
 
 @dataclass(frozen=True)
@@ -60,6 +76,7 @@ class Backend:
     version_args: tuple = ("--version",)
     # Package hints for the guided installer, per platform family.
     apt_package: str = ""
+    brew_package: str = ""  # Homebrew formula, ONLY where one really exists
     pip_package: str = ""
     manual_hint: str = ""  # free-text instructions when no package exists
     homepage: str = ""
@@ -114,13 +131,13 @@ BACKENDS = {
         source_build=True,
         prerequisites=(
             Prereq("C++ toolchain", "bin", "g++", "build-essential"),
-            Prereq("CMake", "bin", "cmake", "cmake"),
-            Prereq("git", "bin", "git", "git"),
-            Prereq("HDF5 dev", "lib", "hdf5", "libhdf5-dev"),
-            Prereq("VTK 9 dev", "lib", "vtkCommonCore", "libvtk9-dev"),
-            Prereq("Boost dev", "lib", "boost_system", "libboost-all-dev"),
-            Prereq("CGAL dev", "lib", "gmp", "libcgal-dev libgmp-dev"),
-            Prereq("TinyXML dev", "lib", "tinyxml", "libtinyxml-dev"),
+            Prereq("CMake", "bin", "cmake", "cmake", brew="cmake"),
+            Prereq("git", "bin", "git", "git", brew="git"),
+            Prereq("HDF5 dev", "lib", "hdf5", "libhdf5-dev", brew="hdf5"),
+            Prereq("VTK 9 dev", "lib", "vtkCommonCore", "libvtk9-dev", brew="vtk"),
+            Prereq("Boost dev", "lib", "boost_system", "libboost-all-dev", brew="boost"),
+            Prereq("CGAL dev", "lib", "gmp", "libcgal-dev libgmp-dev", brew="cgal gmp"),
+            Prereq("TinyXML dev", "lib", "tinyxml", "libtinyxml-dev", brew="tinyxml"),
             Prereq("python venv", "bin", "python3", "python3-venv python3-setuptools cython3",
                    "PEP 668: python modules must install into a venv on Ubuntu 24.04+"),
         ),
@@ -152,7 +169,7 @@ BACKENDS = {
         source_build=True,
         prerequisites=(
             Prereq("C toolchain", "bin", "cc", "build-essential"),
-            Prereq("git", "bin", "git", "git"),
+            Prereq("git", "bin", "git", "git", brew="git"),
             # the hard-won one: default -fno-common in GCC>=10 breaks the link
             Prereq("(build flag)", "bin", "cc", "",
                    "MUST compile with CFLAGS containing -fcommon on GCC >= 10 "
@@ -195,15 +212,17 @@ BACKENDS = {
         ),
         source_build=True,
         prerequisites=(
-            Prereq("C++/Fortran toolchain", "bin", "gfortran", "build-essential gfortran"),
-            Prereq("CMake >= 3.21", "bin", "cmake", "cmake"),
-            Prereq("git", "bin", "git", "git"),
-            Prereq("MPI", "bin", "mpicc", "libopenmpi-dev openmpi-bin"),
+            Prereq("C++/Fortran toolchain", "bin", "gfortran", "build-essential gfortran",
+                       brew="gcc"),
+            Prereq("CMake >= 3.21", "bin", "cmake", "cmake", brew="cmake"),
+            Prereq("git", "bin", "git", "git", brew="git"),
+            Prereq("MPI", "bin", "mpicc", "libopenmpi-dev openmpi-bin", brew="open-mpi"),
             # the one that bit us: Palace's superbuild requires OpenBLAS
             # specifically, not the reference BLAS
             Prereq("OpenBLAS", "lib", "openblas", "libopenblas-dev",
-                   "Palace's configure fails with 'Could NOT find BLAS' unless "
-                   "OpenBLAS (not reference BLAS) is installed"),
+                   why="Palace's configure fails with 'Could NOT find BLAS' unless "
+                       "OpenBLAS (not reference BLAS) is installed",
+                   brew="openblas"),
         ),
     ),
     # Meshing/support tools, discovered the same way.
@@ -214,6 +233,7 @@ BACKENDS = {
         executables=("gmsh",),
         version_args=("--version",),
         apt_package="gmsh",
+        brew_package="gmsh",
         pip_package="gmsh",
         homepage="https://gmsh.info/",
     ),
@@ -353,16 +373,36 @@ def install_plan():
                   advisories}, ...]
       apt_line: one combined 'sudo apt install ...' covering every missing
                 apt-installable backend AND every missing build prerequisite,
-                so a user gets ONE command for the sudo part.
+                so a user gets ONE command for the sudo part. Empty off Linux.
+      brew_line: the macOS equivalent, 'brew install ...'. Empty off macOS.
     """
     is_win = os.name == "nt"
+    is_mac = _is_mac()
     found, missing = [], []
     apt_pkgs = []
+    brew_pkgs = []
     for info in detect_all().values():
         if info.found:
             found.append(info)
             continue
         b = info.backend
+        if is_mac:
+            # macOS: Homebrew for what has a formula, source builds for the
+            # rest. Never apt — that was the reported bug.
+            prereqs = check_prereqs(b)
+            missing_prereqs = [p for p, ok in prereqs if not ok]
+            for p in missing_prereqs:
+                brew_pkgs.extend(p.brew.split())
+            if b.brew_package:
+                brew_pkgs.extend(b.brew_package.split())
+            missing.append({
+                "info": info,
+                "steps": install_hint(b),
+                "prereqs_ok": not missing_prereqs,
+                "missing_prereqs": missing_prereqs,
+                "advisories": [p for p, ok in prereqs if ok and p.why and not p.apt],
+            })
+            continue
         if is_win:
             # Windows: no apt, no from-source build prerequisites — native
             # installers / WSL2 only. Keep the entry free of Linux concepts.
@@ -391,14 +431,47 @@ def install_plan():
     # dedupe, keep order
     seen = set()
     apt_pkgs = [p for p in apt_pkgs if not (p in seen or seen.add(p))]
+    seen = set()
+    brew_pkgs = [p for p in brew_pkgs if not (p in seen or seen.add(p))]
     return {
         "found": found,
         "missing": missing,
-        # apt is a Linux concept — never surfaced on Windows
-        "apt_line": "" if is_win else (
+        # apt is a Debian concept — never surfaced on Windows OR macOS
+        "apt_line": "" if (is_win or is_mac) else (
             ("sudo apt install -y " + " ".join(apt_pkgs)) if apt_pkgs else ""),
+        # ...and brew is a macOS one. Exactly one of these is ever non-empty.
+        "brew_line": ("brew install " + " ".join(brew_pkgs))
+                     if (is_mac and brew_pkgs) else "",
     }
 
+
+# macOS install guidance per backend. Homebrew where a formula really exists,
+# an honest "build it / see the docs" where it does not. Deliberately NOT a
+# copy of the Linux text with apt swapped for brew: most of these have no
+# formula at all, and inventing one is how a user ends up with a command that
+# fails and guidance they stop believing.
+MACOS_HINTS = {
+    "openems": "No Homebrew formula. Build from source: xcode-select --install, then "
+               "brew install cmake hdf5 vtk boost cgal gmp tinyxml && git clone "
+               "--recursive https://github.com/thliebig/openEMS-Project.git && "
+               "./update_openEMS.sh ~/opt/openEMS --python",
+    "nec2": "No Homebrew formula in homebrew-core. Build the C source (small, quick): "
+            "https://www.qsl.net/5b4az/ — or check MacPorts for nec2c.",
+    "fasthenry": "No Homebrew formula. Build from source: git clone "
+                 "https://github.com/ediloren/FastHenry2.git && cd "
+                 "FastHenry2/src/fasthenry && make fasthenry "
+                 "CFLAGS=\"-O -DFOUR -m64 -fcommon\"  (clang needs -fcommon too).",
+    "elmer": "No Homebrew formula. CSC publishes macOS builds — see "
+             "https://www.elmerfem.org/ (Download → macOS), or build with "
+             "brew install cmake open-mpi openblas first.",
+    "palace": "No Homebrew formula. macOS IS supported by the CMake superbuild: "
+              "xcode-select --install, brew install cmake open-mpi openblas gcc, then "
+              "git clone https://github.com/awslabs/palace.git ~/opt/palace-src && "
+              "cmake -S ~/opt/palace-src -B ~/opt/palace-src/build "
+              "-DCMAKE_INSTALL_PREFIX=$HOME/opt/palace && cmake --build "
+              "~/opt/palace-src/build -j $(sysctl -n hw.ncpu)",
+    "gmsh": "brew install gmsh  — or the official .dmg from https://gmsh.info/",
+}
 
 # Windows install guidance per backend (native installers where they exist,
 # honest WSL pointers where they don't).
@@ -443,6 +516,28 @@ def install_report_text():
                       "then applies unchanged."]
         return "\n".join(lines)
 
+    if _is_mac():
+        lines = ["EMStudio solver installation report (macOS)", ""]
+        for info in plan["found"]:
+            ver = (" — " + info.version) if info.version else ""
+            lines.append("  [OK]      {0}: {1}{2}".format(
+                info.backend.label, info.path, ver))
+        for m in plan["missing"]:
+            lines.append("  [MISSING] {0}".format(m["info"].backend.label))
+        if plan["brew_line"]:
+            lines += ["", "Homebrew packages (one command):", "  " + plan["brew_line"]]
+        lines += ["", "Per-backend guidance:"]
+        for m in plan["missing"]:
+            b = m["info"].backend
+            lines.append("  {0}: {1}".format(
+                b.label, MACOS_HINTS.get(b.key, b.homepage or "see documentation")))
+        lines += ["", "A compiler is required for the source builds: "
+                      "xcode-select --install", ""]
+        lines += ["Homebrew itself: https://brew.sh — Apple Silicon installs under "
+                  "/opt/homebrew, Intel under /usr/local; make sure that bin "
+                  "directory is on PATH before FreeCAD starts."]
+        return "\n".join(lines)
+
     lines = ["EMStudio solver installation report", ""]
     for info in plan["found"]:
         ver = (" — " + info.version) if info.version else ""
@@ -459,7 +554,9 @@ def install_report_text():
                   "  " + m["steps"].replace("\n", "\n  ")]
         for p in m["missing_prereqs"]:
             note = (" — " + p.why) if p.why else ""
-            lines.append("  requires first: {0} (apt: {1}){2}".format(p.name, p.apt, note))
+            mgr, pkg = ("brew", p.brew) if _is_mac() else ("apt", p.apt)
+            lines.append("  requires first: {0}{1}{2}".format(
+                p.name, (" ({0}: {1})".format(mgr, pkg)) if pkg else "", note))
         for p in m["advisories"]:
             lines.append("  note: {0}".format(p.why))
     return "\n".join(lines)
@@ -469,14 +566,27 @@ def install_hint(backend):
     """Return a human-readable install suggestion for a missing backend.
 
     Platform-segregated: on Windows this returns ONLY the Windows guidance
-    (native installer / WSL2); on Linux ONLY the apt/pip/source-build recipe.
-    Callers never mix the two.
+    (native installer / WSL2), on macOS ONLY the Homebrew/source recipe, and on
+    Linux ONLY the apt/pip/source-build recipe. Callers never mix the two.
     """
     if os.name == "nt":
         win = WINDOWS_HINTS.get(backend.key)
         if win:
             return win
         return "Docs:  " + backend.homepage if backend.homepage else \
+            "See the backend's documentation to install it."
+    if _is_mac():
+        parts = []
+        if backend.brew_package:
+            parts.append("Homebrew:  brew install " + backend.brew_package)
+        mac = MACOS_HINTS.get(backend.key)
+        if mac:
+            parts.append(mac)
+        if backend.pip_package:
+            parts.append("pip:  pip install " + backend.pip_package)
+        if backend.homepage:
+            parts.append("Docs:  " + backend.homepage)
+        return "\n".join(parts) if parts else \
             "See the backend's documentation to install it."
     parts = []
     if backend.apt_package:
@@ -547,7 +657,10 @@ BUILD_PLANS = {
               "-DCMAKE_INSTALL_PREFIX=$HOME/opt/palace"]),
             ("build + install (the long step)",
              ["bash", "-c",
-              "cmake --build ~/opt/palace-src/build -j $(nproc)"]),
+              # nproc is coreutils and does not exist on a stock macOS; fall
+              # back to sysctl so the same recipe builds on both.
+              "cmake --build ~/opt/palace-src/build "
+              "-j $(nproc 2>/dev/null || sysctl -n hw.ncpu)"]),
         ],
     },
 }
@@ -584,14 +697,20 @@ def run_build(key, line_callback=None, job_slot=None):
 
     missing = [p for p, ok in check_prereqs(backend) if not ok]
     if missing:
-        pkgs = " ".join(dict.fromkeys(" ".join(p.apt for p in missing).split()))
+        if _is_mac():
+            pkgs = " ".join(dict.fromkeys(" ".join(p.brew for p in missing).split()))
+            install_cmd = ("  brew install {0}".format(pkgs) if pkgs else
+                           "  xcode-select --install   (and see https://brew.sh)")
+        else:
+            pkgs = " ".join(dict.fromkeys(" ".join(p.apt for p in missing).split()))
+            install_cmd = "  sudo apt install -y {0}".format(pkgs)
         raise SolverError(
             "build prerequisites missing for {0}:\n{1}\n\nInstall them first:\n"
-            "  sudo apt install -y {2}".format(
+            "{2}".format(
                 backend.label,
                 "\n".join("  - {0}{1}".format(p.name, (" — " + p.why) if p.why else "")
                           for p in missing),
-                pkgs))
+                install_cmd))
 
     emit = line_callback or (lambda line: None)
     for desc, cmd in plan["steps"]:

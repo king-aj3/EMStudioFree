@@ -71,7 +71,8 @@ class SolverInstallerDialog(QtWidgets.QDialog):
         self.apt_edit = QtWidgets.QLineEdit(self)
         self.apt_edit.setReadOnly(True)
         self.apt_edit.setPlaceholderText("(nothing missing that apt can provide)")
-        apt_row.addWidget(QtWidgets.QLabel("sudo step:", self))
+        self.pkg_label = QtWidgets.QLabel("sudo step:", self)
+        apt_row.addWidget(self.pkg_label)
         apt_row.addWidget(self.apt_edit, 1)
         self.copy_btn = QtWidgets.QPushButton("Copy", self)
         self.copy_btn.setToolTip(
@@ -120,8 +121,13 @@ class SolverInstallerDialog(QtWidgets.QDialog):
         rows = [(info, None) for info in plan["found"]]
         rows += [(m["info"], m) for m in plan["missing"]]
         rows.sort(key=lambda r: list(solvers.BACKENDS).index(r[0].backend.key))
-        self.apt_edit.setText(plan["apt_line"])
-        self.copy_btn.setEnabled(bool(plan["apt_line"]))
+        # macOS gets a brew line, Linux an apt line; install_plan() guarantees
+        # at most one is non-empty, so a Mac never sees a sudo apt command.
+        pkg_line = plan.get("brew_line") or plan["apt_line"]
+        self.pkg_label.setText("brew step:" if plan.get("brew_line")
+                               else "sudo step:")
+        self.apt_edit.setText(pkg_line)
+        self.copy_btn.setEnabled(bool(pkg_line))
 
         self.table.setRowCount(len(rows))
         for i, (info, miss) in enumerate(rows):
@@ -138,8 +144,13 @@ class SolverInstallerDialog(QtWidgets.QDialog):
             elif os.name == "nt":
                 detail = solvers.WINDOWS_HINTS.get(b.key, b.homepage)
             elif miss and not miss["prereqs_ok"]:
+                _mac = solvers._is_mac()
                 detail = "needs packages first: " + ", ".join(
-                    p.apt for p in miss["missing_prereqs"] if p.apt)
+                    (p.brew if _mac else p.apt)
+                    for p in miss["missing_prereqs"]
+                    if (p.brew if _mac else p.apt))
+            elif solvers._is_mac():
+                detail = solvers.MACOS_HINTS.get(b.key, b.homepage)
             elif b.apt_package and not b.source_build:
                 detail = "in the sudo step below (apt: {0})".format(b.apt_package)
             else:

@@ -3,6 +3,42 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.77.1] — 2026-08-01 — Solver Setup works on macOS
+
+### Fixed
+- **Solver Setup gave macOS users Debian `apt` commands, so it could not be
+  followed at all.** Reported on the FreeCAD forum by *ap_engineering* on
+  macOS 26.x — the first bug report EMStudio has received, and a fair one.
+  `emstudio/setup/solvers.py` branched on `os.name == "nt"` and treated
+  everything else as Debian; macOS is `posix`, so a Mac fell into the Linux
+  path and was told to run `sudo apt install -y cmake libhdf5-dev …`. There is
+  now a third branch:
+  - `install_hint()`, `install_plan()` and `install_report_text()` each have a
+    macOS path. The report is headed "(macOS)", leads with
+    `xcode-select --install`, and explains that Homebrew's bin directory must
+    be on `PATH` before FreeCAD starts or detection cannot see the solvers.
+  - `install_plan()` returns a **`brew_line`** — one `brew install …` covering
+    every missing prerequisite — and `apt_line` is now empty on macOS as well
+    as on Windows. Exactly one of the two is ever non-empty.
+  - `Prereq` gained a `brew` field and `Backend` a `brew_package`. These are
+    filled in **only where a homebrew-core formula genuinely exists**; where
+    none does (openEMS, NEC2, FastHenry, Elmer, Palace) the guidance says so
+    and points at the source build instead of inventing a formula name.
+  - The Solver Setup dialog relabels its command row "brew step:" and copies
+    the brew command; the per-backend detail column shows macOS guidance.
+  - The Palace build step used `$(nproc)`, which does not exist on a stock
+    macOS, so even a correctly-prepared Mac would have failed mid-build. It is
+    now `$(nproc 2>/dev/null || sysctl -n hw.ncpu)`.
+- The platform-segregation gate in `tests/smoke.py` covered Windows and Linux
+  only — which is exactly why this shipped. It now covers macOS too, forces a
+  known-missing prerequisite so the assertion cannot pass by accident of what
+  the build machine has installed, and asserts no build step depends on
+  `nproc`. Mutation-tested: 4/4 deliberate regressions caught, including
+  deletion of the whole macOS branch.
+
+### Changed
+- README's backend table gained an **Install (macOS)** column.
+
 ## [0.77.0] — 2026-07-31 — EMStudio Pro is on sale
 
 ### Added

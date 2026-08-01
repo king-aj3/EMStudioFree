@@ -115,6 +115,17 @@ Restart FreeCAD and pick **EMStudio** from the workbench dropdown. Then use
 and gives you a single install command for what is missing. The workbench runs
 without any solver installed; the analytic tools work regardless.
 
+Solver Setup is platform-aware: `apt` on Debian/Ubuntu/Mint, `brew` on macOS,
+native installers or WSL2 on Windows.
+
+**On macOS**, run `xcode-select --install` first — several solvers have no
+Homebrew formula and are built from source. Homebrew's bin directory
+(`/opt/homebrew/bin` on Apple Silicon, `/usr/local/bin` on Intel) must be on
+`PATH` **before FreeCAD starts**, or detection will not find solvers you have
+already installed. Launching FreeCAD from Finder does not read your shell
+profile; starting it once from a terminal is the quickest way to confirm that
+is the problem.
+
 ## Documentation
 
 [HELP](HELP.md) — every command, at a glance ·

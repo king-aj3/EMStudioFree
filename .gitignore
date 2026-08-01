@@ -31,3 +31,6 @@ Thumbs.db
 # A.D. Watt reference PDF — copyrighted internal dev reference, NEVER commit
 /Dr_Watt_document*
 /*.pdf
+
+# Pro release artifacts — built by tools/build_pro_zip.py, uploaded to Gumroad
+dist/
