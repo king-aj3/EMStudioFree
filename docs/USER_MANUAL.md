@@ -24,12 +24,18 @@ are real results from those tests, not illustrations.
 ## 1. Installation
 
 1. Install FreeCAD 0.21 or newer (1.x recommended).
-2. Install EMStudio into FreeCAD's user Mod directory:
+2. Install EMStudio through the FreeCAD **Add-on Manager** (Tools → Addon Manager →
+   search "EMStudio" → Install). To install manually instead:
    ```bash
-   ln -sfn /path/to/Electro-Magnetic_Modeling ~/.local/share/FreeCAD/Mod/EMStudio      # FreeCAD <= 1.0
-   ln -sfn /path/to/Electro-Magnetic_Modeling ~/.local/share/FreeCAD/v1-1/Mod/EMStudio # FreeCAD 1.1+
+   git clone https://github.com/king-aj3/EMStudioFree.git \
+     ~/.local/share/FreeCAD/Mod/EMStudio        # FreeCAD <= 1.0
+   git clone https://github.com/king-aj3/EMStudioFree.git \
+     ~/.local/share/FreeCAD/v1-1/Mod/EMStudio   # FreeCAD 1.1+
    ```
-   (FreeCAD ≥ 1.1 uses version-suffixed directories — install into both if unsure.)
+   (FreeCAD ≥ 1.1 uses version-suffixed directories — install into both if unsure.
+   Install into **one** Mod directory per FreeCAD version: two copies both put a
+   package named `emstudio` on `sys.path`, and which one loads is not the order
+   you would guess.)
 3. Restart FreeCAD and pick **EMStudio** from the workbench dropdown.
 4. Click **Detect / Install Solvers** (the wizard also offers itself automatically
    the first time you activate the workbench with solvers missing). It shows what
