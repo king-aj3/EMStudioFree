@@ -788,6 +788,30 @@ def _install_text_platform_segregation():
         for flag in required:
             assert flag in solvers.BACKENDS["fasthenry"].manual_hint, \
                 "FastHenry manual_hint is missing " + flag
+
+        # Every Homebrew formula we name must be one someone actually verified
+        # exists. `tinyxml` was added from memory, shipped, and is not in
+        # homebrew-core (only tinyxml2, a different API) — which is precisely
+        # the failure the macOS fix existed to stop: a confident command that
+        # cannot run. Offline check against a curated set; verify with
+        # formulae.brew.sh/api/formula/<name>.json before adding to it.
+        named = set()
+        for b in solvers.BACKENDS.values():
+            named.update(b.brew_package.split())
+            for pq in b.prerequisites:
+                named.update(pq.brew.split())
+        unverified = named - solvers.VERIFIED_BREW_FORMULAE
+        assert not unverified, (
+            "unverified Homebrew formula name(s): %s — curl "
+            "formulae.brew.sh/api/formula/<name>.json, then add to "
+            "VERIFIED_BREW_FORMULAE" % sorted(unverified))
+        # ...and the prose hints must not smuggle one past that check.
+        for key, hint in solvers.MACOS_HINTS.items():
+            for tok in hint.split():
+                if tok in ("tinyxml", "tinyxml2"):
+                    raise AssertionError(
+                        "MACOS_HINTS[%r] names %s as if installable; TinyXML v1 "
+                        "is not in homebrew-core" % (key, tok))
     finally:
         solvers.detect_all = real_detect
         os.name = real_os

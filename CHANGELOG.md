@@ -3,6 +3,30 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.77.3] — 2026-08-02 — `brew install tinyxml` does not exist
+
+### Fixed
+- **The macOS guidance named a Homebrew formula that is not real.** `tinyxml`
+  was added to the openEMS prerequisites from memory; homebrew-core carries only
+  `tinyxml2`, which is a **different API** — openEMS needs v1, so substituting it
+  would produce a build that fails later and deeper. The prerequisite now
+  declares no formula and says why, and the openEMS macOS hint tells you to
+  build TinyXML v1 from source or use a tap.
+  This is the *exact* failure the 0.77.1 fix existed to prevent — a confident
+  command that cannot run — reintroduced two versions later by trusting memory
+  over a lookup. Every other formula named in the file was checked against
+  `formulae.brew.sh/api/formula/<name>.json`: gmsh, cmake, git, hdf5, vtk,
+  boost, cgal, gmp, open-mpi, openblas and gcc all exist; nec2c, openems,
+  fasthenry, elmerfem and palace do not, and were already documented as having
+  none.
+- New gate: `VERIFIED_BREW_FORMULAE` is an explicit allow-list, and the smoke
+  test refuses any `brew=` / `brew_package` outside it, plus any attempt to
+  smuggle `tinyxml`/`tinyxml2` back through the prose hints. Adding a formula
+  now requires curling the API and updating the set in the same commit.
+  Mutation-tested 2/2.
+- README's macOS column no longer lists `tinyxml` in the brew line, and the
+  status line said v0.77.0 three releases after it stopped being true.
+
 ## [0.77.2] — 2026-08-02 — the FastHenry build works on a modern compiler
 
 ### Fixed

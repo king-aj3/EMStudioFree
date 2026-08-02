@@ -137,7 +137,12 @@ BACKENDS = {
             Prereq("VTK 9 dev", "lib", "vtkCommonCore", "libvtk9-dev", brew="vtk"),
             Prereq("Boost dev", "lib", "boost_system", "libboost-all-dev", brew="boost"),
             Prereq("CGAL dev", "lib", "gmp", "libcgal-dev libgmp-dev", brew="cgal gmp"),
-            Prereq("TinyXML dev", "lib", "tinyxml", "libtinyxml-dev", brew="tinyxml"),
+            # NO brew formula: homebrew-core dropped TinyXML v1 and carries only
+            # tinyxml2, which is a DIFFERENT API — openEMS wants v1, so naming
+            # tinyxml2 here would produce a build that fails later and further in.
+            Prereq("TinyXML dev", "lib", "tinyxml", "libtinyxml-dev",
+                   why="macOS: not in homebrew-core (only tinyxml2, a different "
+                       "API) — build TinyXML v1 from source or use a tap"),
             Prereq("python venv", "bin", "python3", "python3-venv python3-setuptools cython3",
                    "PEP 668: python modules must install into a venv on Ubuntu 24.04+"),
         ),
@@ -453,6 +458,18 @@ def install_plan():
     }
 
 
+#: Every Homebrew formula named anywhere in this file, VERIFIED to exist in
+#: homebrew-core (checked against formulae.brew.sh/api/formula/<name>.json on
+#: 2026-08-02). A gate in tests/smoke.py refuses any `brew=` or `brew_package`
+#: outside this set. This exists because `tinyxml` was added here from memory,
+#: shipped, and does not exist — the exact failure the macOS fix was FOR: a
+#: confident command that cannot run. If you add a formula, curl the API first
+#: and add it here in the same commit.
+VERIFIED_BREW_FORMULAE = {
+    "gmsh", "cmake", "git", "hdf5", "vtk", "boost", "cgal", "gmp",
+    "open-mpi", "openblas", "gcc",
+}
+
 # macOS install guidance per backend. Homebrew where a formula really exists,
 # an honest "build it / see the docs" where it does not. Deliberately NOT a
 # copy of the Linux text with apt swapped for brew: most of these have no
@@ -460,7 +477,9 @@ def install_plan():
 # fails and guidance they stop believing.
 MACOS_HINTS = {
     "openems": "No Homebrew formula. Build from source: xcode-select --install, then "
-               "brew install cmake hdf5 vtk boost cgal gmp tinyxml && git clone "
+               "brew install cmake hdf5 vtk boost cgal gmp  (TinyXML v1 is NOT in "
+               "homebrew-core — only tinyxml2, a different API — so build it from "
+               "source or use a tap), then git clone "
                "--recursive https://github.com/thliebig/openEMS-Project.git && "
                "./update_openEMS.sh ~/opt/openEMS --python",
     "nec2": "No Homebrew formula in homebrew-core. Build the C source (small, quick): "
