@@ -38,6 +38,25 @@ def _is_mac():
     """
     return sys.platform == "darwin"
 
+#: Directories worth probing on macOS regardless of which backend we are after.
+#: Homebrew installs to /opt/homebrew (Apple Silicon) or /usr/local (Intel), and
+#: **FreeCAD launched from Finder does not inherit your shell PATH** — so
+#: `brew install gmsh` could succeed while Detect Solvers still said MISSING.
+#: Telling the user to fix their PATH was the 0.77.1 answer; looking in the
+#: right place is the better one. MacPorts' /opt/local/bin is here for the same
+#: reason (nec2c has a MacPorts port but no Homebrew formula).
+MACOS_PROBE_DIRS = (
+    "/opt/homebrew/bin",        # Homebrew, Apple Silicon
+    "/usr/local/bin",           # Homebrew, Intel
+    "/opt/local/bin",           # MacPorts
+)
+
+
+def _platform_dirs():
+    """Extra probe directories that apply to every backend on this platform."""
+    return MACOS_PROBE_DIRS if _is_mac() else ()
+
+
 # Preferences group used for per-backend binary overrides.
 PREF_GROUP = "User parameter:BaseApp/Preferences/Mod/EMStudio"
 
@@ -311,7 +330,7 @@ def find_backend(key):
 
     # 4) common platform-specific directories (probe .exe/.bat variants on Windows)
     suffixes = ("", ".exe", ".bat", ".cmd") if os.name == "nt" else ("",)
-    for directory in backend.extra_dirs:
+    for directory in tuple(backend.extra_dirs) + _platform_dirs():
         for name in backend.executables:
             for sfx in suffixes:
                 cand = os.path.join(directory, name + sfx)

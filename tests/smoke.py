@@ -789,6 +789,53 @@ def _install_text_platform_segregation():
             assert flag in solvers.BACKENDS["fasthenry"].manual_hint, \
                 "FastHenry manual_hint is missing " + flag
 
+        # Homebrew's bin dirs must be PROBED, not merely mentioned in prose.
+        # FreeCAD launched from Finder does not inherit the shell PATH, so
+        # `brew install gmsh` can succeed while detection still says MISSING.
+        # 0.77.1 shipped that as advice to the user; probing is the actual fix.
+        assert "/opt/homebrew/bin" in solvers.MACOS_PROBE_DIRS, \
+            "Apple Silicon Homebrew bin dir must be probed"
+        assert "/usr/local/bin" in solvers.MACOS_PROBE_DIRS, \
+            "Intel Homebrew bin dir must be probed"
+        assert solvers._platform_dirs() == solvers.MACOS_PROBE_DIRS, \
+            "macOS probe dirs are not being applied on darwin"
+        _sys.platform = "linux"
+        assert solvers._platform_dirs() == (), \
+            "macOS probe dirs must NOT leak onto Linux"
+        _sys.platform = "darwin"
+
+        # ...and the SEARCH must actually consult them. Asserting the constant
+        # exists is not enough: deleting `_platform_dirs()` from the probe loop
+        # left every other assertion here green (proved by mutation). Plant a
+        # binary in a fake Homebrew dir and require find_backend to locate it.
+        import shutil as _sh
+        import stat as _stat
+        import tempfile as _tf
+        _probe_dir = _tf.mkdtemp(prefix="emstudio-brewprobe-")
+        _real_dirs = solvers.MACOS_PROBE_DIRS
+        _real_backends = dict(solvers.BACKENDS)
+        try:
+            fake_exe = "emstudio-probe-canary"
+            assert _sh.which(fake_exe) is None, "canary must not be on PATH"
+            planted = os.path.join(_probe_dir, fake_exe)
+            with open(planted, "w") as fh:
+                fh.write("#!/bin/sh\nexit 0\n")
+            os.chmod(planted, os.stat(planted).st_mode | _stat.S_IEXEC)
+            solvers.MACOS_PROBE_DIRS = (_probe_dir,)
+            solvers.BACKENDS["_canary"] = solvers.Backend(
+                key="_canary", label="canary", method="none",
+                executables=(fake_exe,), version_args=("--version",))
+            info = solvers.find_backend("_canary")
+            assert info.found and info.source == "probe", (
+                "a binary in a Homebrew-style dir was not found on macOS — the "
+                "probe loop is ignoring MACOS_PROBE_DIRS (found=%r source=%r)"
+                % (info.found, info.source))
+        finally:
+            solvers.MACOS_PROBE_DIRS = _real_dirs
+            solvers.BACKENDS.clear()
+            solvers.BACKENDS.update(_real_backends)
+            _sh.rmtree(_probe_dir, ignore_errors=True)
+
         # Every Homebrew formula we name must be one someone actually verified
         # exists. `tinyxml` was added from memory, shipped, and is not in
         # homebrew-core (only tinyxml2, a different API) — which is precisely

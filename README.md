@@ -119,12 +119,12 @@ Solver Setup is platform-aware: `apt` on Debian/Ubuntu/Mint, `brew` on macOS,
 native installers or WSL2 on Windows.
 
 **On macOS**, run `xcode-select --install` first — several solvers have no
-Homebrew formula and are built from source. Homebrew's bin directory
-(`/opt/homebrew/bin` on Apple Silicon, `/usr/local/bin` on Intel) must be on
-`PATH` **before FreeCAD starts**, or detection will not find solvers you have
-already installed. Launching FreeCAD from Finder does not read your shell
-profile; starting it once from a terminal is the quickest way to confirm that
-is the problem.
+Homebrew formula and are built from source. Detection looks in
+`/opt/homebrew/bin` (Apple Silicon), `/usr/local/bin` (Intel) and
+`/opt/local/bin` (MacPorts) as well as on `PATH`, so a brew-installed solver is
+found even though FreeCAD launched from Finder does not inherit your shell
+profile. If something is installed somewhere else entirely, set its path
+explicitly in the preferences or via `EMSTUDIO_<BACKEND>`.
 
 ## Documentation
 

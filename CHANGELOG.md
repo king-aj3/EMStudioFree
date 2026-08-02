@@ -3,6 +3,26 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.77.4] — 2026-08-02 — look where Homebrew puts things
+
+### Fixed
+- **A solver installed with Homebrew could still report MISSING on macOS.**
+  Detection probed PATH plus a few source-build directories, and **FreeCAD
+  launched from Finder does not inherit your shell PATH** — so `brew install
+  gmsh` could succeed while Solver Setup insisted gmsh was absent. 0.77.1
+  shipped this as *advice* ("put Homebrew's bin on PATH before starting
+  FreeCAD"); telling the user to work around it was the wrong answer when the
+  fix is to look in the right place. `MACOS_PROBE_DIRS` now adds
+  `/opt/homebrew/bin` (Apple Silicon), `/usr/local/bin` (Intel) and
+  `/opt/local/bin` (MacPorts — nec2c has a port there and no Homebrew formula)
+  to the probe for every backend, on macOS only.
+- New gate, found by auditing rather than by a report. Note the first version
+  of the gate asserted the *constant* existed, and a mutation that deleted
+  `_platform_dirs()` from the actual search loop **survived it** — asserting a
+  value is not the same as asserting the behaviour. It now plants a real binary
+  in a fake Homebrew directory and requires `find_backend` to locate it.
+  Mutation-tested 4/4.
+
 ## [0.77.3] — 2026-08-02 — `brew install tinyxml` does not exist
 
 ### Fixed
