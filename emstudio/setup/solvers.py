@@ -157,12 +157,18 @@ BACKENDS = {
         method="PEEC/filament",
         executables=("fasthenry",),
         version_args=("-help",),
-        # Not packaged in Ubuntu 24.04/Mint 22 — small C source build. Modern GCC
-        # needs -fcommon (legacy common-symbol linkage).
+        # Not packaged in Ubuntu 24.04/Mint 22 — small C source build. FastHenry
+        # is K&R-era C and needs THREE suppressions on any modern compiler:
+        #   -fcommon                          legacy common-symbol linkage (GCC >= 10)
+        #   -Wno-implicit-int                 `main(argc, argv)` with no return type
+        #   -Wno-implicit-function-declaration  calls before declaration
+        # The last two became ERRORS by default in Apple clang 15 / GCC 14, which
+        # is how a build that worked for years starts failing: 20 errors in
+        # induct.c. Reported on macOS 26.5 (arm64, clang) 2026-08-01.
         manual_hint=(
             "Build from source (LGPL): git clone "
             "https://github.com/ediloren/FastHenry2.git && cd FastHenry2/src/fasthenry "
-            "&& make fasthenry CFLAGS=\"-O -DFOUR -m64 -fcommon\""
+            "&& make fasthenry CFLAGS=\"-O -DFOUR -m64 -fcommon -Wno-implicit-int -Wno-implicit-function-declaration\""
         ),
         homepage="https://www.fastfieldsolvers.com/",
         extra_dirs=(os.path.expanduser("~/opt/FastHenry2/bin"),),
@@ -172,9 +178,11 @@ BACKENDS = {
             Prereq("git", "bin", "git", "git", brew="git"),
             # the hard-won one: default -fno-common in GCC>=10 breaks the link
             Prereq("(build flag)", "bin", "cc", "",
-                   "MUST compile with CFLAGS containing -fcommon on GCC >= 10 "
-                   "(legacy common-symbol linkage) or the link fails with "
-                   "'multiple definition of timestuff'"),
+                   "MUST compile with CFLAGS containing -fcommon (GCC >= 10, or the "
+                   "link fails with 'multiple definition of timestuff') PLUS "
+                   "-Wno-implicit-int -Wno-implicit-function-declaration, which "
+                   "Apple clang 15+ and GCC 14+ turn into hard errors on this "
+                   "K&R-era source"),
         ),
     ),
     "elmer": Backend(
@@ -460,7 +468,10 @@ MACOS_HINTS = {
     "fasthenry": "No Homebrew formula. Build from source: git clone "
                  "https://github.com/ediloren/FastHenry2.git && cd "
                  "FastHenry2/src/fasthenry && make fasthenry "
-                 "CFLAGS=\"-O -DFOUR -m64 -fcommon\"  (clang needs -fcommon too).",
+                 "CFLAGS=\"-O -DFOUR -m64 -fcommon -Wno-implicit-int "
+                 "-Wno-implicit-function-declaration\"  — Apple clang 15+ and GCC 14+ "
+                 "make the implicit-* diagnostics errors, so all three flags are "
+                 "required, not optional.",
     "elmer": "No Homebrew formula. CSC publishes macOS builds — see "
              "https://www.elmerfem.org/ (Download → macOS), or build with "
              "brew install cmake open-mpi openblas first.",
@@ -637,10 +648,10 @@ BUILD_PLANS = {
              ["bash", "-c",
               "test -d ~/opt/FastHenry2 || git clone "
               "https://github.com/ediloren/FastHenry2.git ~/opt/FastHenry2"]),
-            ("build (GCC>=10 needs -fcommon)",
+            ("build (K&R-era C: needs -fcommon + the two implicit-* suppressions)",
              ["bash", "-c",
               "cd ~/opt/FastHenry2/src/fasthenry && "
-              "make fasthenry CFLAGS=\"-O -DFOUR -m64 -fcommon\""]),
+              "make fasthenry CFLAGS=\"-O -DFOUR -m64 -fcommon -Wno-implicit-int -Wno-implicit-function-declaration\""]),
         ],
     },
     "palace": {

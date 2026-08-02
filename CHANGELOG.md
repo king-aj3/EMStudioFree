@@ -3,6 +3,24 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.77.2] — 2026-08-02 — the FastHenry build works on a modern compiler
+
+### Fixed
+- **The guided FastHenry build failed on macOS with ~20 errors in `induct.c`** —
+  the second half of the same forum report, which 0.77.1 missed. FastHenry is
+  K&R-era C (`main(argc, argv)` with no return type, calls before declaration).
+  **Apple clang 15+ and GCC 14+ promoted `-Wimplicit-int` and
+  `-Wimplicit-function-declaration` from warnings to hard errors**, so a build
+  that had worked for years now dies at the first file. The CFLAGS everywhere
+  they are quoted — the build plan, the manual hint and the macOS hint — are now
+  `-O -DFOUR -m64 -fcommon -Wno-implicit-int -Wno-implicit-function-declaration`.
+  Verified by reproducing the failure with `-Werror=implicit-int
+  -Werror=implicit-function-declaration` and confirming the added flags clear it.
+  This is not macOS-specific: it lands on Linux too as soon as GCC 14 arrives,
+  which is why the build machine's GCC 13 never saw it.
+- New gate: every place that quotes the FastHenry CFLAGS must carry all three
+  flags. Mutation-tested 2/2.
+
 ## [0.77.1] — 2026-08-01 — Solver Setup works on macOS
 
 ### Fixed

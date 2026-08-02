@@ -2,7 +2,7 @@
 <package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
   <name>EMStudio</name>
   <description>RF and electromagnetic modeling and simulation inside FreeCAD. EMStudio provides a guided workflow (geometry - materials - ports/boundaries - mesh - solve - results) that drives open-source EM solvers (openEMS FDTD, NEC2 MoM, Elmer FEM, AWS Palace FEM) as isolated backends. A free alternative to CENOS RF and Ansys HFSS-class tools.</description>
-  <version>0.77.1</version>
+  <version>0.77.2</version>
   <date>2026-07-27</date>
   <maintainer email="king.arthur_3@yahoo.com">AJ</maintainer>
   <license file="LICENSE">LGPL-2.1-or-later</license>

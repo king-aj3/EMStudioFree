@@ -769,6 +769,25 @@ def _install_text_platform_segregation():
             cmd = " ".join(plan_steps[1])
             assert "$(nproc)" not in cmd, \
                 "build step uses bare $(nproc), which fails on macOS: " + cmd
+
+        # FastHenry is K&R-era C. Apple clang 15+ and GCC 14+ make implicit-int
+        # and implicit-function-declaration ERRORS, so the build dies with ~20
+        # errors in induct.c without these. Reported on macOS 26.5 arm64,
+        # 2026-08-01 — the guided Build button was the only one enabled, and it
+        # failed. Every place that quotes the CFLAGS must carry all three.
+        required = ("-fcommon", "-Wno-implicit-int",
+                    "-Wno-implicit-function-declaration")
+        fh_cmds = [" ".join(st[1])
+                   for st in (solvers.BUILD_PLANS.get("fasthenry") or {}).get("steps", [])
+                   if "make fasthenry" in " ".join(st[1])]
+        assert fh_cmds, "no FastHenry compile step found to check"
+        for cmd in fh_cmds:
+            for flag in required:
+                assert flag in cmd, \
+                    "FastHenry build step is missing {0}: {1}".format(flag, cmd)
+        for flag in required:
+            assert flag in solvers.BACKENDS["fasthenry"].manual_hint, \
+                "FastHenry manual_hint is missing " + flag
     finally:
         solvers.detect_all = real_detect
         os.name = real_os
