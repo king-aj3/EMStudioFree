@@ -741,11 +741,26 @@ def _install_text_platform_segregation():
         # the check can fail, so force a known-missing prerequisite. Without
         # this the whole macOS branch of install_plan() could be deleted and
         # every other assertion here would still pass (proved by mutation).
+        # Pin BOTH inputs: which backends are missing AND which prereqs are
+        # missing. Forcing only the prereqs was not enough — install_plan also
+        # folds in each missing backend's own brew_package, so on a machine
+        # WITHOUT gmsh the line became "brew install vtk gmsh" and on one WITH
+        # gmsh it was "brew install vtk". That shipped, red, four times: it
+        # passed here and failed every CI run, because CI has no gmsh. An
+        # assertion whose result depends on the host is not a gate — which is
+        # the exact lesson this block was written to enforce.
         real_prereqs = solvers.check_prereqs
+        real_detect_p = solvers.detect_all
         try:
             vtk = [p for p in solvers.BACKENDS["openems"].prerequisites
                    if p.brew == "vtk"][0]
             solvers.check_prereqs = lambda b: [(vtk, False)]
+            # exactly one missing backend, and one with no brew_package of its
+            # own, so the only formula in the line comes from the prereq
+            assert solvers.BACKENDS["openems"].brew_package == "", \
+                "this check assumes openems has no brew formula"
+            solvers.detect_all = lambda: {
+                "openems": solvers.SolverInfo(solvers.BACKENDS["openems"], "")}
             forced = solvers.install_plan()
             assert forced["brew_line"] == "brew install vtk", (
                 "macOS must roll missing prerequisites into ONE brew command, got: %r"
@@ -753,6 +768,7 @@ def _install_text_platform_segregation():
             assert forced["apt_line"] == "", "still no apt on macOS"
         finally:
             solvers.check_prereqs = real_prereqs
+            solvers.detect_all = real_detect_p
 
         assert (not plan["brew_line"]) or plan["brew_line"].startswith("brew install"), \
             "a non-empty brew line must be a brew command: " + plan["brew_line"]
