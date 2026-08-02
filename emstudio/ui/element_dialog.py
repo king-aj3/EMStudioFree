@@ -1480,7 +1480,8 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                 import os
 
                 from emstudio.setup import solvers as solver_setup
-                from emstudio.solvers.base import SolverJob, make_workdir
+                from emstudio.solvers.base import (SolverJob, make_workdir,
+                                                   nec2_argv)
                 from emstudio.solvers.nec2 import parser as nec_parser
                 from emstudio.solvers.nec2 import writer as nec_writer
 
@@ -1490,7 +1491,7 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                 ffd = os.path.join(wd, "ff.nec")
                 ffo = os.path.join(wd, "ff.out")
                 nec_writer.write_nec_farfield(ana, solver, ffd, f_mid)
-                SolverJob([info.path, "-i", ffd, "-o", ffo],
+                SolverJob(nec2_argv(info.path, ffd, ffo),
                           cwd=wd, line_callback=cb).run_blocking(timeout=300)
                 result.farfield = nec_parser.parse_radiation_patterns(
                     ffo, f_mid)
@@ -1502,7 +1503,8 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                 import os
 
                 from emstudio.setup import solvers as solver_setup
-                from emstudio.solvers.base import SolverJob, make_workdir
+                from emstudio.solvers.base import (SolverJob, make_workdir,
+                                                   nec2_argv)
                 from emstudio.solvers.nec2 import parser as nec_parser
                 from emstudio.solvers.nec2 import writer as nec_writer
 
@@ -1511,7 +1513,7 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                 ffd = os.path.join(wd, "ff.nec")
                 ffo = os.path.join(wd, "ff.out")
                 nec_writer.write_nec_farfield(ana, solver, ffd, f0)
-                SolverJob([info.path, "-i", ffd, "-o", ffo],
+                SolverJob(nec2_argv(info.path, ffd, ffo),
                           cwd=wd, line_callback=cb).run_blocking(timeout=300)
                 result.farfield = nec_parser.parse_radiation_patterns(ffo, f0)
             return result

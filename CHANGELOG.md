@@ -3,6 +3,30 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.77.5] — 2026-08-02 — nec2c aborted on macOS: input filename too long
+
+### Fixed
+- **Every NEC2 run failed on macOS with `nec2c: Input file name too long -
+  aborting` (exit 255).** nec2c has a fixed-size input-filename buffer, and
+  EMStudio passed it absolute paths. Those fit on Linux
+  (`/tmp/emstudio_nec2_xxxx/case.nec`, ~36 chars) and do not on macOS, where
+  `tempfile` yields `/var/folders/<hash>/T/…` and the same deck runs ~80.
+  Reported by *ap_engineering* on macOS 26.5 after he built nec2c from source
+  himself — so the run reached the solver and died there, which is why the
+  earlier fixes did not surface it.
+- Every caller already passed `cwd=<deck's directory>`, so the basename was
+  always sufficient — and is what the Elmer, FastHenry and Palace runners were
+  already doing. NEC2 was the lone holdout. All **seven** invocations now go
+  through one helper, `emstudio.solvers.base.nec2_argv()`, which also refuses a
+  deck and output in different directories rather than silently truncating.
+- **This affected Pro as well as Free** — `system/array_system.py` (Array
+  Designer) and `system/rfdf.py` (RF direction finding) each build NEC2 decks,
+  so both were broken on macOS. **Pro needs a rebuild and re-upload**, unlike
+  0.77.1-0.77.4 which touched only free-tier files.
+- Gated: the helper's behaviour plus a static scan that refuses any hand-built
+  `[exe, "-i", …]` argv anywhere under `emstudio/`. Mutation-tested 4/4,
+  including a deliberate regression in the Pro call site.
+
 ## [0.77.4] — 2026-08-02 — look where Homebrew puts things
 
 ### Fixed

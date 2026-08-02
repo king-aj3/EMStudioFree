@@ -683,6 +683,61 @@ def _coverage_engine():
         "KML north must exceed south"
 
 
+def _nec2_filename_length():
+    """nec2c aborts on a long input filename — pass basenames, not abs paths.
+
+    nec2c has a fixed-size input-filename buffer and exits 255 with
+    "Input file name too long - aborting". Absolute paths fit on Linux
+    (/tmp/emstudio_nec2_xxxx/case.nec, ~36 chars) and do NOT on macOS, where
+    tempfile yields /var/folders/<hash>/T/... and the same deck runs ~80.
+    Reported 2026-08-02 from macOS 26.5 by a user who had built nec2c himself,
+    so the run reached the solver and died there.
+
+    Two checks: the helper behaves, and no call site bypasses it.
+    """
+    import re
+    from emstudio.solvers.base import nec2_argv
+
+    argv = nec2_argv("/usr/local/bin/nec2c",
+                     "/var/folders/9k/8lz3v_hd6yq5h4y7_4x2f3rw0000gn/T/"
+                     "emstudio_nec2_a1b2c3d4/case.nec",
+                     "/var/folders/9k/8lz3v_hd6yq5h4y7_4x2f3rw0000gn/T/"
+                     "emstudio_nec2_a1b2c3d4/case.out")
+    assert argv[1:] == ["-i", "case.nec", "-o", "case.out"], argv
+    for a in argv[1:]:
+        assert os.sep not in a, "nec2 argv must carry basenames only: %r" % a
+    # a deck and output in different directories cannot both be reached from
+    # one cwd — that must be refused loudly, not silently truncated
+    try:
+        nec2_argv("nec2c", "/tmp/a/case.nec", "/tmp/b/case.out")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("mismatched deck/out directories must raise")
+
+    # No call site may build the argv by hand again.
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bad = []
+    pat = re.compile(r'\[\s*[\w.]+\s*,\s*"-i"')
+    for dirpath, dirs, files in os.walk(os.path.join(root, "emstudio")):
+        dirs[:] = [d for d in dirs if d not in ("__pycache__",)]
+        for fn in files:
+            if not fn.endswith(".py"):
+                continue
+            full = os.path.join(dirpath, fn)
+            # solvers/base.py DEFINES the helper; its own return line is the
+            # one legitimate place the argv is built literally.
+            if os.path.relpath(full, root) == os.path.join(
+                    "emstudio", "solvers", "base.py"):
+                continue
+            with open(full, encoding="utf-8") as fh:
+                for i, line in enumerate(fh, 1):
+                    if pat.search(line):
+                        bad.append("%s:%d" % (os.path.relpath(full, root), i))
+    assert not bad, ("nec2 argv built by hand instead of via nec2_argv() at: %s"
+                     % ", ".join(bad))
+
+
 def _install_text_platform_segregation():
     """Install instructions must be platform-pure: no Linux commands on Windows.
 
@@ -1128,6 +1183,8 @@ def main():
     check("icons parse as valid XML/SVG", _icons_parse_as_xml)
     check("installer build plans well-formed (no sudo)", _installer_build_plans)
     check("install text is platform-segregated (Win/Linux)", _install_text_platform_segregation)
+    check("nec2 argv uses basenames (macOS temp paths overflow nec2c)",
+          _nec2_filename_length)
     check("Elmer magnetics backend imports headless + writes .geo", _elmer_backend_headless)
     check("Elmer 3-D WhitneyAV backend headless (.geo + .sif)", _elmer3d_backend_headless)
     check("axisymmetric full-revolution tolerance (GUI bbox guard)", _axi_revolution_tolerance)

@@ -6,7 +6,8 @@ from __future__ import annotations
 import os
 
 from emstudio.setup import solvers as solver_setup
-from emstudio.solvers.base import SolverError, SolverJob, make_workdir
+from emstudio.solvers.base import (SolverError, SolverJob, make_workdir,
+                                   nec2_argv)
 
 from . import parser, writer
 
@@ -29,7 +30,7 @@ def run(analysis, solver, workdir=None, line_callback=None):
     _, sweep, z0 = writer.write_nec(analysis, solver, deck)
 
     job = SolverJob(
-        [info.path, "-i", deck, "-o", outfile],
+        nec2_argv(info.path, deck, outfile),
         cwd=workdir,
         line_callback=line_callback,
     )
@@ -50,7 +51,7 @@ def run(analysis, solver, workdir=None, line_callback=None):
         ff_out = os.path.join(workdir, "case_ff.out")
         writer.write_nec_farfield(analysis, solver, ff_deck, f_ff)
         SolverJob(
-            [info.path, "-i", ff_deck, "-o", ff_out],
+            nec2_argv(info.path, ff_deck, ff_out),
             cwd=workdir,
             line_callback=line_callback,
         ).run_blocking(timeout=600)

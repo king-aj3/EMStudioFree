@@ -28,7 +28,8 @@ import numpy as np
 
 from emstudio.objects import query
 from emstudio.setup import solvers as solver_setup
-from emstudio.solvers.base import SolverError, SolverJob, make_workdir
+from emstudio.solvers.base import (SolverError, SolverJob, make_workdir,
+                                   nec2_argv)
 from emstudio.solvers.nec2 import parser
 from emstudio.solvers.nec2 import writer as nec_writer
 
@@ -161,7 +162,7 @@ def isolation_matrix(analysis, solver, f_hz=None, z0=50.0, workdir=None,
         deck = os.path.join(workdir, "drive_{0}.nec".format(i + 1))
         out = os.path.join(workdir, "drive_{0}.out".format(i + 1))
         _write_drive_deck(wires, ports, i, f_hz, ge_card, gn_card, deck)
-        job = SolverJob([info.path, "-i", deck, "-o", out], cwd=workdir,
+        job = SolverJob(nec2_argv(info.path, deck, out), cwd=workdir,
                         line_callback=line_callback)
         job.run_blocking(timeout=600)
         currents = parser.parse_currents(out, f_hz)

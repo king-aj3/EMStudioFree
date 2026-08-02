@@ -41,6 +41,29 @@ def make_workdir(prefix, base=None):
     return tempfile.mkdtemp(prefix=prefix)
 
 
+def nec2_argv(exe, deck, out):
+    """argv for one nec2c run, using BASENAMES — pass ``cwd=dirname(deck)``.
+
+    nec2c has a fixed-size input-filename buffer and aborts with
+    ``nec2c: Input file name too long - aborting`` (exit 255) past it. Absolute
+    paths used to be passed here, which fit on Linux (`/tmp/emstudio_nec2_xxxx/
+    case.nec`, ~36 chars) and did NOT on macOS, where tempfile yields
+    `/var/folders/9k/8lz3v_hd6yq5h4y7_4x2f3rw0000gn/T/...` and the same deck is
+    ~80 chars. Reported from macOS 26.5 on 2026-08-02, after the reporter had
+    built nec2c himself — the run got all the way to the solver and died there.
+
+    Every caller already sets ``cwd`` to the deck's directory, so the basename
+    is sufficient and is what Elmer, FastHenry and Palace were already doing.
+    """
+    d_dir, d_name = os.path.split(os.path.abspath(deck))
+    o_dir, o_name = os.path.split(os.path.abspath(out))
+    if d_dir != o_dir:
+        raise ValueError(
+            "nec2 deck and output must share a directory (cwd is set to it): "
+            "%r vs %r" % (d_dir, o_dir))
+    return [exe, "-i", d_name, "-o", o_name]
+
+
 class SolverJob:
     """One external solver process with line-streamed output and abort support."""
 
