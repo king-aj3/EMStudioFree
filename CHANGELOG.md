@@ -3,6 +3,29 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.77.9] — 2026-08-03 — Windows has a native NEC engine, verified
+
+v0.77.8 shipped saying nec2++ on Windows was "promising rather than proven".
+It is now proven, so that text is replaced rather than left to age.
+
+### Verified
+- **nec2++ builds and runs natively on Windows** (MinGW-w64 GCC 15.2.0 +
+  CMake 4.4.2) and its output on the shipped dipole deck is **byte-identical**
+  to the Linux build's — same `7.4897E+01 / 9.8011E+00` impedance row. Windows
+  goes from "no NEC engine exists, use WSL2" to a working native one. All three
+  platforms now agree.
+
+### Changed
+- The Windows hint now carries the two traps, because neither prints anything
+  useful and both cost real time:
+  - a MinGW-built `nec2++.exe` needs `libstdc++-6.dll`, `libgcc_s_seh-1.dll` and
+    `libwinpthread-1.dll` on `PATH`, or it exits **0xC0000135**
+    (STATUS_DLL_NOT_FOUND) with **no message and no output file**;
+  - `cmake --build` with no target fails at 100% linking `nec2++_tests.exe`
+    (`__imp__set_abort_behavior` is MSVC-only CRT). **The engine is already
+    built at that point** — use `--target nec2++`. A user seeing that error
+    would reasonably conclude the build failed. It did not.
+
 ## [0.77.8] — 2026-08-03 — a second NEC engine that already half-worked, and a guided Elmer build for macOS
 
 ### Fixed

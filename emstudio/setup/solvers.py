@@ -624,20 +624,28 @@ WINDOWS_HINTS = {
     "openems": "Prebuilt Windows zip: https://www.openems.de/ (unzip to C:\\opt\\openEMS). "
                "Python-driven runs are not wired up on native Windows yet — use WSL2 "
                "for the full pipeline.",
-    # nec2c has no Windows build, which has always made Windows the worst of the
-    # three platforms for this backend. nec2++ looks like the better route there:
-    # its CMakeLists carries an explicit MSVC branch and upstream CI builds on
-    # windows-latest alongside ubuntu and macos (read from
-    # .github/workflows/build.yml, 2026-08-03).
-    # NOT VERIFIED BY EMSTUDIO ON WINDOWS — stated plainly rather than implied,
-    # because this month's macOS lesson was that a confident untested
-    # instruction is worse than an admitted gap.
-    "nec2": "nec2c has no official Windows build — use WSL2 (sudo apt install "
-            "nec2c) or MSYS2. nec2++ (https://github.com/tmolteno/necpp) is "
-            "likely the better Windows option: it builds with CMake, handles "
-            "MSVC explicitly, and its CI covers windows-latest — but EMStudio "
-            "has not verified it on Windows yet, so treat that as promising "
-            "rather than proven. EMStudio reads the output of both engines.",
+    # VERIFIED on Windows 2026-08-03 (MinGW-w64 GCC 15.2.0 + CMake 4.4.2): the
+    # nec2++ output is BYTE-IDENTICAL to the Linux build's on the shipped dipole
+    # deck, so Windows finally has a native NEC engine instead of "use WSL2".
+    # Two traps, both of which cost real time and neither of which prints
+    # anything useful, so they are in the user-facing text:
+    #   * a MinGW-built nec2++.exe needs libstdc++-6.dll / libgcc_s_seh-1.dll /
+    #     libwinpthread-1.dll on PATH. Without them it exits 0xC0000135
+    #     (STATUS_DLL_NOT_FOUND) with NO message and NO output file.
+    #   * `cmake --build` with no target fails at 100% linking nec2++_tests.exe
+    #     (`__imp__set_abort_behavior` is MSVC-only CRT). The ENGINE is already
+    #     built at that point — build `--target nec2++` and skip the tests.
+    "nec2": "nec2c has no official Windows build (WSL2 or MSYS2 only), but "
+            "nec2++ runs natively and EMStudio reads it: git clone "
+            "https://github.com/tmolteno/necpp.git, then cmake -S necpp -B "
+            "build -G \"MinGW Makefiles\" -DCMAKE_BUILD_TYPE=Release && cmake "
+            "--build build --target nec2++  (use --target nec2++, or the test "
+            "executable fails to link at 100% with __imp__set_abort_behavior — "
+            "that is MSVC-only CRT and does NOT mean the engine failed). The "
+            "resulting build/src/nec2++.exe needs its MinGW runtime DLLs "
+            "(libstdc++-6, libgcc_s_seh-1, libwinpthread-1) on PATH, or it "
+            "exits 0xC0000135 silently with no output file. Verified on Windows "
+            "2026-08-03: byte-identical results to the Linux build.",
     "fasthenry": "FastFieldSolvers ships Windows builds (https://www.fastfieldsolvers.com/), "
                  "but EMStudio's command-line integration currently targets the Linux "
                  "build — use WSL2 for wire/litz cross-checks.",
