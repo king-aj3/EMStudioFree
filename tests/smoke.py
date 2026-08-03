@@ -738,6 +738,79 @@ def _nec2_filename_length():
                      % ", ".join(bad))
 
 
+def _nec_parser_reads_both_dialects():
+    """The NEC2 parser must read nec2c AND nec2++ output.
+
+    `nec2++` has been in the nec2 backend's ``executables`` tuple since the
+    backend was written, so EMStudio has always claimed to support it — but the
+    frequency regex required a colon, and nec2++ writes an equals sign:
+
+        nec2c   FREQUENCY : 3.0000E+02 MHz
+        nec2++  FREQUENCY=  3.0000E+02 MHZ
+
+    A user with nec2++ installed therefore got a solver that DETECTED fine and
+    then died at "impedance row before any FREQUENCY line". Measured 2026-08-03
+    against a real nec2++ build: with the separator accepted, it reproduces
+    nec2c to 4 significant figures on the shipped dipole gate (296.283 vs
+    296.287 MHz, both 71.92 ohm).
+
+    The banner assertion matters as much as the two positive ones: the same
+    output contains a "--------- FREQUENCY --------" rule, and relaxing the
+    separator to optional would match it and parse a frequency of nothing.
+    """
+    import tempfile as _tempfile
+    from emstudio.solvers.nec2 import parser as necparser
+
+    # The deck's CM comments are ECHOED into the output ABOVE the real frequency
+    # line, so a comment mentioning a frequency is the actual hazard here — not
+    # the banner rule, which carries no "MHz" and can never match. A user whose
+    # deck says "CM Yagi FREQUENCY 144 MHz" must still get 300 MHz.
+    comment = ("                     - - - - COMMENTS - - - -\n"
+               "                     Yagi FREQUENCY 144 MHz design\n\n")
+    header = (comment +
+              "                        --------- FREQUENCY --------\n"
+              "{0}\n\n"
+              "                        --------- ANTENNA INPUT PARAMETERS ---------\n"
+              "  TAG   SEG       VOLTAGE (VOLTS)         CURRENT (AMPS)         "
+              "IMPEDANCE (OHMS)        ADMITTANCE (MHOS)     POWER\n"
+              "    1    11  1.0000E+00  0.0000E+00  1.3128E-02 -1.7160E-03  "
+              "7.4894E+01  9.7899E+00  1.3128E-02 -1.7160E-03  6.5639E-03\n")
+    dialects = {
+        "nec2c":  "                                FREQUENCY : 3.0000E+02 MHz",
+        "nec2++": "                               FREQUENCY=  3.0000E+02 MHZ",
+    }
+    for name, freq_line in dialects.items():
+        fd, path = _tempfile.mkstemp(suffix=".out")
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(header.format(freq_line))
+            res = necparser.parse_output(path, z0=50.0)
+            assert len(res.freq) == 1, \
+                "{0}: expected 1 frequency, got {1}".format(name, len(res.freq))
+            assert abs(res.freq[0] - 300e6) < 1e3, \
+                "{0}: frequency {1} != 300 MHz".format(name, res.freq[0])
+            assert abs(res.zin[0].real - 74.894) < 0.01, \
+                "{0}: R {1} != 74.894".format(name, res.zin[0].real)
+            assert abs(res.zin[0].imag - 9.7899) < 0.01, \
+                "{0}: X {1} != 9.7899".format(name, res.zin[0].imag)
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+    # Assert the regex property directly. Scope, stated honestly: end-to-end the
+    # comment's value would be OVERWRITTEN by the real FREQUENCY line that always
+    # follows it, so this is a defensive property of the pattern rather than a
+    # demonstrated wrong answer. It is kept because it costs nothing and the
+    # alternative invites a whole class of prose matching.
+    # (An earlier version asserted the "--------- FREQUENCY --------" banner rule
+    # instead. That can never match — it carries no "MHz" — so the assertion
+    # could not fail. Mutation testing is the only reason that was caught.)
+    assert not necparser._FREQ_RE.search("Yagi FREQUENCY 144 MHz design"), \
+        "a frequency mentioned in a deck COMMENT must not parse as the run frequency"
+
+
 def _version_probe_rejects_help_text():
     """`_probe_version` must return a version, or nothing — never help text.
 
@@ -1264,6 +1337,8 @@ def main():
     check("install text is platform-segregated (Win/Linux)", _install_text_platform_segregation)
     check("version probe returns a version, never help text",
           _version_probe_rejects_help_text)
+    check("NEC2 parser reads both nec2c and nec2++ output",
+          _nec_parser_reads_both_dialects)
     check("nec2 argv uses basenames (macOS temp paths overflow nec2c)",
           _nec2_filename_length)
     check("Elmer magnetics backend imports headless + writes .geo", _elmer_backend_headless)

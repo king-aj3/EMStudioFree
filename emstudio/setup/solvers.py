@@ -218,6 +218,10 @@ BACKENDS = {
         extra_dirs=(
             os.path.expanduser("~/opt/nec2c/bin"),
             os.path.expanduser("~/opt/nec2c"),
+            # nec2++ (necpp) is the other engine this backend accepts; CMake
+            # leaves the binary in the build tree's src/.
+            os.path.expanduser("~/opt/necpp-build/src"),
+            os.path.expanduser("~/opt/necpp/build/src"),
         ),
     ),
     "fasthenry": Backend(
@@ -273,7 +277,13 @@ BACKENDS = {
             "sudo apt update && sudo apt install -y elmerfem-csc"
         ),
         homepage="https://www.elmerfem.org/",
-        # Elmer is the one backend with no Homebrew formula AND no guided build,
+        prerequisites=(
+            Prereq("C/C++/Fortran toolchain", "bin", "gfortran",
+                   "build-essential gfortran", brew="gcc"),
+            Prereq("CMake", "bin", "cmake", "cmake", brew="cmake"),
+            Prereq("git", "bin", "git", "git", brew="git"),
+        ),
+        # Elmer had no guided build,
         # so on macOS it is always source-built -- and until 2026-08-03 it had no
         # extra_dirs at all, which meant a correctly built Elmer sitting in the
         # conventional ~/opt prefix was INVISIBLE to detection. Every other
@@ -579,8 +589,16 @@ MACOS_HINTS = {
                "source or use a tap), then git clone "
                "--recursive https://github.com/thliebig/openEMS-Project.git && "
                "./update_openEMS.sh ~/opt/openEMS --python",
-    "nec2": "No Homebrew formula in homebrew-core. Build the C source (small, quick): "
-            "https://www.qsl.net/5b4az/ — or check MacPorts for nec2c.",
+    "nec2": "No Homebrew formula in homebrew-core for ANY NEC engine (checked: "
+            "nec2c, necpp, opennec, xnec2c — none exist). Two engines work, and "
+            "EMStudio reads both. nec2++ (necpp) is the better-maintained one and "
+            "builds with CMake: git clone https://github.com/tmolteno/necpp.git "
+            "~/opt/necpp && cmake -S ~/opt/necpp -B ~/opt/necpp-build "
+            "-DCMAKE_BUILD_TYPE=Release && cmake --build ~/opt/necpp-build. "
+            "nec2c is the smaller C build (https://www.qsl.net/5b4az/, or the "
+            "KJ7LNW fork with autoconf/automake). Measured 2026-08-03 on Apple "
+            "Silicon: the two agree to 4 significant figures on the shipped "
+            "dipole benchmark (296.28 MHz, 71.92 ohm, 2.13 dBi), so pick either.",
     "fasthenry": "No Homebrew formula. Build from source: git clone "
                  "https://github.com/ediloren/FastHenry2.git && cd "
                  "FastHenry2/src/fasthenry && make fasthenry "
@@ -606,8 +624,20 @@ WINDOWS_HINTS = {
     "openems": "Prebuilt Windows zip: https://www.openems.de/ (unzip to C:\\opt\\openEMS). "
                "Python-driven runs are not wired up on native Windows yet — use WSL2 "
                "for the full pipeline.",
-    "nec2": "No official Windows build of nec2c — install via WSL2 (sudo apt install "
-            "nec2c) or MSYS2.",
+    # nec2c has no Windows build, which has always made Windows the worst of the
+    # three platforms for this backend. nec2++ looks like the better route there:
+    # its CMakeLists carries an explicit MSVC branch and upstream CI builds on
+    # windows-latest alongside ubuntu and macos (read from
+    # .github/workflows/build.yml, 2026-08-03).
+    # NOT VERIFIED BY EMSTUDIO ON WINDOWS — stated plainly rather than implied,
+    # because this month's macOS lesson was that a confident untested
+    # instruction is worse than an admitted gap.
+    "nec2": "nec2c has no official Windows build — use WSL2 (sudo apt install "
+            "nec2c) or MSYS2. nec2++ (https://github.com/tmolteno/necpp) is "
+            "likely the better Windows option: it builds with CMake, handles "
+            "MSVC explicitly, and its CI covers windows-latest — but EMStudio "
+            "has not verified it on Windows yet, so treat that as promising "
+            "rather than proven. EMStudio reads the output of both engines.",
     "fasthenry": "FastFieldSolvers ships Windows builds (https://www.fastfieldsolvers.com/), "
                  "but EMStudio's command-line integration currently targets the Linux "
                  "build — use WSL2 for wire/litz cross-checks.",
@@ -770,6 +800,35 @@ BUILD_PLANS = {
               "make fasthenry CFLAGS=\"{0}\"".format(FASTHENRY_CFLAGS)]),
         ],
     },
+    "elmer": {
+        # Measured on an 8-core M1 (8 GB): ~18 min at -j8.
+        "estimate": "15–35 min (CMake; all cores)",
+        "prefix": os.path.join(_HOME, "opt", "elmer"),
+        "steps": [
+            ("clone Elmer (release branch)",
+             ["bash", "-c",
+              "test -d ~/opt/elmerfem || git clone --depth 1 "
+              "-b release-26.2.1 https://github.com/ElmerCSC/elmerfem.git "
+              "~/opt/elmerfem"]),
+            # WITH_OpenMP=OFF is NOT a style choice: Apple clang ships no OpenMP
+            # runtime, and CMake dies at "Could NOT find OpenMP_C (missing:
+            # OpenMP_C_FLAGS OpenMP_C_LIB_NAMES)" before writing a Makefile.
+            # ELMERGUI=OFF avoids pulling Qt for a solver we drive headlessly;
+            # MPI=OFF keeps it to the plain ElmerSolver the runner invokes.
+            ("configure (GUI/MPI/OpenMP off — see comment: OpenMP breaks on Apple clang)",
+             ["bash", "-c",
+              "cmake -S ~/opt/elmerfem -B ~/opt/elmer-build "
+              "-DCMAKE_INSTALL_PREFIX=$HOME/opt/elmer "
+              "-DWITH_ELMERGUI=OFF -DWITH_MPI=OFF -DWITH_OpenMP=OFF "
+              "-DCMAKE_BUILD_TYPE=Release"]),
+            ("build (the long step)",
+             ["bash", "-c",
+              "cmake --build ~/opt/elmer-build "
+              "-j $(nproc 2>/dev/null || sysctl -n hw.ncpu)"]),
+            ("install to ~/opt/elmer",
+             ["bash", "-c", "cmake --install ~/opt/elmer-build"]),
+        ],
+    },
     "palace": {
         "estimate": "30–90 min (CMake superbuild; all cores)",
         "prefix": os.path.join(_HOME, "opt", "palace"),
@@ -802,7 +861,17 @@ def build_plan(key):
     if os.name == "nt":
         return None
     backend = BACKENDS.get(key)
-    if backend is None or not backend.source_build:
+    if backend is None:
+        return None
+    # A backend can be package-managed on one platform and source-built on
+    # another. Elmer is `apt install elmerfem-csc` on Linux but has NO Homebrew
+    # formula, so on macOS the guided build is the only route there is. Gating
+    # purely on the source_build flag forced a bad choice: leave it False and
+    # macOS never gets a Build button, or flip it True and `elmerfem-csc` drops
+    # out of the LINUX apt line (see install_plan's `apt_package and not
+    # source_build`). Deciding per platform avoids both.
+    offers_build = backend.source_build or (_is_mac() and not backend.brew_package)
+    if not offers_build:
         return None
     return BUILD_PLANS.get(key)
 

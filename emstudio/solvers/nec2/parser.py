@@ -20,7 +20,17 @@ import re
 
 from emstudio.post.sparams import SweepResult
 
-_FREQ_RE = re.compile(r"FREQUENCY\s*:\s*([0-9.Ee+-]+)\s*MHz", re.IGNORECASE)
+# NEC-2 implementations disagree on ONE character here, and it is the only thing
+# that stopped EMStudio reading nec2++ output:
+#     nec2c   FREQUENCY : 3.0000E+02 MHz
+#     nec2++  FREQUENCY=  3.0000E+02 MHZ
+# `nec2++` has been in the nec2 backend's `executables` tuple all along, so a
+# user with it installed got a solver that DETECTED fine and then died at
+# "impedance row before any FREQUENCY line" — a detected-but-unusable engine.
+# The separator stays mandatory ([:=], not optional): a banner line like
+# "--------- FREQUENCY --------" must not match, and neither must prose.
+# IGNORECASE already covers MHz/MHZ.
+_FREQ_RE = re.compile(r"FREQUENCY\s*[:=]\s*([0-9.Ee+-]+)\s*MHz", re.IGNORECASE)
 _FLOAT_RE = re.compile(r"[-+]?[0-9]*\.?[0-9]+(?:[Ee][-+]?[0-9]+)?")
 
 

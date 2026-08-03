@@ -3,7 +3,52 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.77.8] — 2026-08-03 — a second NEC engine that already half-worked, and a guided Elmer build for macOS
+
+### Fixed
+- **EMStudio could detect `nec2++` and then fail to read it.** `nec2++` has been
+  in the NEC2 backend's `executables` tuple since the backend was written, so the
+  workbench has always advertised support — but the frequency regex demanded a
+  colon and nec2++ writes an equals sign:
+
+      nec2c   FREQUENCY : 3.0000E+02 MHz
+      nec2++  FREQUENCY=  3.0000E+02 MHZ
+
+  A user with nec2++ installed therefore got a solver that detected fine and then
+  died at *"impedance row before any FREQUENCY line"*. One character.
+
+### Added
+- **A guided Elmer build for macOS.** Elmer has no Homebrew formula, so macOS
+  users must build it — and there was no recipe. `build_plan()` is now decided
+  per platform rather than by the `source_build` flag alone, because Elmer is
+  `apt install elmerfem-csc` on Linux and source-only on macOS; flipping the flag
+  would have dropped `elmerfem-csc` out of the **Linux** apt line. Verified by
+  running the plan from scratch through `run_build()` on the M1 host: 3.5 min
+  (warm ccache; ~18 cold), ending at a detected `~/opt/elmer/bin/ElmerSolver`.
+  **`-DWITH_OpenMP=ON` fails** — Apple clang ships no OpenMP and CMake dies at
+  `Could NOT find OpenMP_C` before writing a Makefile. The recipe pins it OFF.
+- `nec2` now declares `~/opt/necpp-build/src` and `~/opt/necpp/build/src` so a
+  CMake-built nec2++ is found.
+
+### Evaluated — three NEC engines on Apple Silicon, measured not assumed
+No NEC engine is in homebrew-core at all (checked `nec2c`, `necpp`, `opennec`,
+`xnec2c` — all 404), so the "no formula" guidance was correct for every one.
+
+| Engine | Verdict |
+|---|---|
+| **nec2c** (KJ7LNW) | Baseline. Reproduces the shipped reference exactly. GPL-3.0, 13 stars, last push 2024-12-17. |
+| **nec2++** (necpp) | **Works, and now supported.** Builds clean on macOS arm64 under Apple clang 21. Matches nec2c to 4 s.f. on the dipole gate — 296.283 vs 296.287 MHz, both 71.92 ohm, both 2.13 dBi, both −15.18 dB. GPL-2.0, 303 stars, actively maintained. |
+| **OpenNEC** | **Not viable today.** It is MIT (GitHub reports `NOASSERTION` only because the LICENSE is markdown with a badge — the licence is not ambiguous). But it does not compute: it echoes the deck and cards, reports `TOTAL RUN TIME: 0 msec`, and emits no `ANTENNA INPUT PARAMETERS` — **including for its own bundled example deck**, with `-f nec2c` and `-l lf` set. Its deck parsing and format conversion are genuinely strong; the solver is not usable as a backend. Worth re-checking later. |
+
+Both working engines drive the *same* subprocess contract, so this costs nothing
+in coupling — which is the point of the isolated-backend design.
+
+**Windows may benefit most, and is NOT yet verified.** nec2c has no Windows
+build at all, so Windows has always been the weakest platform for this backend
+(the guidance was "use WSL2 or MSYS2"). nec2++ builds with CMake, carries an
+explicit MSVC branch, and its upstream CI covers `windows-latest` — so it is
+plausibly a *native* Windows engine. EMStudio has **not** tested that, and the
+hint says so in those words rather than implying support.
 
 ### Changed
 - **`results dialogs construct` no longer requires ElmerSolver.** It is a UI
