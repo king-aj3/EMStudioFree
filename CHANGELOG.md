@@ -3,6 +3,50 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.77.7] — 2026-08-03 — two backends were undiscoverable, and one reported its help text as a version
+
+Both found by the macOS build host that landed in 0.77.6, and both fixed against
+it rather than reasoned about.
+
+### Fixed
+- **Elmer and NEC2 declared no search paths at all**, so a correctly source-built
+  copy was invisible to Detect Solvers. Neither has a Homebrew formula, which
+  means macOS users *always* build them from source — and every other
+  formula-less backend already declared its `~/opt` prefix. These two were the
+  holdouts, hidden on Linux because `apt` puts both on `PATH`. Elmer built
+  cleanly into `~/opt/elmer` and detection still said MISSING. `elmer` now
+  declares `~/opt/elmer/bin` and `~/opt/elmerfem/bin`; `nec2` declares
+  `~/opt/nec2c/bin` and `~/opt/nec2c` (a plain `make` leaves the binary in the
+  source root — measured, not guessed).
+- **NEC2 reported `-v: print nec2c version number and exit.` as its version.**
+  `version_args` was `-h`, carrying a comment asserting nec2c had no version
+  flag. It has one: `nec2c -v` prints `nec2c 1.3`. The help output's third line
+  contains a digit (in "nec2c") and says neither "usage" nor "option", so the
+  probe returned the whole sentence and Solver Setup displayed it.
+- **`_probe_version` now refuses any line beginning with `-`.** A documented flag
+  is never a version, so pointing a backend at the wrong argument degrades to "no
+  version" instead of to a plausible-looking lie.
+
+### Changed
+- The gate states the **invariant**, not the instances: every backend whose macOS
+  hint says "No Homebrew formula" must declare `extra_dirs`. Written that way so
+  the *next* formula-less backend cannot repeat this. Mutation-tested 3/3,
+  including a mutation that makes `_probe_version` always return `""` — the lazy
+  pass that a one-sided assertion would have missed.
+
+### Tooling
+- `tests/run_pro_freecad.sh` now resolves `EMSTUDIO_TREE` to an absolute path and
+  refuses a non-directory. The tree is reached through a symlink planted in a
+  throwaway user home under `$TMPDIR`, so a relative value dangled, FreeCAD
+  loaded no workbench, and gui_smoke failed on **"workbench + command
+  registration"** — which reads exactly like a registration regression and is
+  not one. It cost a real false alarm during this release.
+
+### Known
+- `ElmerSolver --version` starts the solver and emits a timestamped banner, so
+  the reported version string varies between probes. Cosmetic; it does contain
+  `(v 26.2)`.
+
 ## [0.77.6] — 2026-08-03 — FastHenry still would not build; found on real hardware
 
 **The first release verified on a Mac.** Everything from 0.77.1 to 0.77.5 rested

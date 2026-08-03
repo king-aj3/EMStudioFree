@@ -199,9 +199,26 @@ BACKENDS = {
         label="NEC2 (MoM wire antennas)",
         method="MoM",
         executables=("nec2c", "nec2", "nec2++"),
-        version_args=("-h",),  # nec2c has no --version; -h returns quickly
+        # nec2c DOES have a version flag -- its own help advertises
+        # "-v: print nec2c version number and exit", and it prints "nec2c 1.3".
+        # This was "-h" with a comment claiming otherwise, which made
+        # _probe_version scrape the help text and report the literal string
+        # "-v: print nec2c version number and exit." as the version, straight
+        # into the Solver Setup dialog. Measured on the M1 build host 2026-08-03.
+        version_args=("-v",),
         apt_package="nec2c",
         homepage="https://www.qsl.net/5b4az/",
+        # Same gap Elmer had, found by the same audit (2026-08-03): no Homebrew
+        # formula means macOS users ALWAYS source-build this, and it declared no
+        # search path at all. The user who reported the macOS bugs escaped it
+        # only because he happened to `make install` into /usr/local/bin, which
+        # MACOS_PROBE_DIRS covers. Someone building into ~/opt would not have.
+        # Both paths are real: autotools with --prefix gives <prefix>/bin, and a
+        # plain `make` leaves the binary in the source root (measured).
+        extra_dirs=(
+            os.path.expanduser("~/opt/nec2c/bin"),
+            os.path.expanduser("~/opt/nec2c"),
+        ),
     ),
     "fasthenry": Backend(
         key="fasthenry",
@@ -256,6 +273,18 @@ BACKENDS = {
             "sudo apt update && sudo apt install -y elmerfem-csc"
         ),
         homepage="https://www.elmerfem.org/",
+        # Elmer is the one backend with no Homebrew formula AND no guided build,
+        # so on macOS it is always source-built -- and until 2026-08-03 it had no
+        # extra_dirs at all, which meant a correctly built Elmer sitting in the
+        # conventional ~/opt prefix was INVISIBLE to detection. Every other
+        # source-built backend already declared its ~/opt path; Elmer was the
+        # holdout, because on Linux `apt install elmerfem-csc` puts it on PATH
+        # and the gap never showed. Found by building it on the M1 host and
+        # having Detect Solvers still report MISSING.
+        extra_dirs=(
+            os.path.expanduser("~/opt/elmer/bin"),
+            os.path.expanduser("~/opt/elmerfem/bin"),
+        ),
     ),
     "palace": Backend(
         key="palace",
@@ -323,7 +352,20 @@ def _pref_path(key):
 
 
 def _probe_version(path, version_args):
-    """Best-effort version string: first output line that carries a digit."""
+    """Best-effort version string: first output line that carries a digit.
+
+    Rejects help text as well as blank lines. The "usage"/"option" filter alone
+    was not enough: nec2c's help includes the line
+
+        -v: print nec2c version number and exit.
+
+    which contains a digit (in "nec2c"), says neither "usage" nor "option", and
+    was duly reported to the user as the installed version. Any line that starts
+    with "-" is a flag being documented, never a version, so it is skipped —
+    which makes the heuristic safe even when a backend is pointed at the wrong
+    flag. Verified against gmsh, nec2c and ElmerSolver on macOS, none of whose
+    real version lines begin with "-".
+    """
     try:
         out = subprocess.run(
             [path, *version_args],
@@ -334,7 +376,9 @@ def _probe_version(path, version_args):
         text = (out.stdout or out.stderr or "").strip()
         for line in text.splitlines():
             line = line.strip()
-            if line and any(c.isdigit() for c in line) and "usage" not in line.lower() \
+            if not line or line.startswith("-"):
+                continue
+            if any(c.isdigit() for c in line) and "usage" not in line.lower() \
                     and "option" not in line.lower():
                 return line[:70]
         return ""

@@ -738,6 +738,53 @@ def _nec2_filename_length():
                      % ", ".join(bad))
 
 
+def _version_probe_rejects_help_text():
+    """`_probe_version` must return a version, or nothing — never help text.
+
+    nec2's `version_args` was `-h`, with a comment asserting nec2c had no version
+    flag. It does (`-v` -> "nec2c 1.3"). The help output's third line is
+
+        -v: print nec2c version number and exit.
+
+    which carries a digit (in "nec2c") and says neither "usage" nor "option", so
+    the probe returned it verbatim and Solver Setup displayed that whole sentence
+    as the installed version. Measured on the M1 build host, 2026-08-03.
+
+    Both halves matter. Asserting only that help is rejected would pass if
+    `_probe_version` were mutated to always return "" — so a real version string
+    must still come back.
+    """
+    import stat as _stat
+    import tempfile as _tempfile
+    from emstudio.setup import solvers
+
+    def _fake(body):
+        fd, path = _tempfile.mkstemp(suffix=".sh")
+        with os.fdopen(fd, "w") as fh:
+            fh.write("#!/bin/sh\ncat <<'EOF'\n{0}\nEOF\n".format(body))
+        os.chmod(path, os.stat(path).st_mode | _stat.S_IEXEC)
+        return path
+
+    help_like = _fake(
+        "usage: nec2c [-i<input-file-name>] [-o<output-file-name>]\n"
+        "       -h: print this usage information and exit.\n"
+        "       -v: print nec2c version number and exit.")
+    real_like = _fake("nec2c 1.3")
+    try:
+        got = solvers._probe_version(help_like, ())
+        assert got == "", (
+            "help text was reported as a version: %r" % got)
+        got = solvers._probe_version(real_like, ())
+        assert got == "nec2c 1.3", (
+            "a real version line must still be returned, got %r" % got)
+    finally:
+        for p in (help_like, real_like):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
 def _install_text_platform_segregation():
     """Install instructions must be platform-pure: no Linux commands on Windows.
 
@@ -877,6 +924,20 @@ def _install_text_platform_segregation():
             for flag in required:
                 assert flag in text, \
                     "FastHenry {0} is missing {1}: {2}".format(label, flag, text)
+
+        # A backend with no Homebrew formula is ALWAYS source-built on macOS, so
+        # it must declare where it lands — PATH cannot be relied on (FreeCAD from
+        # Finder does not inherit it) and MACOS_PROBE_DIRS only covers the three
+        # package-manager prefixes. Elmer and nec2 both declared NOTHING until
+        # 2026-08-03: Elmer built correctly into ~/opt/elmer and Detect Solvers
+        # still said MISSING. This is stated as the invariant rather than as
+        # "elmer must have extra_dirs", because the point is that the NEXT
+        # formula-less backend must not repeat it.
+        for _k, _b in solvers.BACKENDS.items():
+            if "No Homebrew formula" in solvers.MACOS_HINTS.get(_k, ""):
+                assert _b.extra_dirs, (
+                    "{0} has no Homebrew formula, so macOS users source-build it "
+                    "— it must declare extra_dirs or it is undiscoverable".format(_k))
 
         # Homebrew's bin dirs must be PROBED, not merely mentioned in prose.
         # FreeCAD launched from Finder does not inherit the shell PATH, so
@@ -1201,6 +1262,8 @@ def main():
     check("icons parse as valid XML/SVG", _icons_parse_as_xml)
     check("installer build plans well-formed (no sudo)", _installer_build_plans)
     check("install text is platform-segregated (Win/Linux)", _install_text_platform_segregation)
+    check("version probe returns a version, never help text",
+          _version_probe_rejects_help_text)
     check("nec2 argv uses basenames (macOS temp paths overflow nec2c)",
           _nec2_filename_length)
     check("Elmer magnetics backend imports headless + writes .geo", _elmer_backend_headless)
