@@ -841,24 +841,42 @@ def _install_text_platform_segregation():
             assert "$(nproc)" not in cmd, \
                 "build step uses bare $(nproc), which fails on macOS: " + cmd
 
-        # FastHenry is K&R-era C. Apple clang 15+ and GCC 14+ make implicit-int
-        # and implicit-function-declaration ERRORS, so the build dies with ~20
-        # errors in induct.c without these. Reported on macOS 26.5 arm64,
-        # 2026-08-01 — the guided Build button was the only one enabled, and it
-        # failed. Every place that quotes the CFLAGS must carry all three.
-        required = ("-fcommon", "-Wno-implicit-int",
-                    "-Wno-implicit-function-declaration")
+        # FastHenry is K&R-era C, and each compiler generation promotes another
+        # of its legacy diagnostics to a hard error:
+        #   Apple clang 15 / GCC 14 -> implicit-int + implicit-function-declaration
+        #                              (~20 errors in induct.c; reported by a user
+        #                               on macOS 26.5 arm64, 2026-08-01)
+        #   Apple clang 21          -> return-mismatch (2 more; measured on the M1
+        #                              build host 2026-08-03, AFTER the first fix
+        #                              had shipped and was believed complete)
+        #
+        # This check used to ENUMERATE the flags it knew about, which is why the
+        # second wave got through: the list it tested was the list that was
+        # already right. It now reads solvers.FASTHENRY_REQUIRED_FLAGS, so adding
+        # a compiler's flag to that tuple makes every surface below required to
+        # carry it — and forgetting one surface is what turns this red.
+        required = solvers.FASTHENRY_REQUIRED_FLAGS
+        assert len(required) >= 4, \
+            "FASTHENRY_REQUIRED_FLAGS shrank; flags are appended, never removed"
+        # The single definition and the assertion list must agree, or the
+        # constant silently stops meaning anything.
+        for flag in required:
+            assert flag in solvers.FASTHENRY_CFLAGS, \
+                "FASTHENRY_CFLAGS is missing a required flag: " + flag
+
         fh_cmds = [" ".join(st[1])
                    for st in (solvers.BUILD_PLANS.get("fasthenry") or {}).get("steps", [])
                    if "make fasthenry" in " ".join(st[1])]
         assert fh_cmds, "no FastHenry compile step found to check"
-        for cmd in fh_cmds:
+        # All THREE user-facing surfaces, not just the two checked before: the
+        # macOS hint was missing from this list and could have drifted silently.
+        surfaces = [("build step", c) for c in fh_cmds]
+        surfaces.append(("manual_hint", solvers.BACKENDS["fasthenry"].manual_hint))
+        surfaces.append(("MACOS_HINTS", solvers.MACOS_HINTS["fasthenry"]))
+        for label, text in surfaces:
             for flag in required:
-                assert flag in cmd, \
-                    "FastHenry build step is missing {0}: {1}".format(flag, cmd)
-        for flag in required:
-            assert flag in solvers.BACKENDS["fasthenry"].manual_hint, \
-                "FastHenry manual_hint is missing " + flag
+                assert flag in text, \
+                    "FastHenry {0} is missing {1}: {2}".format(label, flag, text)
 
         # Homebrew's bin dirs must be PROBED, not merely mentioned in prose.
         # FreeCAD launched from Finder does not inherit the shell PATH, so

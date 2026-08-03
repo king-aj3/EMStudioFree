@@ -3,6 +3,55 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.77.6] — 2026-08-03 — FastHenry still would not build; found on real hardware
+
+**The first release verified on a Mac.** Everything from 0.77.1 to 0.77.5 rested
+on gates and simulation. A headless M1 build host now carries FreeCAD 0.21.2,
+1.1.1 and 1.1.3, and the whole macOS path was run there.
+
+### Fixed
+- **The guided FastHenry build still failed on current macOS**, one compiler
+  generation past the bug it was supposed to fix. v0.77.2 added
+  `-Wno-implicit-int` and `-Wno-implicit-function-declaration` for Apple clang
+  15; **Apple clang 21 promotes `-Wreturn-mismatch` to a hard error as well**,
+  so `induct.c` still died — `131 warnings and 2 errors generated`. Adding
+  `-Wno-return-mismatch` builds it clean (verified: a 417 KB binary, on the
+  build host, not in a simulation).
+- **The flags now have exactly one definition**, `solvers.FASTHENRY_CFLAGS`,
+  interpolated into the build plan, the manual hint and the macOS hint. They had
+  been spelled out in three places, and a constant repeated in three places
+  cannot be gated — moving one copy changes nothing and the gate stays green.
+
+### Changed
+- The FastHenry gate **no longer enumerates the flags it knows about**, which is
+  precisely why the second wave got through: it tested the list that was already
+  correct. It now reads `solvers.FASTHENRY_REQUIRED_FLAGS` and checks all
+  **three** user-facing surfaces — the macOS hint was absent from the old check
+  and could have drifted silently. Mutation-tested 2/2.
+- Maintainer metadata in `package.xml` is now the brand (`ajj3.us` /
+  `support@ajj3.us`).
+
+### Verified on macOS hardware (previously simulation only)
+- Solver Setup reports **(macOS)**, leads with `xcode-select --install`, offers a
+  `brew install` line, and contains **no `apt` anywhere**.
+- The 0.77.4 Homebrew probe **works**: with `/opt/homebrew/bin` off `PATH`,
+  `shutil.which("nec2c")` returns `None` while `find_backend` still resolves
+  `/opt/homebrew/bin/nec2c` with `source='probe'`.
+- The 0.77.5 basename fix **works**: all three NEC2 solve loops complete through
+  real `/var/folders/…` temp paths — dipole `f_res 294.0 MHz`, monopole
+  `Zin 4.02−570.1j Ω`, isolation `|S21| −13.78 dB`.
+- Palace's `$(nproc 2>/dev/null || sysctl -n hw.ncpu)` resolves (`nproc` is
+  genuinely absent on a stock Mac).
+- Pro installs and activates its namespace injection on 1.1.1 and 1.1.3.
+
+### Known — upstream, not EMStudio
+- **FreeCAD 0.21.2 on macOS arm64 cannot import numpy at all.** Its bundled
+  `libgfortran.5.dylib` carries duplicate `LC_RPATH` entries, which modern dyld
+  rejects, so `libopenblas` fails to load. It fails identically through the real
+  `.app`, and no `DYLD_*` variable can repair a malformed load command. On that
+  version smoke drops to 13 ok / 3 fail. **1.1.1 and 1.1.3 are unaffected** —
+  use those on macOS.
+
 ## [0.77.5] — 2026-08-02 — nec2c aborted on macOS: input filename too long
 
 ### Fixed

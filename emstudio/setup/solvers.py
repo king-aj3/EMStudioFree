@@ -57,6 +57,34 @@ def _platform_dirs():
     return MACOS_PROBE_DIRS if _is_mac() else ()
 
 
+#: The ONLY definition of FastHenry's build flags. Every hint, plan and doc
+#: string must interpolate this rather than spell the flags out.
+#:
+#: It is a single constant because the flag list had been written out in three
+#: separate places, and a constant repeated in three places cannot be gated —
+#: moving one copy changes nothing and the gate stays green. That is exactly how
+#: this bug reached a user twice: v0.77.2 added the implicit-* pair for Apple
+#: clang 15, and Apple clang 21 then made `-Wreturn-mismatch` an error too,
+#: which the enumerated gate could not have caught.
+#:
+#: EXPECT THIS LIST TO GROW. FastHenry is K&R-era C; each compiler generation
+#: promotes another legacy diagnostic to an error. Append, do not rewrite.
+FASTHENRY_CFLAGS = (
+    "-O -DFOUR -m64 -fcommon "
+    "-Wno-implicit-int "                    # main(argc, argv) with no return type
+    "-Wno-implicit-function-declaration "   # calls before declaration
+    "-Wno-return-mismatch"                  # bare `return;` from a non-void function
+)
+
+#: Individual suppressions, for gates that need to assert each is present.
+FASTHENRY_REQUIRED_FLAGS = (
+    "-fcommon",
+    "-Wno-implicit-int",
+    "-Wno-implicit-function-declaration",
+    "-Wno-return-mismatch",
+)
+
+
 # Preferences group used for per-backend binary overrides.
 PREF_GROUP = "User parameter:BaseApp/Preferences/Mod/EMStudio"
 
@@ -182,17 +210,22 @@ BACKENDS = {
         executables=("fasthenry",),
         version_args=("-help",),
         # Not packaged in Ubuntu 24.04/Mint 22 — small C source build. FastHenry
-        # is K&R-era C and needs THREE suppressions on any modern compiler:
+        # is K&R-era C and needs FOUR suppressions on any modern compiler:
         #   -fcommon                          legacy common-symbol linkage (GCC >= 10)
         #   -Wno-implicit-int                 `main(argc, argv)` with no return type
         #   -Wno-implicit-function-declaration  calls before declaration
-        # The last two became ERRORS by default in Apple clang 15 / GCC 14, which
-        # is how a build that worked for years starts failing: 20 errors in
-        # induct.c. Reported on macOS 26.5 (arm64, clang) 2026-08-01.
+        #   -Wno-return-mismatch              `return;` from a non-void function
+        # Each became an ERROR by default one compiler generation apart, which is
+        # how a build that worked for years starts failing: Apple clang 15 / GCC 14
+        # promoted the implicit-* pair (20 errors in induct.c, reported on macOS
+        # 26.5 arm64 2026-08-01), and Apple clang 21 then promoted return-mismatch
+        # (2 more errors in induct.c, measured on the M1 build host 2026-08-03).
+        # ADDING A COMPILER IS NOT A FIX: the list only ever grows, so treat a new
+        # hard error here as expected maintenance, not a surprise.
         manual_hint=(
             "Build from source (LGPL): git clone "
             "https://github.com/ediloren/FastHenry2.git && cd FastHenry2/src/fasthenry "
-            "&& make fasthenry CFLAGS=\"-O -DFOUR -m64 -fcommon -Wno-implicit-int -Wno-implicit-function-declaration\""
+            "&& make fasthenry CFLAGS=\"{0}\"".format(FASTHENRY_CFLAGS)
         ),
         homepage="https://www.fastfieldsolvers.com/",
         extra_dirs=(os.path.expanduser("~/opt/FastHenry2/bin"),),
@@ -206,7 +239,8 @@ BACKENDS = {
                    "link fails with 'multiple definition of timestuff') PLUS "
                    "-Wno-implicit-int -Wno-implicit-function-declaration, which "
                    "Apple clang 15+ and GCC 14+ turn into hard errors on this "
-                   "K&R-era source"),
+                   "K&R-era source, PLUS -Wno-return-mismatch, which Apple clang "
+                   "21 turns into a hard error as well"),
         ),
     ),
     "elmer": Backend(
@@ -506,10 +540,10 @@ MACOS_HINTS = {
     "fasthenry": "No Homebrew formula. Build from source: git clone "
                  "https://github.com/ediloren/FastHenry2.git && cd "
                  "FastHenry2/src/fasthenry && make fasthenry "
-                 "CFLAGS=\"-O -DFOUR -m64 -fcommon -Wno-implicit-int "
-                 "-Wno-implicit-function-declaration\"  — Apple clang 15+ and GCC 14+ "
-                 "make the implicit-* diagnostics errors, so all three flags are "
-                 "required, not optional.",
+                 "CFLAGS=\"{0}\"  — Apple clang 15+ and GCC 14+ make the "
+                 "implicit-* diagnostics errors and Apple clang 21 adds "
+                 "return-mismatch, so all four flags are required, not "
+                 "optional.".format(FASTHENRY_CFLAGS),
     "elmer": "No Homebrew formula. CSC publishes macOS builds — see "
              "https://www.elmerfem.org/ (Download → macOS), or build with "
              "brew install cmake open-mpi openblas first.",
@@ -686,10 +720,10 @@ BUILD_PLANS = {
              ["bash", "-c",
               "test -d ~/opt/FastHenry2 || git clone "
               "https://github.com/ediloren/FastHenry2.git ~/opt/FastHenry2"]),
-            ("build (K&R-era C: needs -fcommon + the two implicit-* suppressions)",
+            ("build (K&R-era C: needs -fcommon + three diagnostic suppressions)",
              ["bash", "-c",
               "cd ~/opt/FastHenry2/src/fasthenry && "
-              "make fasthenry CFLAGS=\"-O -DFOUR -m64 -fcommon -Wno-implicit-int -Wno-implicit-function-declaration\""]),
+              "make fasthenry CFLAGS=\"{0}\"".format(FASTHENRY_CFLAGS)]),
         ],
     },
     "palace": {
