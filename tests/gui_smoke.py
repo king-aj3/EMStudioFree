@@ -482,29 +482,99 @@ def _freq_guard_gui():
         FreeCAD.closeDocument(doc.Name)
 
 
+def _synthetic_magnetics_result():
+    """A REAL MagneticsResult with representative data, built without a solver.
+
+    Deliberately not a mock: it is the shipped class, populated through its own
+    constructor with the dict keys the runner actually produces, so
+    ``summary_text()`` and ``coil_impedance()`` run for real. If those key names
+    drift, this breaks — which is the point. A stub object with a
+    ``summary_text`` attribute would construct the dialog and prove nothing.
+    """
+    from emstudio.post.magnetics import MagneticsResult
+
+    cases = [{
+        "tag": "sweep", "freq_hz": 100e3,
+        "eddy_power_w": 12.5, "energy_j": 1.4e-4,
+        "body_power_w": {"Plate": 12.5},
+        # complex flux linkage -> exercises L_eff and R_reflected
+        "coil_lambda": {"Coil1": complex(3.2e-5, -1.1e-6),
+                        "Coil2": complex(2.9e-5, -0.9e-6)},
+        "vtu": "", "rundir": "",
+    }]
+    coils = [{"name": "Coil1", "turns": 10, "current_a": 5.0},
+             {"name": "Coil2", "turns": 10, "current_a": 5.0}]
+    return MagneticsResult(cases, coils, ["Plate"], meta={})
+
+
+def _synthetic_gap_curve():
+    """The documented return shape of ``sweep_wpt_gap``: {gap_mm,k,L1_h,L2_h,M_h}."""
+    return [
+        {"gap_mm": 18.0, "k": 0.42, "L1_h": 6.4e-6, "L2_h": 6.4e-6, "M_h": 2.69e-6},
+        {"gap_mm": 32.0, "k": 0.21, "L1_h": 6.4e-6, "L2_h": 6.4e-6, "M_h": 1.34e-6},
+    ]
+
+
 def _dialogs_construct():
-    """Every results dialog must import + construct under the GUI (not exec)."""
+    """Every results dialog must import + construct under the GUI (not exec).
+
+    This is a UI check, and it used to require ElmerSolver on the box — it ran a
+    full Elmer solve and a two-point gap sweep purely to obtain something to hand
+    the dialogs. On any machine without Elmer it failed with "ElmerSolver not
+    found", which says nothing about whether the dialogs construct, and it
+    reported a missing optional dependency as a product defect. Whether Elmer
+    solves is already covered by the dedicated Elmer solve-loop checks, and those
+    fail honestly when it is absent.
+
+    Elmer is still used when present, because a real result is better coverage
+    than a synthesized one. The detail string says which path ran, so a green
+    tick is never ambiguous about what was actually exercised.
+    """
     import FreeCAD
 
-    from emstudio.objects import query
-    from emstudio.solvers import elmer
-    from emstudio.solvers.elmer.sweep import sweep_wpt_gap
-    from emstudio.solvers.elmer.model import build_axi_model
-    from emstudio.templates import wpt
+    from emstudio.setup import solvers as solver_setup
     from emstudio.ui.magnetics_dialog import MagneticsResultsDialog
     from emstudio.ui.sweep_dialog import GapSweepDialog
 
+    have_elmer = solver_setup.find_backend("elmer").found
+
     doc = FreeCAD.newDocument("gui_dialogs")
     try:
-        ana = wpt.makeWptPair(doc, gap_mm=20.0)
-        solver = [s for s in query.get_solvers(ana)
-                  if query.em_type(s) == "EMStudio::SolverElmer"][0]
-        result = elmer.run(ana, solver)
-        MagneticsResultsDialog(result)  # constructs the summary + buttons
-        curve = sweep_wpt_gap(build_axi_model(ana, solver), [18.0, 32.0],
-                              freq_hz=100e3)
-        GapSweepDialog(curve)  # constructs the k/M plot
-        return "magnetics + gap-sweep dialogs OK"
+        if have_elmer:
+            from emstudio.objects import query
+            from emstudio.solvers import elmer
+            from emstudio.solvers.elmer.model import build_axi_model
+            from emstudio.solvers.elmer.sweep import sweep_wpt_gap
+            from emstudio.templates import wpt
+
+            ana = wpt.makeWptPair(doc, gap_mm=20.0)
+            solver = [s for s in query.get_solvers(ana)
+                      if query.em_type(s) == "EMStudio::SolverElmer"][0]
+            result = elmer.run(ana, solver)
+            curve = sweep_wpt_gap(build_axi_model(ana, solver), [18.0, 32.0],
+                                  freq_hz=100e3)
+            how = "solved"
+        else:
+            result = _synthetic_magnetics_result()
+            curve = _synthetic_gap_curve()
+            how = "synthesized (Elmer absent)"
+
+        dlg = MagneticsResultsDialog(result)     # summary + buttons
+        sweep_dlg = GapSweepDialog(curve)        # the k/M plot
+
+        # Construction alone is a weak assertion — a dialog that silently
+        # rendered nothing would pass. Require the summary to have real content
+        # and the plot to have kept every point it was given.
+        summary = result.summary_text()
+        assert "magnetics results" in summary, \
+            "summary_text produced no recognisable report: {0!r}".format(summary[:120])
+        assert len(summary.splitlines()) > 4, \
+            "summary_text is suspiciously short: {0!r}".format(summary)
+        assert len(sweep_dlg.curve) == len(curve), \
+            "GapSweepDialog dropped points: {0} of {1}".format(
+                len(sweep_dlg.curve), len(curve))
+        assert dlg is not None
+        return "magnetics + gap-sweep dialogs OK ({0})".format(how)
     finally:
         FreeCAD.closeDocument(doc.Name)
 

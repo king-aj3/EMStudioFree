@@ -3,6 +3,28 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+- **`results dialogs construct` no longer requires ElmerSolver.** It is a UI
+  check, but it ran a full Elmer solve and a two-point gap sweep purely to obtain
+  something to hand the dialogs — so on any machine without Elmer it failed with
+  "ElmerSolver not found", which says nothing about whether the dialogs construct
+  and reports a missing optional dependency as a product defect. Whether Elmer
+  solves is already covered by the dedicated solve-loop checks, which fail
+  honestly when it is absent.
+  Elmer is still used **when present** (a real result is better coverage than a
+  synthesized one) and the detail string now says which path ran, so a green tick
+  is never ambiguous about what was exercised. The fallback builds a **real**
+  `MagneticsResult` through its own constructor with the dict keys the runner
+  produces — not a mock — so `summary_text()` and `coil_impedance()` still run
+  for real and key drift still breaks it.
+  Construction alone was also a weak assertion (a dialog that rendered nothing
+  would have passed), so the check now requires the summary to have real content
+  and the plot to keep every point it was given. Mutation-tested 2/2.
+  Measured on the M1 host: with Elmer hidden, gui_smoke goes from 4 failures to
+  3, and all 3 remaining are the genuine Elmer solve loops.
+
 ## [0.77.7] — 2026-08-03 — two backends were undiscoverable, and one reported its help text as a version
 
 Both found by the macOS build host that landed in 0.77.6, and both fixed against
