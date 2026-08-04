@@ -6,7 +6,9 @@ when you stop designing *one* antenna and start designing a *system* of them.
 
 > **$149, one-time. Perpetual licence, no subscription, no account, no
 > telemetry.** Buy it at **[ajj3us.gumroad.com](https://ajj3us.gumroad.com)** —
-> you get a zip and a licence key. Install it from inside FreeCAD:
+> you get a zip and a licence key. **Pro is an add-on, not a standalone
+> workbench: install the free EMStudio workbench first** (FreeCAD → Tools →
+> Addon manager → "EMStudio"), then install the zip from inside FreeCAD:
 > **EMStudio → Help → EMStudio Pro — install / activate**. The numbers on this
 > page are measured by the validation gates, not projected.
 

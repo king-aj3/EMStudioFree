@@ -831,11 +831,26 @@ def _version_probe_rejects_help_text():
     import tempfile as _tempfile
     from emstudio.setup import solvers
 
+    made = []
+
     def _fake(body):
+        if os.name == "nt":
+            # A shebang script cannot execute on native Windows, and cmd.exe
+            # would eat the help text's <angle brackets> if echoed — so the
+            # fake is a batch file that types a sidecar text file verbatim.
+            fd, txt = _tempfile.mkstemp(suffix=".txt")
+            with os.fdopen(fd, "w") as fh:
+                fh.write(body + "\n")
+            fd, path = _tempfile.mkstemp(suffix=".cmd")
+            with os.fdopen(fd, "w") as fh:
+                fh.write('@type "{0}"\r\n'.format(txt))
+            made.extend([txt, path])
+            return path
         fd, path = _tempfile.mkstemp(suffix=".sh")
         with os.fdopen(fd, "w") as fh:
             fh.write("#!/bin/sh\ncat <<'EOF'\n{0}\nEOF\n".format(body))
         os.chmod(path, os.stat(path).st_mode | _stat.S_IEXEC)
+        made.append(path)
         return path
 
     help_like = _fake(
@@ -851,7 +866,7 @@ def _version_probe_rejects_help_text():
         assert got == "nec2c 1.3", (
             "a real version line must still be returned, got %r" % got)
     finally:
-        for p in (help_like, real_like):
+        for p in made:
             try:
                 os.unlink(p)
             except OSError:
