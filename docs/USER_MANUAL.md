@@ -1080,14 +1080,23 @@ Simulation backends on native Windows:
 
 | Backend | Native Windows |
 |---|---|
-| Elmer, Gmsh | ✅ official installers (elmerfem.org, gmsh.info) |
+| **NEC2** | ✅ **one-click** — Solver Setup → **Install…**. Downloads nec2++ 2.3.4 (~1.5 MB, per-user, no admin rights), built from unmodified upstream source and published by the EMStudio project because no NEC engine has an official Windows build. Verified byte-identical to the Linux build on the shipped dipole deck. |
+| **Elmer, Gmsh** | ✅ **one-click** — Solver Setup → **Install…** downloads the official upstream builds (~160 MB and ~37 MB, per-user, no admin). Manual installers at elmerfem.org / gmsh.info still work. |
 | openEMS | ⚠️ prebuilt zips exist, but EMStudio's Python-driven pipeline isn't wired for them yet |
-| NEC2, FastHenry, Palace | ❌ not natively supported |
+| FastHenry | ⚠️ download FastFieldSolvers' own Windows build from fastfieldsolvers.com and point EMStudio at it. There is no Install button and there cannot be one — FastHenry carries an M.I.T. licence granting internal, noncommercial use only and prohibiting redistribution without written consent, so EMStudio may not ship the binary for you. |
+| Palace | ❌ no upstream Windows support — WSL2 only |
 
-**Recommended full-featured route: WSL2.** Install Ubuntu under WSL2, install FreeCAD
-and EMStudio inside it, and every Linux recipe in this manual applies unchanged —
-including all six solvers. Detect Solvers is platform-aware and shows
-Windows-specific guidance when run on native Windows.
+**The guided installs put binaries in `%LOCALAPPDATA%\EMStudio\solvers\` and
+EMStudio finds them without touching `PATH`.** Deleting that folder just means
+clicking Install again. If you see *"TLS verification failed (corporate proxy
+interception?) — retrying through Windows curl/schannel"*, that is expected on a
+managed corporate network and is handled automatically; verification is never
+disabled.
+
+**For openEMS and Palace, the route is still WSL2.** Install Ubuntu under WSL2,
+install FreeCAD and EMStudio inside it, and every Linux recipe in this manual
+applies unchanged — including all six solvers. Detect Solvers is platform-aware
+and shows Windows-specific guidance when run on native Windows.
 
 ## 8. Troubleshooting
 

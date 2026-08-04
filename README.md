@@ -116,7 +116,13 @@ and gives you a single install command for what is missing. The workbench runs
 without any solver installed; the analytic tools work regardless.
 
 Solver Setup is platform-aware: `apt` on Debian/Ubuntu/Mint, `brew` on macOS,
-native installers or WSL2 on Windows.
+and on **Windows a one-click Install… button** for the backends whose binaries
+can be distributed — **NEC2, Elmer and Gmsh**. Those download into
+`%LOCALAPPDATA%\EMStudio\solvers\`, per-user, with no admin rights and no
+shell, and are detected without touching `PATH`. openEMS and Palace still need
+WSL2; FastHenry needs FastFieldSolvers' own Windows build, because its M.I.T.
+licence permits internal noncommercial use only and forbids redistribution, so
+EMStudio may not ship it for you.
 
 **On macOS**, run `xcode-select --install` first — several solvers have no
 Homebrew formula and are built from source. Detection looks in

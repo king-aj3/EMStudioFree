@@ -1116,6 +1116,23 @@ def _install_text_platform_segregation():
                 assert flag in text, \
                     "FastHenry {0} is missing {1}: {2}".format(label, flag, text)
 
+        # FOURTH SURFACE, found 2026-08-04: README.md carried its own copy of the
+        # flags and had drifted by THREE of them, because the three checks above
+        # never looked at a doc. The fix is not "add README to the list" -- a doc
+        # that restates the flags will drift again. It must POINT at the constant
+        # instead, so this asserts no shipped doc spells a flag list out at all.
+        docs_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for doc in ("README.md", "HELP.md", "docs/USER_MANUAL.md"):
+            path = os.path.join(docs_root, doc)
+            if not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8") as fh:
+                body = fh.read()
+            assert "-DFOUR" not in body, (
+                "{0} spells out the FastHenry CFLAGS. That list grows with every "
+                "compiler generation and has already drifted once -- point at "
+                "solvers.FASTHENRY_CFLAGS instead of restating it.".format(doc))
+
         # A backend with no Homebrew formula is ALWAYS source-built on macOS, so
         # it must declare where it lands — PATH cannot be relied on (FreeCAD from
         # Finder does not inherit it) and MACOS_PROBE_DIRS only covers the three
