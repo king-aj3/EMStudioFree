@@ -8,8 +8,10 @@ that runs the no-sudo build recipe (``emstudio.setup.solvers.run_build``) in
 a background thread with the compiler output streamed into the dialog.
 Prerequisites are preflighted BEFORE any compile starts.
 
-On native Windows the build buttons are replaced by the per-backend guidance
-from ``WINDOWS_HINTS``.
+On native Windows the from-source build buttons are replaced by the per-backend
+guidance from ``WINDOWS_HINTS`` — except backends whose upstream publishes real
+prebuilt Windows binaries, which get an Install button instead
+(``solvers.run_win_install``: stdlib download + extract, per-user, no admin).
 """
 
 from __future__ import annotations
@@ -40,10 +42,11 @@ class SolverInstallerDialog(QtWidgets.QDialog):
         if self._is_win:
             intro_text = (
                 "EMStudio drives open-source solvers as separate programs. "
-                "This window shows which are installed. On Windows, use each "
-                "backend's native installer where one exists (see Details / the "
-                "Report view) — or install FreeCAD + EMStudio inside WSL2 (Ubuntu) "
-                "for the complete toolchain.")
+                "This window shows which are installed. Backends with an "
+                "Install button download the official prebuilt Windows binaries "
+                "for you (per-user, no admin rights). For the rest, see Details "
+                "/ the Report view — or install FreeCAD + EMStudio inside WSL2 "
+                "(Ubuntu) for the complete toolchain.")
         else:
             intro_text = (
                 "EMStudio drives open-source solvers as separate programs. "
@@ -90,9 +93,9 @@ class SolverInstallerDialog(QtWidgets.QDialog):
         layout.addWidget(self.log, 3)
 
         if self._is_win:
-            # no apt line and no from-source builds on Windows
+            # No apt line on Windows. The log pane STAYS: guided installs
+            # stream their download/extract progress into it.
             self.apt_row_widget.setVisible(False)
-            self.log.setVisible(False)
 
         buttons = QtWidgets.QHBoxLayout()
         self.redetect_btn = QtWidgets.QPushButton("Re-detect", self)
@@ -172,6 +175,16 @@ class SolverInstallerDialog(QtWidgets.QDialog):
                                    "will not fail mid-compile.")
                 btn.clicked.connect(lambda _=False, key=b.key: self._build(key))
                 self.table.setCellWidget(i, 3, btn)
+            elif not info.found and solvers.win_install_plan(b.key) is not None:
+                wplan = solvers.win_install_plan(b.key)
+                btn = QtWidgets.QPushButton("Install…", self.table)
+                btn.setToolTip(
+                    "Downloads the official Windows build ({0}); progress "
+                    "streams below. Per-user, no admin rights needed.".format(
+                        wplan["estimate"]))
+                btn.clicked.connect(
+                    lambda _=False, key=b.key: self._win_install(key))
+                self.table.setCellWidget(i, 3, btn)
 
     def _copy_apt(self):
         QtWidgets.QApplication.clipboard().setText(self.apt_edit.text())
@@ -215,6 +228,46 @@ class SolverInstallerDialog(QtWidgets.QDialog):
 
         self.log.appendPlainText("=== building {0} ===".format(label))
         self.abort_btn.setEnabled(True)
+        self.redetect_btn.setEnabled(False)
+        self._lock = lock
+        threading.Thread(target=work, daemon=True).start()
+        self._timer.start(300)
+
+    def _win_install(self, key):
+        """Guided Windows install — official prebuilt download, in a thread."""
+        if self._busy_key:
+            return
+        wplan = solvers.win_install_plan(key)
+        label = solvers.BACKENDS[key].label
+        answer = QtWidgets.QMessageBox.question(
+            self, "EMStudio — install {0}?".format(label),
+            "Download and install {0} now?\n\nEstimated time: {1}\n"
+            "Installs to: {2}\n\nOfficial upstream binaries, per-user, no "
+            "admin rights needed.".format(
+                label, wplan["estimate"],
+                os.path.join(solvers.win_install_root(), key)),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if answer != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._busy_key = key
+        self._state = {"done": False, "error": None, "lines": []}
+        state = self._state
+        lock = threading.Lock()
+
+        def line_cb(line):
+            with lock:
+                state["lines"].append(line)
+
+        def work():
+            try:
+                solvers.run_win_install(key, line_callback=line_cb)
+            except Exception as exc:  # noqa: BLE001 — surfaced in the dialog
+                state["error"] = exc
+            finally:
+                state["done"] = True
+
+        self.log.appendPlainText("=== installing {0} ===".format(label))
         self.redetect_btn.setEnabled(False)
         self._lock = lock
         threading.Thread(target=work, daemon=True).start()

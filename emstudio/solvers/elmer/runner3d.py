@@ -25,7 +25,7 @@ from emstudio.solvers.base import SolverError, SolverJob, make_workdir
 
 from . import writer3d
 from .parser import parse_mesh_names
-from .runner import _resolve_elmersolver, find_elmergrid
+from .runner import _resolve_elmersolver, elmer_env, find_elmergrid
 
 _MESH_TIMEOUT_S = 900
 _SOLVE_TIMEOUT_S = 3600
@@ -95,7 +95,8 @@ def run_model3d(model, workdir=None, line_callback=None):
         embed_lines=model.get("embed_lines"), line_callback=line_callback)
     SolverJob([elmergrid, "14", "2", os.path.basename(msh), "-autoclean",
                "-out", "mesh"],
-              cwd=workdir, line_callback=line_callback).run_blocking(
+              cwd=workdir, env=elmer_env(elmergrid),
+              line_callback=line_callback).run_blocking(
                   timeout=_MESH_TIMEOUT_S)
     names_file = os.path.join(workdir, "mesh", "mesh.names")
     if not os.path.isfile(names_file):
@@ -121,7 +122,7 @@ def run_model3d(model, workdir=None, line_callback=None):
                 line_callback(line)
 
         job = SolverJob([elmersolver, "case.sif"], cwd=workdir,
-                        line_callback=_cb)
+                        env=elmer_env(elmersolver), line_callback=_cb)
         job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
     if errors:
         raise SolverError(

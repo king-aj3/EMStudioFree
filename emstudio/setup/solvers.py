@@ -416,9 +416,12 @@ def find_backend(key):
         if hit:
             return SolverInfo(backend, hit, _probe_version(hit, backend.version_args), "path")
 
-    # 4) common platform-specific directories (probe .exe/.bat variants on Windows)
+    # 4) common platform-specific directories (probe .exe/.bat variants on
+    #    Windows), plus the per-user managed dirs the guided Windows installer
+    #    extracts into — PATH-independent by design, so an install works even
+    #    when FreeCAD was launched from a shortcut with a bare environment.
     suffixes = ("", ".exe", ".bat", ".cmd") if os.name == "nt" else ("",)
-    for directory in tuple(backend.extra_dirs) + _platform_dirs():
+    for directory in tuple(backend.extra_dirs) + _managed_dirs(key) + _platform_dirs():
         for name in backend.executables:
             for sfx in suffixes:
                 cand = os.path.join(directory, name + sfx)
@@ -649,11 +652,344 @@ WINDOWS_HINTS = {
     "fasthenry": "FastFieldSolvers ships Windows builds (https://www.fastfieldsolvers.com/), "
                  "but EMStudio's command-line integration currently targets the Linux "
                  "build — use WSL2 for wire/litz cross-checks.",
-    "elmer": "Official Windows installer: https://www.elmerfem.org/ (ElmerFEM release "
-             "with ElmerSolver + ElmerGrid).",
+    "elmer": "One-click guided install available — the Install button downloads the "
+             "official CSC Windows build (~122 MB zip, per-user, no admin rights) "
+             "and EMStudio detects it automatically. Manual alternative: the "
+             "official installer at https://www.elmerfem.org/.",
     "palace": "No native Windows support (Linux/macOS only) — use WSL2.",
-    "gmsh": "Official Windows binaries: https://gmsh.info/ — add gmsh.exe to PATH.",
+    "gmsh": "One-click guided install available — the Install button downloads the "
+            "official gmsh Windows zip (~37 MB, per-user, no admin rights). "
+            "Manual alternative: https://gmsh.info/.",
 }
+
+
+# --- Windows guided installs ------------------------------------------------
+# The Linux/macOS guided path COMPILES from source through bash. Native Windows
+# has no bash, usually no compiler and often no admin rights, so its guided
+# path is different in kind: DOWNLOAD the official prebuilt binaries into a
+# per-user managed directory and extract them with the stdlib — no shell, no
+# NSIS installer, no UAC prompt. Only backends whose upstream publishes real
+# Windows binaries belong here; the rest keep their honest WINDOWS_HINTS
+# (fastfieldsolvers.com gates downloads behind a form; openEMS zips exist but
+# the python-driven run pipeline is not wired on native Windows, so installing
+# one would produce a "found" solver that cannot run — worse than honesty).
+
+def win_install_root():
+    """Per-user root for guided Windows installs (%LOCALAPPDATA%/EMStudio/solvers)."""
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(
+        os.path.expanduser("~"), "AppData", "Local")
+    return os.path.join(base, "EMStudio", "solvers")
+
+
+def _managed_dirs(key):
+    """Probe dirs for guided Windows installs. Empty off Windows."""
+    if os.name != "nt":
+        return ()
+    root = os.path.join(win_install_root(), key)
+    return (os.path.join(root, "bin"), root)
+
+
+#: Guided Windows installs: official prebuilt archives only, from the
+#: publisher's own distribution point (funet is CSC's mirror — CSC writes
+#: Elmer; gmsh.info is gmsh's home). Both URLs are upstream-maintained
+#: "current build" names, so they do not go stale with each release.
+#: Elmer gui/nompi is deliberate on BOTH axes: nompi because EMStudio drives
+#: a headless serial ElmerSolver and MS-MPI needs its own admin installer;
+#: gui — NOT nogui — because the nogui zip ships no MinGW runtime DLLs at
+#: all (libgfortran-5 etc.; only static .a archives in its stripped
+#: toolchain), so its ElmerSolver.exe dies 0xC0000135 before printing a
+#: byte. The gui zip is 11 MB larger and self-contained. Measured live on
+#: the guided install, 2026-08-04.
+WIN_INSTALL_PLANS = {
+    "elmer": {
+        "estimate": "2-10 min (a ~160 MB download; no compile)",
+        "url": "https://www.nic.funet.fi/pub/sci/physics/elmer/bin/windows/"
+               "ElmerFEM-gui-nompi-Windows-AMD64.zip",
+        # The file that proves extraction found the real tree, relative to it.
+        "proof": os.path.join("bin", "ElmerSolver.exe"),
+        # CSC's Windows ZIPS ship NO MinGW runtime DLLs (measured 2026-08-04:
+        # ElmerSolver.exe's import table wants libgfortran-5 etc., nothing in
+        # either zip provides them, and the exe dies 0xC0000135 before
+        # printing a byte — the .exe installer bundles them, but it may
+        # demand elevation, which is exactly what a locked-down box lacks).
+        # The guided install therefore completes the tree from MSYS2's
+        # official repo. GCC's Windows runtime is backward-compatible:
+        # libgfortran.so-version 5 covers GCC 8 through current, so a newer
+        # runtime under a GCC 10-built Elmer is the supported direction.
+        # MSYS2 splits the runtime finely (measured against the live index,
+        # 2026-08-04): libgcc_s_seh-1 + libquadmath-0 + libgomp-1 come from
+        # gcc-libs, libgfortran-5 from gcc-LIBGFORTRAN, libwinpthread-1 from
+        # libwinpthread (the old "-git" suffixed name is GONE from the index).
+        # libgomp-1 is here because MSYS2's OpenBLAS is an OpenMP build —
+        # found by walking ElmerSolver's transitive import closure, not by
+        # guessing. This tuple is the VERIFY list; the installer copies every
+        # DLL the packages ship, so a new transitive dep degrades to a clear
+        # error here rather than a silent 0xC0000135.
+        "runtime_dlls": ("libgfortran-5.dll", "libgcc_s_seh-1.dll",
+                         "libquadmath-0.dll", "libwinpthread-1.dll",
+                         "libopenblas.dll", "libgomp-1.dll"),
+        "runtime_pkgs": ("mingw-w64-x86_64-gcc-libs",
+                         "mingw-w64-x86_64-gcc-libgfortran",
+                         "mingw-w64-x86_64-libwinpthread",
+                         "mingw-w64-x86_64-openblas"),
+    },
+    "gmsh": {
+        "estimate": "1-3 min (a ~37 MB download; no compile)",
+        "url": "https://gmsh.info/bin/Windows/gmsh-stable-Windows64.zip",
+        "proof": "gmsh.exe",
+    },
+}
+
+
+def win_install_plan(key):
+    """The guided Windows install for a backend, or None (always None off nt)."""
+    if os.name != "nt":
+        return None
+    return WIN_INSTALL_PLANS.get(key)
+
+
+_MSYS2_MINGW64 = "https://mirror.msys2.org/mingw/mingw64/"
+
+
+def _zstd_tar():
+    """Windows' built-in bsdtar IF it can read zstd, else None.
+
+    MSYS2 packages are .pkg.tar.zst. libarchive gained zstd recently, so a
+    Windows 10-era tar.exe cannot read them — capability is PROBED, never
+    assumed, and the caller degrades to an honest error.
+    """
+    tar = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                       "System32", "tar.exe")
+    if not os.path.isfile(tar):
+        return None
+    try:
+        out = subprocess.run([tar, "--version"], capture_output=True,
+                             text=True, timeout=15)
+    except Exception:
+        return None
+    return tar if "libzstd" in (out.stdout or "") else None
+
+
+def _install_msys2_dlls(bin_dir, pkgs, dlls, say):
+    """Copy MinGW runtime DLLs from MSYS2's official repo into ``bin_dir``.
+
+    The package index (mingw64.db, a stable name) resolves current package
+    filenames, so nothing here goes stale with MSYS2 releases. Extraction is
+    Windows' own tar.exe — no shell scripts, no execution of anything
+    downloaded, no admin rights.
+    """
+    import re as _re
+    import tempfile
+
+    from emstudio.solvers.base import SolverError
+
+    tar = _zstd_tar()
+    if tar is None:
+        raise SolverError(
+            "this install needs MinGW runtime DLLs ({0}) and this Windows' "
+            "tar.exe cannot read zstd — run the official installer instead "
+            "(see Details).".format(", ".join(dlls)))
+
+    tmp = tempfile.mkdtemp(dir=win_install_root())
+    try:
+        db = os.path.join(tmp, "mingw64.db")
+        _download_archive(_MSYS2_MINGW64 + "mingw64.db", db, say)
+        listing = subprocess.run([tar, "-tf", db], capture_output=True,
+                                 text=True, timeout=120)
+        if listing.returncode != 0:
+            raise SolverError("cannot read the MSYS2 package index: "
+                              + (listing.stderr or "")[:200])
+        wanted = {}
+        for line in listing.stdout.splitlines():
+            top = line.strip("/").split("/")[0]
+            for p in pkgs:
+                # dir is <pkg>-<version>-<rel>; requiring a digit after the
+                # hyphen stops gcc-libs from matching gcc-libs-multilib etc.
+                rest = top[len(p) + 1:] if top.startswith(p + "-") else ""
+                if rest[:1].isdigit():
+                    wanted[p] = top
+        missing_pkgs = [p for p in pkgs if p not in wanted]
+        if missing_pkgs:
+            raise SolverError(
+                "the MSYS2 index lacks {0}".format(", ".join(missing_pkgs)))
+
+        for p in pkgs:
+            desc = subprocess.run([tar, "-xOf", db, wanted[p] + "/desc"],
+                                  capture_output=True, text=True, timeout=60)
+            m = _re.search(r"%FILENAME%\s*\n(\S+)", desc.stdout or "")
+            fname = m.group(1) if m else wanted[p] + "-any.pkg.tar.zst"
+            arch = os.path.join(tmp, fname)
+            say("fetching runtime package " + fname)
+            _download_archive(_MSYS2_MINGW64 + fname, arch, say)
+            ex = subprocess.run([tar, "-xf", arch, "-C", tmp],
+                                capture_output=True, text=True, timeout=300)
+            if ex.returncode != 0:
+                raise SolverError("cannot extract {0}: {1}".format(
+                    fname, (ex.stderr or "")[:200]))
+        # Copy EVERY DLL the runtime packages ship, not just the declared
+        # list — cherry-picking invited whack-a-mole (libopenblas turned out
+        # to want libgomp-1, found via the import closure). The declared
+        # list is the post-condition below.
+        src_bin = os.path.join(tmp, "mingw64", "bin")
+        for f in sorted(os.listdir(src_bin) if os.path.isdir(src_bin) else ()):
+            if f.lower().endswith(".dll"):
+                shutil.copy2(os.path.join(src_bin, f),
+                             os.path.join(bin_dir, f))
+                say("  + " + f)
+        remaining = [d for d in dlls
+                     if not os.path.isfile(os.path.join(bin_dir, d))]
+        if remaining:
+            raise SolverError("runtime DLLs not found in the MSYS2 packages: "
+                              + ", ".join(sorted(remaining)))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _download_archive(url, dest, say):
+    """Download ``url`` to the file path ``dest``, streaming progress via say().
+
+    urllib first (works everywhere TLS is honest, and carries the smoke gate's
+    file:// fixture). Corporate networks that intercept TLS re-sign traffic
+    with a private CA whose INTERMEDIATE OpenSSL cannot chase, so urllib dies
+    with CERTIFICATE_VERIFY_FAILED even though the CA is in the Windows store
+    — measured on the work-network box this feature was built for (2026-08-04;
+    git on the same box works because Windows git speaks schannel). Fallback:
+    Windows' built-in curl.exe, whose schannel backend trusts the Windows
+    certificate store and chases intermediates. TLS verification is NEVER
+    disabled — a failure past both routes is reported, not worked around.
+    """
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    from emstudio.solvers.base import SolverError
+
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp, \
+                open(dest, "wb") as out:
+            total = int(resp.headers.get("Content-Length") or 0)
+            done, next_mark = 0, 16 << 20
+            while True:
+                chunk = resp.read(512 << 10)
+                if not chunk:
+                    break
+                out.write(chunk)
+                done += len(chunk)
+                if done >= next_mark:
+                    say("  {0} MB{1}".format(
+                        done >> 20,
+                        " / ~{0} MB".format(total >> 20) if total else ""))
+                    next_mark += 16 << 20
+        return
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        if not isinstance(reason, ssl.SSLCertVerificationError):
+            raise SolverError("download failed: {0}".format(exc))
+        say("  TLS verification failed (corporate proxy interception?) — "
+            "retrying through Windows curl/schannel...")
+
+    curl = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                        "System32", "curl.exe")
+    if not os.path.isfile(curl):
+        raise SolverError(
+            "the network intercepts TLS and curl.exe is unavailable — "
+            "download {0} manually and extract it under {1}".format(
+                url, win_install_root()))
+    say("  (curl shows no progress until it finishes)")
+    job = subprocess.run(
+        [curl, "-fsSL", "--connect-timeout", "30", "--retry", "2",
+         "-o", dest, url],
+        capture_output=True, text=True, timeout=1800)
+    if job.returncode != 0:
+        raise SolverError("curl download failed (exit {0}): {1}".format(
+            job.returncode, (job.stderr or "").strip()[:300]))
+    say("  downloaded via curl ({0} MB)".format(os.path.getsize(dest) >> 20))
+
+
+def run_win_install(key, line_callback=None, _plan=None):
+    """Download + extract a backend's official Windows build. Returns SolverInfo.
+
+    Stdlib + Windows built-ins only: no shell scripts, no installer, no admin
+    rights. The archive is extracted into a temp dir and moved into place only
+    after the proof executable is found, so an interrupted download can never
+    leave a half-install that probing would trust. ``_plan`` exists for the
+    smoke gate, which feeds a file:// URL — everything downstream of the URL
+    is exactly the shipping path.
+    """
+    import tempfile
+    import zipfile as _zipfile
+
+    from emstudio.solvers.base import SolverError
+
+    def say(line):
+        if line_callback:
+            line_callback(line)
+
+    plan = _plan if _plan is not None else win_install_plan(key)
+    if plan is None:
+        raise SolverError(
+            "no guided Windows install for '{0}' on this platform".format(key))
+
+    root = win_install_root()
+    target = os.path.join(root, key)
+    os.makedirs(root, exist_ok=True)
+
+    say("downloading " + plan["url"])
+    fd, tmp_zip = tempfile.mkstemp(suffix=".zip", dir=root)
+    os.close(fd)
+    tmp_dir = None
+    try:
+        _download_archive(plan["url"], tmp_zip, say)
+        say("extracting...")
+        tmp_dir = tempfile.mkdtemp(dir=root)
+        try:
+            with _zipfile.ZipFile(tmp_zip) as zf:
+                zf.extractall(tmp_dir)
+        except _zipfile.BadZipFile as exc:
+            raise SolverError("corrupt download: {0}".format(exc))
+    finally:
+        try:
+            os.unlink(tmp_zip)
+        except OSError:
+            pass
+
+    # The zip may or may not carry a top-level folder — find the tree that
+    # actually contains the proof executable rather than assuming a layout.
+    tree = None
+    for dirpath, _dirs, _files in os.walk(tmp_dir):
+        if os.path.isfile(os.path.join(dirpath, plan["proof"])):
+            tree = dirpath
+            break
+    if tree is None:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise SolverError(
+            "archive did not contain {0} — upstream layout changed; "
+            "report this".format(plan["proof"]))
+
+    if os.path.isdir(target):
+        say("replacing the previous install...")
+        shutil.rmtree(target)
+    shutil.move(tree, target)
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    say("installed to " + target)
+
+    dlls = plan.get("runtime_dlls")
+    if dlls:
+        bin_dir = os.path.dirname(os.path.join(target, plan["proof"]))
+        need = tuple(d for d in dlls
+                     if not os.path.isfile(os.path.join(bin_dir, d)))
+        if need:
+            say("completing the tree with MinGW runtime DLLs "
+                "(the upstream zip ships none)...")
+            _install_msys2_dlls(bin_dir, plan["runtime_pkgs"], need, say)
+
+    info = find_backend(key)
+    if not info.found:
+        raise SolverError(
+            "installed to {0} but detection cannot see it — report this".format(target))
+    say("detected: {0}{1}".format(
+        info.path, (" — " + info.version) if info.version else ""))
+    return info
 
 
 def install_report_text():

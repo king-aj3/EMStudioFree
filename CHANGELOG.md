@@ -3,6 +3,64 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.78.0] — 2026-08-04 — guided solver install arrives on native Windows
+
+### Added
+- **One-click guided solver installs on native Windows** (Elmer and gmsh
+  first). The Linux/macOS wizard compiles from source through bash; Windows
+  has no bash, often no compiler and no admin rights, so its guided path
+  **downloads the official prebuilt binaries** instead — stdlib urllib +
+  zipfile into `%LOCALAPPDATA%\EMStudio\solvers\<backend>`, no shell, no NSIS
+  installer, no UAC prompt. Solver Setup shows an **Install** button for these
+  backends and streams download/extract progress into the log pane (which was
+  previously hidden on Windows). Detection probes the managed directory
+  automatically, PATH-independent — a FreeCAD launched from a bare-environment
+  shortcut still finds the result.
+  - **Elmer**: CSC's own `gui/nompi` Windows build (~122 MB) — the entire
+    magnetics arc now installs on Windows with one button. nompi is
+    deliberate (EMStudio drives a headless serial ElmerSolver, and MS-MPI
+    would need its own admin installer); gui — NOT nogui — is a measured
+    call: the nogui zip ships **no MinGW runtime DLLs at all** (only static
+    `.a` archives in its stripped toolchain), so its ElmerSolver.exe exits
+    0xC0000135 before printing a byte. The gui zip is 11 MB larger and
+    self-contained.
+  - **gmsh**: the official `gmsh-stable-Windows64.zip` (~37 MB), for FreeCAD
+    builds that do not bundle gmsh.
+  - Only backends whose upstream publishes real Windows binaries get the
+    button. The rest keep honest guidance: nec2++ still builds from source,
+    FastFieldSolvers gates its downloads behind a form, openEMS full runs
+    still want WSL2, and Palace has no Windows support at all.
+- Smoke gate: the plan table must be https + well-formed on every platform
+  (Linux CI guards a bad URL from shipping); on Windows a fake archive served
+  over `file://` runs the REAL download → extract → nested-topdir discovery →
+  move-into-place pipeline, and `find_backend` must then locate the result
+  through the managed-dir probe with PATH stripped.
+
+### Fixed
+- Three Windows defects the live install run caught, each invisible from
+  Linux (all three then gated):
+  - **`find_elmergrid` missed `ElmerGrid.exe`** sitting in the same bin
+    directory as the detected ElmerSolver — the sibling lookup built the
+    bare name with no suffix. The smoke gate now requires ElmerGrid to
+    resolve beside the managed ElmerSolver.
+  - **A zip-layout Elmer needs its documented environment** (`ELMER_HOME`,
+    `ELMER_LIB`, PATH additions per CSC's Readme1st.txt) or ElmerSolver
+    dies 0xC0000135 with no output. Every Elmer/ElmerGrid spawn (2-D, 3-D,
+    sweep) now derives that environment from the executable's own location
+    (`elmer_env`), so a hand-unzipped tree works identically.
+  - **Corporate TLS interception broke urllib downloads**
+    (CERTIFICATE_VERIFY_FAILED: OpenSSL cannot chase a private CA's
+    intermediates). The downloader now falls back to Windows' built-in
+    curl.exe, whose schannel backend trusts the Windows certificate store —
+    verification is never disabled. Measured live: funet was intercepted
+    and fell back; gmsh.info streamed straight through urllib.
+- `tests/smoke.py`'s version-probe check faked its solver with a `#!/bin/sh`
+  script, which cannot execute on native Windows — the check failed on every
+  Windows box. The fake is now platform-aware (a `.cmd` that types a sidecar
+  file, because cmd.exe would eat the help text's `<angle brackets>` if
+  echoed). Mutation-tested on Windows: the pre-0.77.7 any-digit-line probe
+  mutation is still caught.
+
 ## [0.77.9] — 2026-08-03 — Windows has a native NEC engine, verified
 
 v0.77.8 shipped saying nec2++ on Windows was "promising rather than proven".

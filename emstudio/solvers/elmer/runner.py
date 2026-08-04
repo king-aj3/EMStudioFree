@@ -49,9 +49,15 @@ def find_elmergrid():
     """
     info = solver_setup.find_backend("elmer")
     if info.found:
-        cand = os.path.join(os.path.dirname(info.path), "ElmerGrid")
-        if os.path.isfile(cand) and os.access(cand, os.X_OK):
-            return cand
+        # Same suffix rule as find_backend: a Windows sibling is ElmerGrid.exe,
+        # and the bare name misses it (caught live on the guided Windows
+        # install, 2026-08-04 — ElmerSolver detected, ElmerGrid "not found"
+        # while sitting in the same bin directory).
+        suffixes = ("", ".exe") if os.name == "nt" else ("",)
+        for sfx in suffixes:
+            cand = os.path.join(os.path.dirname(info.path), "ElmerGrid" + sfx)
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
     which = shutil.which("ElmerGrid")
     if which:
         return which
@@ -66,6 +72,31 @@ def _resolve_elmersolver():
         raise SolverError(
             "ElmerSolver not found.\n" + solver_setup.install_hint(info.backend))
     return info.path
+
+
+def elmer_env(exe):
+    """Extra environment for a zip-layout Elmer tree on Windows, or None.
+
+    The official Windows zip requires ELMER_HOME + ELMER_LIB plus PATH
+    additions (Readme1st.txt on CSC's mirror); without them ElmerSolver.exe
+    dies with 0xC0000135 (DLL not found) before printing anything — measured
+    live on the guided Windows install, 2026-08-04. Derived from the
+    executable's own location, so a hand-unzipped tree gets the same
+    treatment; None for package-managed installs, whose layout needs nothing.
+    """
+    if os.name != "nt":
+        return None
+    root = os.path.dirname(os.path.dirname(os.path.abspath(exe)))
+    elmer_lib = os.path.join(root, "share", "elmersolver", "lib")
+    if not os.path.isdir(elmer_lib):
+        return None
+    return {
+        "ELMER_HOME": root,
+        "ELMER_LIB": elmer_lib,
+        "PATH": os.pathsep.join((
+            os.path.join(root, "bin"), os.path.join(root, "lib"),
+            elmer_lib, os.environ.get("PATH", ""))),
+    }
 
 
 def _run_case(elmersolver, model, f_hz, tag, excitation, workdir, mesh_src,
@@ -107,7 +138,8 @@ def _run_case(elmersolver, model, f_hz, tag, excitation, workdir, mesh_src,
             if line_callback is not None:
                 line_callback("[{0}] {1}".format(tag, line))
 
-        job = SolverJob([elmersolver, "case.sif"], cwd=rundir, line_callback=_cb)
+        job = SolverJob([elmersolver, "case.sif"], cwd=rundir,
+                        env=elmer_env(elmersolver), line_callback=_cb)
         job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
     if errors:
         # ElmerSolver exits 0 on sif parse errors — treat ERROR:: as fatal
@@ -223,7 +255,8 @@ def run_model(model, freqs, workdir=None, line_callback=None,
     mesh_dir = os.path.join(workdir, "mesh")
     SolverJob([elmergrid, "14", "2", os.path.basename(msh), "-autoclean",
                "-out", "mesh"],
-              cwd=workdir, line_callback=line_callback).run_blocking(
+              cwd=workdir, env=elmer_env(elmergrid),
+              line_callback=line_callback).run_blocking(
                   timeout=_MESH_TIMEOUT_S)
     names_file = os.path.join(mesh_dir, "mesh.names")
     if not os.path.isfile(names_file):

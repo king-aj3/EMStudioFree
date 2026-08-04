@@ -873,6 +873,78 @@ def _version_probe_rejects_help_text():
                 pass
 
 
+def _win_guided_install_contract():
+    """Guided Windows installs: plans well-formed; the pipeline installs + probes.
+
+    The structural half runs on every platform (CI is Linux, so this is what
+    guards a bad URL from shipping): every plan names a real backend, an https
+    URL and a proof file. The behavioral half is Windows-only, because the
+    feature is nt-only by design: a fake archive served over file:// goes
+    through the REAL ``run_win_install`` — download, extract, nested-topdir
+    discovery, move-into-place — and then ``find_backend`` must locate the
+    result through the managed-dir probe with PATH stripped and the install
+    root redirected to a temp dir. Asserting the VALUE (the plan table exists)
+    instead of this behaviour is the exact mistake the 0.77.4 probe gate made.
+    """
+    import shutil as _shutil
+    import tempfile as _tempfile
+    import zipfile as _zipfile
+
+    from emstudio.setup import solvers
+
+    assert solvers.WIN_INSTALL_PLANS, "the guided Windows install table is empty"
+    for key, plan in solvers.WIN_INSTALL_PLANS.items():
+        assert key in solvers.BACKENDS, "plan for unknown backend %r" % key
+        assert plan["url"].startswith("https://"), "non-https URL for %r" % key
+        assert plan["proof"] and plan["estimate"], "incomplete plan for %r" % key
+        if plan.get("runtime_dlls"):
+            assert plan.get("runtime_pkgs"), (
+                "runtime_dlls without runtime_pkgs for %r" % key)
+    if os.name != "nt":
+        return
+
+    tmp_root = _tempfile.mkdtemp(prefix="emstudio_wininst_")
+    fake_zip = os.path.join(tmp_root, "fake.zip")
+    with _zipfile.ZipFile(fake_zip, "w") as zf:
+        zf.writestr("Fake-Elmer-1.0/bin/ElmerSolver.exe", "@echo off\r\n")
+        zf.writestr("Fake-Elmer-1.0/bin/ElmerGrid.exe", "@echo off\r\n")
+    plan = {
+        "estimate": "test",
+        "url": "file:///" + fake_zip.replace("\\", "/"),
+        "proof": os.path.join("bin", "ElmerSolver.exe"),
+    }
+    orig_root = solvers.win_install_root
+    orig_path = os.environ.get("PATH", "")
+    orig_env = os.environ.pop("EMSTUDIO_ELMER", None)
+    lines = []
+    try:
+        solvers.win_install_root = lambda: os.path.join(tmp_root, "managed")
+        os.environ["PATH"] = ""
+        info = solvers.run_win_install("elmer", line_callback=lines.append,
+                                       _plan=plan)
+        assert info.found and info.source == "probe", (
+            "guided install not found via the managed-dir probe: %r" % (info,))
+        assert info.path.startswith(os.path.join(tmp_root, "managed")), info.path
+        assert os.path.isfile(os.path.join(
+            tmp_root, "managed", "elmer", "bin", "ElmerGrid.exe")), (
+            "sibling files were not moved with the tree")
+        assert any("installed to" in ln for ln in lines), "no progress lines"
+        # ElmerGrid must resolve as a SIBLING of the managed ElmerSolver —
+        # the bare name missed ElmerGrid.exe on Windows (caught live
+        # 2026-08-04: solver detected, companion "not found" from the same
+        # bin directory).
+        from emstudio.solvers.elmer import runner as _elmer_runner
+        grid = _elmer_runner.find_elmergrid()
+        assert grid.startswith(os.path.join(tmp_root, "managed")), (
+            "ElmerGrid not resolved beside the managed ElmerSolver: %r" % grid)
+    finally:
+        solvers.win_install_root = orig_root
+        os.environ["PATH"] = orig_path
+        if orig_env is not None:
+            os.environ["EMSTUDIO_ELMER"] = orig_env
+        _shutil.rmtree(tmp_root, ignore_errors=True)
+
+
 def _install_text_platform_segregation():
     """Install instructions must be platform-pure: no Linux commands on Windows.
 
@@ -1352,6 +1424,8 @@ def main():
     check("install text is platform-segregated (Win/Linux)", _install_text_platform_segregation)
     check("version probe returns a version, never help text",
           _version_probe_rejects_help_text)
+    check("guided Windows install: plans + install/probe pipeline",
+          _win_guided_install_contract)
     check("NEC2 parser reads both nec2c and nec2++ output",
           _nec_parser_reads_both_dialects)
     check("nec2 argv uses basenames (macOS temp paths overflow nec2c)",

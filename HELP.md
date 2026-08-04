@@ -77,7 +77,7 @@ to this same group — see [docs/PRO](docs/PRO.md).*
 ### Setup
 | Command | What it does |
 |---|---|
-| **Detect / Install Solvers** | Setup wizard: backend status, one-line install command (apt on Linux; native-installer/WSL2 guidance on Windows), guided no-sudo source builds with live output |
+| **Detect / Install Solvers** | Setup wizard: backend status, one-line install command (apt on Linux, brew on macOS), guided no-sudo source builds with live output — and on Windows, one-click Install buttons that download the official prebuilt binaries (Elmer, gmsh; per-user, no admin rights) |
 
 ### Help
 | Command | What it does |
