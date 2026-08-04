@@ -1984,6 +1984,76 @@ def _about_and_legal_dialogs():
     return "about + legal + first-run notice OK (text asserted, Help group)"
 
 
+def _solver_setup_dialog():
+    """Solver Setup must build, and the Windows guided-install branch must
+    actually produce Install buttons.
+
+    WHY THIS EXISTS: v0.78.0 rewrote installer_dialog.py's Windows path and
+    v0.78.1 followed it, and NOTHING in the gate suite touched the file. It has
+    no other caller than a lazy import in commands.py, so a green gui_smoke was
+    reported as covering a change it could not see (found 2026-08-04). Worse,
+    every changed line is behind ``self._is_win``, so even constructing the
+    dialog on Linux exercises none of it -- the Windows branch has to be
+    SIMULATED or it is untested on every machine that is not Windows.
+
+    Forces os.name = "nt" with every backend missing, then asserts the table
+    the user would actually see.
+    """
+    import os as _os
+
+    from emstudio.setup import solvers
+    from emstudio.ui.installer_dialog import SolverInstallerDialog
+
+    def buttons(dlg):
+        out = {}
+        for row in range(dlg.table.rowCount()):
+            w = dlg.table.cellWidget(row, 3)
+            out[dlg.table.item(row, 0).text()] = w.text() if w is not None else None
+        return out
+
+    # --- the real platform path ---------------------------------------------
+    dlg = SolverInstallerDialog()
+    assert dlg.table.rowCount() >= len(solvers.BACKENDS), "backend rows missing"
+    assert "Install…" not in buttons(dlg).values(), \
+        "a guided-install button appeared OFF Windows"
+    dlg.deleteLater()
+
+    # --- simulated native Windows -------------------------------------------
+    real_name, real_detect = _os.name, solvers.detect_all
+    real_local = _os.environ.get("LOCALAPPDATA")
+    try:
+        _os.environ["LOCALAPPDATA"] = r"C:\Users\test\AppData\Local"
+        solvers.detect_all = lambda: {
+            k: solvers.SolverInfo(solvers.BACKENDS[k], "") for k in solvers.BACKENDS}
+        _os.name = "nt"
+        wdlg = SolverInstallerDialog()
+        btns = buttons(wdlg)
+        installable = {k for k in solvers.BACKENDS
+                       if btns.get(solvers.BACKENDS[k].label) == "Install…"}
+        assert installable == set(solvers.WIN_INSTALL_PLANS), (
+            "Install buttons {0} do not match WIN_INSTALL_PLANS {1}".format(
+                sorted(installable), sorted(solvers.WIN_INSTALL_PLANS)))
+        assert "Build…" not in btns.values(), \
+            "a from-source Build button on Windows (no bash, no compiler there)"
+        # v0.78.0's actual fix: the log pane used to be hidden on Windows, which
+        # would have made every guided install look like it did nothing.
+        assert wdlg.log.isVisibleTo(wdlg), \
+            "log pane hidden on Windows — install progress would be invisible"
+        assert not wdlg.apt_row_widget.isVisibleTo(wdlg), \
+            "the sudo apt row must never render on Windows"
+        assert not wdlg.abort_btn.isVisibleTo(wdlg), "Abort build shown on Windows"
+        wdlg.deleteLater()
+    finally:
+        _os.name = real_name
+        solvers.detect_all = real_detect
+        if real_local is None:
+            _os.environ.pop("LOCALAPPDATA", None)
+        else:
+            _os.environ["LOCALAPPDATA"] = real_local
+    return "builds; simulated Windows offers Install… for {0}".format(
+        ", ".join(sorted(solvers.WIN_INSTALL_PLANS)))
+
+
 def main():
     _log("EMStudio real-GUI smoke test")
     _log("----------------------------")
@@ -2025,6 +2095,8 @@ def main():
     check("results dialogs construct", _dialogs_construct)
     check("About + Legal notice dialogs (intended use / liability / brand)",
           _about_and_legal_dialogs)
+    check("Solver Setup dialog + Windows guided-install buttons",
+          _solver_setup_dialog)
     _log("----------------------------")
     if _failures:
         _log("GUI SMOKE FAILED: {0}".format(_failures))

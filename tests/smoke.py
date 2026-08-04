@@ -900,6 +900,33 @@ def _win_guided_install_contract():
         if plan.get("runtime_dlls"):
             assert plan.get("runtime_pkgs"), (
                 "runtime_dlls without runtime_pkgs for %r" % key)
+        # A backend that HAS a button must say so where the user looks. The
+        # Windows hint is the only text shown in the Details column, and it
+        # used to describe a manual build for backends that now install
+        # themselves — stale guidance reads as "there is no button".
+        hint = solvers.WINDOWS_HINTS.get(key, "")
+        assert "Install button" in hint, (
+            "%r has a guided install but its WINDOWS_HINTS text never mentions "
+            "the Install button" % key)
+        # SELF-HOSTED plans carry licence obligations that upstream ones do not:
+        # we are the distributor. nec2++ is GPL-2, so section 3 requires the
+        # complete corresponding source to be offered alongside the binary, and
+        # a source zip from a DIFFERENT release than the binary is not that.
+        # Tying the two tags together is what makes "bump both" enforceable
+        # rather than a comment someone has to remember.
+        if solvers.is_self_hosted(plan):
+            offer = plan.get("source_offer", "")
+            assert offer.startswith("https://"), (
+                "self-hosted %r ships no source_offer — we are the distributor "
+                "here, so the source offer is not optional" % key)
+            bin_tag = solvers._release_tag(plan["url"])
+            src_tag = solvers._release_tag(offer)
+            assert bin_tag and src_tag, (
+                "cannot read release tags for %r (%r / %r)" % (key, bin_tag, src_tag))
+            assert bin_tag == src_tag, (
+                "%r binary is published under tag %r but its source offer points "
+                "at %r — a rebuild left the source zip behind"
+                % (key, bin_tag, src_tag))
     if os.name != "nt":
         return
 
@@ -1063,7 +1090,11 @@ def _install_text_platform_segregation():
         # a compiler's flag to that tuple makes every surface below required to
         # carry it — and forgetting one surface is what turns this red.
         required = solvers.FASTHENRY_REQUIRED_FLAGS
-        assert len(required) >= 4, \
+        # Raise this with the tuple. It is a ratchet, so leaving it at the old
+        # count lets a flag be dropped again in silence — which is the exact
+        # failure mode this whole check exists for. 5 as of 0.79.0 (-std=gnu17,
+        # for GCC 15's C23 default).
+        assert len(required) >= 5, \
             "FASTHENRY_REQUIRED_FLAGS shrank; flags are appended, never removed"
         # The single definition and the assertion list must agree, or the
         # constant silently stops meaning anything.

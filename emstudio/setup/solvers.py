@@ -69,16 +69,26 @@ def _platform_dirs():
 #:
 #: EXPECT THIS LIST TO GROW. FastHenry is K&R-era C; each compiler generation
 #: promotes another legacy diagnostic to an error. Append, do not rewrite.
+#:
+#: `-std=gnu17` is NOT a suppression and is the reason the pattern above is not
+#: quite enough on its own. GCC 15 defaults to **C23**, where an empty parameter
+#: list `()` means "takes no parameters" instead of "unspecified". Every K&R
+#: call in FastHenry then fails with `too many arguments to function` — a
+#: SEMANTIC error that no `-Wno-` flag can reach, so the four suppressions below
+#: were necessary but not sufficient. Pinning the dialect is the fix; older
+#: GCC and every clang accept the flag, so it is safe everywhere. Found by
+#: building on GCC 15.2.0, 2026-08-04.
 FASTHENRY_CFLAGS = (
-    "-O -DFOUR -m64 -fcommon "
+    "-O -DFOUR -m64 -fcommon -std=gnu17 "
     "-Wno-implicit-int "                    # main(argc, argv) with no return type
     "-Wno-implicit-function-declaration "   # calls before declaration
     "-Wno-return-mismatch"                  # bare `return;` from a non-void function
 )
 
-#: Individual suppressions, for gates that need to assert each is present.
+#: Individual flags, for gates that need to assert each is present.
 FASTHENRY_REQUIRED_FLAGS = (
     "-fcommon",
+    "-std=gnu17",
     "-Wno-implicit-int",
     "-Wno-implicit-function-declaration",
     "-Wno-return-mismatch",
@@ -231,21 +241,34 @@ BACKENDS = {
         executables=("fasthenry",),
         version_args=("-help",),
         # Not packaged in Ubuntu 24.04/Mint 22 — small C source build. FastHenry
-        # is K&R-era C and needs FOUR suppressions on any modern compiler:
-        #   -fcommon                          legacy common-symbol linkage (GCC >= 10)
-        #   -Wno-implicit-int                 `main(argc, argv)` with no return type
-        #   -Wno-implicit-function-declaration  calls before declaration
-        #   -Wno-return-mismatch              `return;` from a non-void function
+        # is K&R-era C and every modern compiler needs the flag set in
+        # FASTHENRY_CFLAGS; see that constant for why each entry is there.
         # Each became an ERROR by default one compiler generation apart, which is
         # how a build that worked for years starts failing: Apple clang 15 / GCC 14
         # promoted the implicit-* pair (20 errors in induct.c, reported on macOS
-        # 26.5 arm64 2026-08-01), and Apple clang 21 then promoted return-mismatch
-        # (2 more errors in induct.c, measured on the M1 build host 2026-08-03).
-        # ADDING A COMPILER IS NOT A FIX: the list only ever grows, so treat a new
-        # hard error here as expected maintenance, not a surprise.
+        # 26.5 arm64 2026-08-01), Apple clang 21 then promoted return-mismatch
+        # (2 more errors in induct.c, measured on the M1 build host 2026-08-03),
+        # and GCC 15 changed the DEFAULT DIALECT to C23, which is not a warning
+        # at all (measured 2026-08-04). ADDING A COMPILER IS NOT A FIX: the list
+        # only ever grows, so treat a new hard error here as expected
+        # maintenance, not a surprise.
+        #
+        # LICENCE — do NOT restate this as LGPL. It said "LGPL" from the first
+        # commit until 2026-08-04 and that was simply wrong. FastHenry2 ships NO
+        # licence file; the only licence text in the tree is an M.I.T. 1992/1994
+        # header on 18 source files: "Permission to use, copy and modify for
+        # internal, noncommercial purposes is hereby granted. Any distribution
+        # of this program or any part thereof is strictly prohibited without
+        # prior written consent of M.I.T." That is why FastHenry has no guided
+        # Windows install and never can have one on these terms: we may not ship
+        # the binary, and "any part thereof" covers the source too. The guided
+        # SOURCE BUILD is fine — the user compiles their own copy, which is the
+        # use-and-modify grant, not distribution.
         manual_hint=(
-            "Build from source (LGPL): git clone "
-            "https://github.com/ediloren/FastHenry2.git && cd FastHenry2/src/fasthenry "
+            "Build from source — M.I.T. licence, internal NONCOMMERCIAL use "
+            "only, redistribution prohibited, so you build your own copy: "
+            "git clone https://github.com/ediloren/FastHenry2.git "
+            "&& cd FastHenry2/src/fasthenry "
             "&& make fasthenry CFLAGS=\"{0}\"".format(FASTHENRY_CFLAGS)
         ),
         homepage="https://www.fastfieldsolvers.com/",
@@ -606,9 +629,13 @@ MACOS_HINTS = {
                  "https://github.com/ediloren/FastHenry2.git && cd "
                  "FastHenry2/src/fasthenry && make fasthenry "
                  "CFLAGS=\"{0}\"  — Apple clang 15+ and GCC 14+ make the "
-                 "implicit-* diagnostics errors and Apple clang 21 adds "
-                 "return-mismatch, so all four flags are required, not "
-                 "optional.".format(FASTHENRY_CFLAGS),
+                 "implicit-* diagnostics errors, Apple clang 21 adds "
+                 "return-mismatch, and GCC 15 defaults to C23 (which needs "
+                 "-std=gnu17 or every K&R call becomes 'too many arguments'). "
+                 "Every flag shown is required, not optional. Note FastHenry "
+                 "is licensed by M.I.T. for internal, NONCOMMERCIAL use and "
+                 "may not be redistributed — you build your own "
+                 "copy.".format(FASTHENRY_CFLAGS),
     "elmer": "No Homebrew formula. CSC publishes macOS builds — see "
              "https://www.elmerfem.org/ (Download → macOS), or build with "
              "brew install cmake open-mpi openblas first.",
@@ -632,26 +659,38 @@ WINDOWS_HINTS = {
     # deck, so Windows finally has a native NEC engine instead of "use WSL2".
     # Two traps, both of which cost real time and neither of which prints
     # anything useful, so they are in the user-facing text:
-    #   * a MinGW-built nec2++.exe needs libstdc++-6.dll / libgcc_s_seh-1.dll /
-    #     libwinpthread-1.dll on PATH. Without them it exits 0xC0000135
-    #     (STATUS_DLL_NOT_FOUND) with NO message and NO output file.
+    #   * a MinGW-built nec2++.exe needs FOUR DLLs beside it: libnecpp.dll —
+    #     necpp's OWN shared library, which this list omitted until 2026-08-04
+    #     and which no amount of MinGW-runtime hunting would have supplied —
+    #     plus libstdc++-6.dll and libgcc_s_seh-1.dll, which pull in
+    #     libwinpthread-1.dll transitively. Measured as a full `objdump -p`
+    #     import closure, not guessed. Without any one of them it exits
+    #     0xC0000135 (STATUS_DLL_NOT_FOUND) with NO message and NO output file.
     #   * `cmake --build` with no target fails at 100% linking nec2++_tests.exe
     #     (`__imp__set_abort_behavior` is MSVC-only CRT). The ENGINE is already
     #     built at that point — build `--target nec2++` and skip the tests.
-    "nec2": "nec2c has no official Windows build (WSL2 or MSYS2 only), but "
-            "nec2++ runs natively and EMStudio reads it: git clone "
+    "nec2": "One-click guided install available — the Install button downloads "
+            "nec2++ 2.3.4 (~1.5 MB, per-user, no admin rights), built from "
+            "unmodified upstream source and published by the EMStudio project "
+            "because no NEC engine has an official Windows build. Verified "
+            "byte-identical to the Linux build on the shipped dipole deck. "
+            "Manual alternative: git clone "
             "https://github.com/tmolteno/necpp.git, then cmake -S necpp -B "
             "build -G \"MinGW Makefiles\" -DCMAKE_BUILD_TYPE=Release && cmake "
             "--build build --target nec2++  (use --target nec2++, or the test "
             "executable fails to link at 100% with __imp__set_abort_behavior — "
-            "that is MSVC-only CRT and does NOT mean the engine failed). The "
-            "resulting build/src/nec2++.exe needs its MinGW runtime DLLs "
-            "(libstdc++-6, libgcc_s_seh-1, libwinpthread-1) on PATH, or it "
-            "exits 0xC0000135 silently with no output file. Verified on Windows "
-            "2026-08-03: byte-identical results to the Linux build.",
-    "fasthenry": "FastFieldSolvers ships Windows builds (https://www.fastfieldsolvers.com/), "
-                 "but EMStudio's command-line integration currently targets the Linux "
-                 "build — use WSL2 for wire/litz cross-checks.",
+            "that is MSVC-only CRT and does NOT mean the engine failed). Keep "
+            "build/src/nec2++.exe together with libnecpp.dll from the same "
+            "build, plus libstdc++-6, libgcc_s_seh-1 and libwinpthread-1 from "
+            "your toolchain — miss any one and it exits 0xC0000135 silently, "
+            "with no message and no output file.",
+    "fasthenry": "FastFieldSolvers ships Windows builds "
+                 "(https://www.fastfieldsolvers.com/) — download and install one "
+                 "yourself, then point EMStudio at it. There is no Install "
+                 "button and there cannot be one: FastHenry carries an M.I.T. "
+                 "licence granting internal, noncommercial use only and "
+                 "prohibiting redistribution without written consent, so "
+                 "EMStudio may not ship the binary for you. WSL2 also works.",
     "elmer": "One-click guided install available — the Install button downloads the "
              "official CSC Windows build (~122 MB zip, per-user, no admin rights) "
              "and EMStudio detects it automatically. Manual alternative: the "
@@ -738,7 +777,71 @@ WIN_INSTALL_PLANS = {
         "url": "https://gmsh.info/bin/Windows/gmsh-stable-Windows64.zip",
         "proof": "gmsh.exe",
     },
+    # The one SELF-HOSTED entry, and the only one that needs justifying: every
+    # other plan points at the publisher's own distribution point, because the
+    # button rule is "official prebuilt binaries only". NOBODY publishes a
+    # Windows build of any NEC engine — checked upstream for nec2c, necpp,
+    # opennec and xnec2c — so Windows had no NEC engine at all short of WSL2,
+    # while nec2++ itself runs natively and correctly there. So we build and
+    # publish it ourselves, from UNMODIFIED upstream source, as a release asset
+    # on the public EMStudioFree repo:
+    #
+    #   https://github.com/king-aj3/EMStudioFree/releases/tag/nec2pp-2.3.4-win64
+    #
+    # necpp is GPL-2, so that same release carries the complete corresponding
+    # source (`nec2pp-source-46f7fbd.zip`, a verbatim git archive of the exact
+    # commit, plus BUILD-WINDOWS.txt) — that is the section 3 offer, and it must
+    # stay published for as long as this URL is live. Bump BOTH together.
+    #
+    # The URL is version-pinned rather than a floating "current build" name,
+    # unlike elmer/gmsh: we control this one, so a rebuild gets a new tag and an
+    # explicit edit here, which is auditable instead of silently shifting under
+    # users.
+    #
+    # NO runtime_dlls: that key exists to COMPLETE a deficient upstream zip from
+    # MSYS2 (CSC's Elmer zips ship none). Ours ships its own complete set and was
+    # clean-room verified with PATH stripped to C:\Windows, so there is nothing
+    # to complete — and libnecpp.dll has no MSYS2 package anyway, so a fallback
+    # attempt could only fail confusingly.
+    #
+    # The zip carries FIVE files that must travel together. nec2++.exe imports
+    # libnecpp.dll (necpp's OWN shared library, easy to miss — the DLL list in
+    # WINDOWS_HINTS omitted it until 2026-08-04) plus libstdc++-6 and
+    # libgcc_s_seh-1, which pull in libwinpthread-1 transitively. Measured as a
+    # full import closure with `objdump -p`, then negative-controlled: delete
+    # libnecpp.dll and the run exits -1073741515 (0xC0000135) writing nothing
+    # at all — no message, no output file.
+    "nec2": {
+        "estimate": "1-2 min (a ~1.5 MB download; no compile)",
+        "url": "https://github.com/king-aj3/EMStudioFree/releases/download/"
+               "nec2pp-2.3.4-win64/nec2pp-win64.zip",
+        "proof": "nec2++.exe",
+        # The GPL-2 section 3 offer. This is not documentation — the smoke gate
+        # REQUIRES it for any self-hosted plan and requires it to sit in the
+        # same release tag as the binary, so a rebuild cannot ship new binaries
+        # against a stale source zip.
+        "source_offer": "https://github.com/king-aj3/EMStudioFree/releases/"
+                        "download/nec2pp-2.3.4-win64/nec2pp-source-46f7fbd.zip",
+    },
 }
+
+#: Host we publish our own solver builds from. A plan whose URL points here is
+#: SELF-HOSTED: we are the distributor, so the licence obligations are ours and
+#: the smoke gate enforces the source offer.
+SELF_HOSTED_PREFIX = "https://github.com/king-aj3/EMStudioFree/releases/"
+
+
+def is_self_hosted(plan):
+    """True when WE publish this backend's Windows binary rather than upstream."""
+    return plan.get("url", "").startswith(SELF_HOSTED_PREFIX)
+
+
+def _release_tag(url):
+    """The release tag inside a GitHub release-download URL, or ''."""
+    marker = "/releases/download/"
+    if marker not in url:
+        return ""
+    return url.split(marker, 1)[1].split("/", 1)[0]
 
 
 def win_install_plan(key):

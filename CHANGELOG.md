@@ -3,6 +3,79 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.79.0] — 2026-08-04 — Windows gets a NEC engine by one click, and a licence claim that was wrong from day one
+
+### Added
+- **Guided Windows install for NEC2.** Solver Setup now shows **Install…** for
+  the NEC2 backend on Windows, alongside Elmer and gmsh. Windows previously had
+  no NEC engine at all short of WSL2, because *nobody* publishes a Windows build
+  of any NEC engine (checked upstream: nec2c, necpp, opennec, xnec2c). So this
+  is the first **self-hosted** entry in `WIN_INSTALL_PLANS`: EMStudio builds
+  nec2++ 2.3.4 from **unmodified** upstream source and publishes it as a release
+  asset on the public repo, with the GPL-2 §3 complete-corresponding-source zip
+  in the same release.
+  [`nec2pp-2.3.4-win64`](https://github.com/king-aj3/EMStudioFree/releases/tag/nec2pp-2.3.4-win64)
+- **The gate now enforces the licence obligation, not just the plan shape.**
+  Any self-hosted plan must carry a `source_offer`, and its release tag must
+  MATCH the binary's — so a rebuild cannot ship new binaries against a stale
+  source zip. Being the distributor is what creates the duty, so
+  `is_self_hosted()` is what triggers the check. Mutation-tested 2/2 (offer
+  deleted; offer left at an older tag).
+- **`gui_smoke` finally covers `installer_dialog.py`.** It never had a check for
+  it — v0.78.0 and v0.78.1 both rewrote that file and the suite could not see
+  either change, so a green run was reported as verification it did not perform.
+  Worse, every changed line sits behind `self._is_win`, so the Windows branch is
+  untested on any machine that is not Windows unless it is simulated. The new
+  check forces `os.name = "nt"` with all backends missing and asserts the table
+  the user would see: Install buttons for **exactly** the `WIN_INSTALL_PLANS`
+  keys, no Build buttons, log pane visible, sudo row hidden. Mutation-tested
+  3/3, including re-hiding the log pane (the v0.78.0 regression) and adding a
+  plan that never reaches a button.
+
+### Fixed
+- **FastHenry was documented as LGPL. It is not, and never was.** FastHenry2
+  ships **no licence file**; the only licence text in the tree is an M.I.T.
+  1992/1994 header on **18 source files**: *"Permission to use, copy and modify
+  for internal, noncommercial purposes is hereby granted. Any distribution of
+  this program or any part thereof is strictly prohibited without prior written
+  consent of M.I.T."* `grep -rn -iE "LGPL|GNU Lesser|General Public"` over the
+  whole tree returns zero hits. The `manual_hint` had said "Build from source
+  (LGPL)" since the backend was written — shipped in the **public** repo and
+  shown to users in Solver Setup. Now states the real terms, including the
+  noncommercial restriction, so a commercial user can make an informed choice.
+  **Consequence: FastHenry can never have an Install button on these terms** —
+  we may not ship the binary, and "any part thereof" covers the source too. The
+  guided *source build* is unaffected: the user compiles their own copy, which
+  is the use-and-modify grant, not distribution.
+- **The nec2++ Windows DLL list was incomplete, in the text AND in reality.**
+  It named the three MinGW runtime DLLs and omitted **`libnecpp.dll`** —
+  necpp's own shared library, which no amount of MinGW-runtime hunting would
+  have supplied. A user following those instructions hits `0xC0000135`
+  (STATUS_DLL_NOT_FOUND) with no message and no output file, exactly the trap
+  the text was written to prevent. Found by measuring the full `objdump -p`
+  import closure instead of trusting the note; negative-controlled by deleting
+  `libnecpp.dll` and confirming exit `-1073741515` with nothing written.
+- **`FASTHENRY_CFLAGS` gained `-std=gnu17`, and it is not a suppression.**
+  **GCC 15 defaults to C23**, where an empty parameter list `()` means "takes no
+  parameters" rather than "unspecified". Every K&R call in FastHenry then fails
+  with `too many arguments to function` — a *semantic* error that no `-Wno-`
+  flag can reach, so the four existing suppressions were necessary but not
+  sufficient. This affects Linux and macOS guided builds on GCC 15 too, not just
+  Windows. The ratchet in the gate moved 4 → 5 with it; leaving it at 4 would
+  have let a flag be dropped in silence, which is the exact failure this check
+  exists for. Mutation-tested.
+
+### Verified
+- `nec2++.exe` (SHA256 `dbac0e68…cd3de1c4`) built from necpp `46f7fbde` with
+  MinGW-W64 GCC 15.2.0 / CMake 4.4.2. Output on the shipped 300 MHz dipole is
+  **byte-identical to the Linux build** — `7.4897E+01 + 9.8011E+00j` ohm.
+  Extracted into an empty directory and run with `PATH` stripped to
+  `C:\Windows`, from an unrelated working directory: it needs nothing else
+  installed.
+- The published asset was re-downloaded **anonymously** (no token) and re-hashed
+  before the plan URL was committed, because the URL a customer hits is the only
+  one that matters.
+
 ## [0.78.1] — 2026-08-04 — a Gumroad 404 is a verdict, not a network failure
 
 ### Fixed
