@@ -3,6 +3,23 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.78.1] — 2026-08-04 — a Gumroad 404 is a verdict, not a network failure
+
+### Fixed
+- **Pro licence activation misreported an invalid key as "Could not reach
+  Gumroad (HTTP Error 404: Not Found)".** Gumroad's verify API answers HTTP
+  404 *by design* when a key does not exist for the product; urllib raises
+  that as an exception and the blanket handler labelled it connectivity
+  trouble (found live during AJ's own 0.78.0 re-activation). Two harms, both
+  fixed: the buyer never saw Gumroad's actual message ("That license does
+  not exist for the provided product."), and `check()` — which deliberately
+  keeps a cached activation alive when Gumroad is unreachable — treated the
+  refusal as unreachable, so an invalid key could stay active forever. HTTP
+  error bodies are now parsed as verdicts; only genuine transport failures
+  read "could not reach". The licence gate grew six mocked-network checks
+  covering both directions (a refused key stops working; a no-network buyer
+  keeps working), mutation-proven against the old behaviour (4 checks fail).
+
 ## [0.78.0] — 2026-08-04 — guided solver install arrives on native Windows
 
 ### Added
