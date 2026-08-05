@@ -15,6 +15,27 @@ import FreeCAD
 from PySide import QtCore, QtWidgets
 
 
+#: Last successful result per analysis Name. A solve is expensive and the
+#: results dialog was ONLY reachable from the run that produced it — close it
+#: and the numbers were gone until you paid for the whole solve again. Keeping
+#: the object costs nothing (it is already in memory) and turns "Show Results"
+#: into a lookup. In-process only: a FreeCAD restart clears it, which is
+#: honest, because nothing is persisted to the document.
+_LAST_RESULTS = {}
+
+
+def remember_result(analysis, result):
+    """Record a completed result so Show Results can reopen it."""
+    key = getattr(analysis, "Name", None)
+    if key and result is not None:
+        _LAST_RESULTS[key] = result
+
+
+def last_result(analysis):
+    """The last result for this analysis in THIS session, or None."""
+    return _LAST_RESULTS.get(getattr(analysis, "Name", None))
+
+
 class _JobState:
     def __init__(self):
         self.result = None
@@ -94,6 +115,12 @@ def _apply_progress(dlg, state, label):
     dlg.setLabelText("{0}\n{1}".format(head, _eta_text(state, done, total)))
 
 
+def _remember_and_finish(state, parent, analysis):
+    if state.error is None and state.result is not None:
+        remember_result(analysis, state.result)
+    _finish(state, parent)
+
+
 def run_solver_gui(analysis, solver_obj, run_fn, parent=None):
     """Run ``run_fn(analysis, solver_obj, line_callback)`` off the GUI thread.
 
@@ -129,7 +156,7 @@ def run_solver_gui(analysis, solver_obj, run_fn, parent=None):
             timer.stop()
             dlg.reset()
             dlg.close()
-            _finish(state, parent)
+            _remember_and_finish(state, parent, analysis)
             return
         _apply_progress(dlg, state, "Running {0}".format(solver_obj.Label))
         if dlg.wasCanceled():

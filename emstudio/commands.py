@@ -26,6 +26,7 @@ CMD_SOLVER_OPENEMS = "EMStudio_SolverOpenEMS"
 CMD_SOLVER_ELMER = "EMStudio_SolverElmer"
 CMD_SOLVER_PALACE = "EMStudio_SolverPalace"
 CMD_RUN = "EMStudio_RunSolver"
+CMD_SHOW_RESULTS = "EMStudio_ShowResults"
 CMD_TPL_DIPOLE = "EMStudio_TemplateDipole"
 CMD_TPL_MONOPOLE = "EMStudio_TemplateMonopole"
 CMD_TPL_PATCH = "EMStudio_TemplatePatch"
@@ -65,6 +66,7 @@ ALL_COMMANDS = [
     CMD_SOLVER_ELMER,
     CMD_SOLVER_PALACE,
     CMD_RUN,
+    CMD_SHOW_RESULTS,
     "Separator",
     CMD_TPL_DIPOLE,
     CMD_TPL_MONOPOLE,
@@ -106,7 +108,7 @@ COMMAND_GROUPS = [
         CMD_ANTENNA_FROM_SEL, "Separator",
         CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_COIL, "Separator",
         CMD_SOLVER_NEC2, CMD_SOLVER_OPENEMS, CMD_SOLVER_ELMER, CMD_SOLVER_PALACE,
-        "Separator", CMD_RUN, CMD_SWEEP_GAP,
+        "Separator", CMD_RUN, CMD_SHOW_RESULTS, CMD_SWEEP_GAP,
     ]),
     ("Templates", [
         # antennas
@@ -471,6 +473,58 @@ class _AddSolverPalace:
         ana = _active_analysis(create=True)
         solver_objs.makeSolverPalace(FreeCAD.ActiveDocument, ana)
         FreeCAD.ActiveDocument.recompute()
+
+
+class _ShowResults:
+    """Reopen the last solve's results WITHOUT solving again.
+
+    The results dialog used to exist only for the lifetime of the run that
+    produced it: close it and the plots, the Touchstone export, the PDF report
+    and "Show in 3D View" were all unreachable until you paid for the entire
+    solve a second time. The result object is still in memory — there was
+    simply no way back to it.
+    """
+
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_run.svg"),
+            "MenuText": "Show Results",
+            "ToolTip": "Reopen the last solve's results for this analysis "
+                       "(plots, Touchstone, PDF report, Show in 3D View) "
+                       "without running the solver again",
+        }
+
+    def IsActive(self):
+        if FreeCAD.ActiveDocument is None:
+            return False
+        from emstudio.ui import run_gui
+
+        ana = _active_analysis()
+        return ana is not None and run_gui.last_result(ana) is not None
+
+    def Activated(self):
+        from emstudio.ui import run_gui
+
+        ana = _active_analysis()
+        if ana is None:
+            _warn("No EM Analysis in this document yet.")
+            return
+        result = run_gui.last_result(ana)
+        if result is None:
+            _warn("No results for '{0}' yet in this session.\n\n"
+                  "Press Run Solver once; afterwards this reopens the same "
+                  "results without solving again. Results are not saved with "
+                  "the document, so a FreeCAD restart clears them."
+                  .format(ana.Label))
+            return
+        _open_results_for(result)
+
+
+def _open_results_for(result):
+    """Open the right results dialog for whatever kind of result this is."""
+    from emstudio.ui.results_dialog import SweepResultsDialog
+
+    SweepResultsDialog(result, parent=FreeCADGui.getMainWindow()).exec()
 
 
 class _RunSolver:
@@ -1304,6 +1358,7 @@ class _Legal:
 def register():
     """Register all EMStudio commands with FreeCADGui (idempotent)."""
     FreeCADGui.addCommand(CMD_ANTENNA_FROM_SEL, _AntennaFromSelection())
+    FreeCADGui.addCommand(CMD_SHOW_RESULTS, _ShowResults())
     FreeCADGui.addCommand(CMD_ANALYSIS, _CreateAnalysis())
     FreeCADGui.addCommand(CMD_MATERIAL, _CreateMaterial())
     FreeCADGui.addCommand(CMD_PORT, _CreatePort())

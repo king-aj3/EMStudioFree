@@ -3,6 +3,50 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.88.0] — 2026-08-05 — the 3-D pattern sized itself from its own last overlay
+
+*"When I add the 3D pattern to the model it is not shown, even if I change what
+to show."* It worked at the office and not at home, which made it look like a
+FreeCAD or driver problem. It was neither.
+
+### Fixed
+- **The pattern balloon compounded on every click until it left Float32.**
+  `geometry_extent_mm` walked EVERY object in the document — including the
+  pattern balloons it had itself created — and a balloon is deliberately
+  *bigger* than the geometry. So each "Show in 3D View" sized the new balloon
+  from the previous one. The user's own `pattern3d.vtu` on disk had every
+  coordinate at **1.99e+100 mm**: VTK reads that as infinity, so the overlay
+  loaded with **no field (`choices ['None']`) and the FLT_MAX sentinel bounding
+  box** — present in the tree, drawing nothing. **It works the FIRST time and
+  degrades on every click after**, which is exactly what made it look
+  intermittent and version-dependent. Result overlays are now excluded from the
+  measurement, and both `geometry_extent_mm` and `auto_radius_mm` refuse a
+  non-finite or absurd extent rather than writing coordinates that read back as
+  infinity. Verified by clicking five times: radius identical each time.
+- **A degenerate far field silently produced an empty overlay.** A single theta
+  row yields points and ZERO cells, which loads without error and draws
+  nothing. `write_pattern_vtu` now refuses a grid below 2×2 and the results
+  dialog explains it instead of leaving a dead object; the gate only ever
+  checked `phi`, never `theta`.
+- **A single NaN gain wrote NaN COORDINATES into the file** — the same silent
+  nothing. Non-finite samples now drop to the floor.
+- The balloon is sized to **enclose** the model (radius = one full extent, was
+  half) and drawn at 55% transparency, so it no longer shares the model's own
+  volume.
+
+### Added
+- **Show Results** — reopen the last solve's results without re-solving. The
+  dialog was previously reachable only from the run that produced it, so
+  closing it meant paying for the whole solve again to reach the plots,
+  Touchstone export, PDF report or Show in 3D View.
+
+### Method note
+Three wrong diagnoses preceded the right one (balloon size, FreeCAD version,
+degenerate grid), each argued from code and object properties. The answer came
+from the user's own console output and then from **reading the actual bytes of
+the file on disk**. Object properties describe intent; the artefact is evidence.
+
+
 ## [0.87.0] — 2026-08-05 — "ERROR, ERROR, ERROR" is not an answer
 
 A user drew a **solid helix coil**, attached a material, a lumped port on a

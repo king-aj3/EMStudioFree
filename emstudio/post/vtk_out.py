@@ -92,7 +92,13 @@ def auto_radius_mm(extent_mm, fraction=None, minimum_mm=50.0):
     """
     if fraction is None:
         fraction = BALLOON_FRACTION
-    return max(float(minimum_mm), float(fraction) * abs(float(extent_mm)))
+    try:
+        ext = abs(float(extent_mm))
+    except (TypeError, ValueError):
+        return float(minimum_mm)
+    if not math.isfinite(ext) or ext > 1e12:
+        return float(minimum_mm)
+    return max(float(minimum_mm), float(fraction) * ext)
 
 
 def geometry_extent_mm(objects):
@@ -115,6 +121,19 @@ def geometry_extent_mm(objects):
     lo = [None, None, None]
     hi = [None, None, None]
     for obj in objects or ():
+        # SKIP OUR OWN RESULT OVERLAYS. This walked every object in the
+        # document, including the pattern balloons it had itself created on
+        # previous clicks — and a balloon is deliberately BIGGER than the
+        # geometry. So each "Show in 3D View" sized the new balloon from the
+        # last one, compounding on every click: a user testing repeatedly got
+        # a balloon at 1.99e+100 mm, far outside Float32, which VTK reads as
+        # infinity. The overlay then loads with no field and the FLT_MAX
+        # sentinel bounding box, appears in the tree and draws NOTHING.
+        # Diagnosed 2026-08-05 from the actual pattern3d.vtu on disk.
+        # It works the FIRST time and degrades every time after, which is
+        # exactly what makes it look like an unrelated intermittent fault.
+        if str(getattr(obj, "TypeId", "")).startswith("Fem::FemPost"):
+            continue
         shape = getattr(obj, "Shape", None)
         bb = getattr(shape, "BoundBox", None) if shape is not None else None
         if bb is None or not getattr(bb, "isValid", lambda: False)():
@@ -128,7 +147,18 @@ def geometry_extent_mm(objects):
         return None, None
     center = tuple(0.5 * (lo[i] + hi[i]) for i in range(3))
     extent = max(hi[i] - lo[i] for i in range(3))
+    # Belt and braces: never hand back a size that cannot survive the Float32
+    # the VTU is written in. Anything this large is a bug upstream, and
+    # returning None makes the caller fall back to its fixed default rather
+    # than writing a file whose coordinates read back as infinity.
+    if not math.isfinite(extent) or not all(math.isfinite(c) for c in center) \
+            or extent > 1e12:
+        return None, None
     return center, extent
+
+
+class PatternGridError(ValueError):
+    """The far field cannot form a drawable 3-D balloon."""
 
 
 def write_pattern_vtu(farfield, path, radius_mm=100.0, floor_db=-30.0,
@@ -147,11 +177,42 @@ def write_pattern_vtu(farfield, path, radius_mm=100.0, floor_db=-30.0,
     cx, cy, cz = (float(v) for v in center_mm)
     theta = np.deg2rad(ff.theta)
     phi = np.deg2rad(ff.phi)
-    gain = ff.gain  # (Nt, Np) dBi
+    gain = np.asarray(ff.gain, dtype=float)  # (Nt, Np) dBi
+
+    # A BALLOON NEEDS A GRID, AND A GRID NEEDS TWO ROWS.
+    # The cell loop is `for i in range(nt - 1)`, so a single theta row yields
+    # points and ZERO CELLS -- a VTU that VTK reads as an empty dataset. It
+    # loads without error, shows no field ('choices [None]') and reports the
+    # uninitialised FLT_MAX bounding box, so the overlay appears in the tree
+    # and draws NOTHING. Reported 2026-08-05 as "I add the 3D pattern and it
+    # is not shown"; the object was real and empty. Refusing here is the only
+    # honest option: a silent empty overlay is indistinguishable from a bug in
+    # the user's model.
+    nt, npnts = gain.shape if gain.ndim == 2 else (0, 0)
+    if nt < 2 or npnts < 2:
+        raise PatternGridError(
+            "a 3-D pattern needs a THETA x PHI grid of at least 2x2, but this "
+            "far field is {0} x {1}. A balloon cannot be built from a single "
+            "cut.\n\nThe solver produced only one {2} row — re-run with a "
+            "full-sphere pattern (the RP card must sweep both theta and phi), "
+            "or use the 2-D polar plot for a single cut."
+            .format(nt, npnts, "theta" if nt < 2 else "phi"))
+
+    # A single NaN would poison g_max and write NaN COORDINATES into the file,
+    # which renders as nothing in the same silent way. NEC2 can emit them on a
+    # degenerate segment. Drop them to the floor and carry on: losing one
+    # sample beats losing the whole picture with no explanation.
+    if not np.all(np.isfinite(gain)):
+        finite = gain[np.isfinite(gain)]
+        if finite.size == 0:
+            raise PatternGridError(
+                "the far field contains no finite gain values, so there is "
+                "nothing to draw. The solve produced no usable pattern.")
+        gain = np.where(np.isfinite(gain), gain, finite.min())
+
     g_max = gain.max()
     r_norm = np.clip((gain - (g_max + floor_db)) / (-floor_db), 0.0, 1.0)
 
-    nt, npnts = gain.shape
     pts = np.zeros((nt * npnts, 3))
     scal = np.zeros(nt * npnts)
     for i in range(nt):

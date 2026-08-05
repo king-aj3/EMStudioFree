@@ -225,6 +225,75 @@ def main():
               vtk_out.auto_radius_mm(extent) >= extent,
               "radius {0:.0f} mm vs extent {1:.0f} mm".format(
                   vtk_out.auto_radius_mm(extent), extent))
+    # THE OVERLAY MUST NOT SIZE ITSELF FROM ITS OWN PREVIOUS OVERLAY.
+    # geometry_extent_mm walked EVERY object in the document, including the
+    # pattern balloons it had itself created -- and a balloon is deliberately
+    # bigger than the geometry. So each "Show in 3D View" sized the new balloon
+    # from the last one and compounded on every click. A user testing
+    # repeatedly reached 1.99e+100 mm, far outside the Float32 the VTU is
+    # written in, so VTK read the coordinates as infinity: the overlay loaded
+    # with no field and the FLT_MAX sentinel bbox, appeared in the tree and
+    # drew NOTHING. It works the FIRST time and degrades after, which is what
+    # made it look intermittent and unrelated. Diagnosed 2026-08-05 from the
+    # 1.99e+100 coordinates in the user's own pattern3d.vtu.
+    class _FakeBB:
+        def __init__(s2, n):
+            s2.XMin = s2.YMin = s2.ZMin = -n
+            s2.XMax = s2.YMax = s2.ZMax = n
+
+        def isValid(s2):
+            return True
+
+    class _FakeObj:
+        def __init__(s2, type_id, n):
+            s2.TypeId = type_id
+            s2.Shape = type("S", (), {"BoundBox": _FakeBB(n)})()
+
+    real = _FakeObj("Part::Feature", 150.0)            # the user's model
+    overlay = _FakeObj("Fem::FemPostPipeline", 5.0e9)  # a previous balloon
+    _c, _e = vtk_out.geometry_extent_mm([real, overlay])
+    check("a previous result overlay never sizes the next one",
+          _e is not None and abs(_e - 300.0) < 1e-6,
+          "extent {0}".format(_e))
+    _c2, _e2 = vtk_out.geometry_extent_mm([_FakeObj("Part::Feature", 1e120)])
+    check("an absurd extent is refused rather than written as infinity",
+          _e2 is None, "extent {0}".format(_e2))
+    check("auto_radius_mm floors a non-finite extent",
+          vtk_out.auto_radius_mm(float("inf")) == 50.0)
+    check("auto_radius_mm floors an astronomically large extent",
+          vtk_out.auto_radius_mm(1.99e100) == 50.0,
+          "{0}".format(vtk_out.auto_radius_mm(1.99e100)))
+
+    # AN EMPTY OVERLAY MUST NEVER BE WRITTEN.
+    # A single theta row gave 72 points and ZERO cells: a VTU that VTK loads
+    # without error, exposes no field ('choices [None]') and reports the
+    # uninitialised FLT_MAX bbox -- so the object appeared in the tree and drew
+    # nothing. Reported live 2026-08-05; the diagnostic that found it was the
+    # user's own console output, not any gate.
+    import numpy as _np
+    from emstudio.post.farfield import FarFieldResult as _FF
+    for nt, npn, why in ((1, 72, "one theta row"), (37, 1, "one phi column")):
+        try:
+            vtk_out.write_pattern_vtu(
+                _FF(24e6, [i * 5.0 for i in range(nt)],
+                    [j * 5.0 for j in range(npn)],
+                    [[3.0] * npn for _ in range(nt)]),
+                os.path.join(tmp, "degenerate.vtu"))
+            check("a {0} far field is refused, not written empty".format(why),
+                  False)
+        except vtk_out.PatternGridError as exc:
+            check("a {0} far field is refused, not written empty".format(why),
+                  True, str(exc).splitlines()[0][:60])
+    # and a NaN must not become a NaN COORDINATE in the file
+    _g = [[3.0] * 72 for _ in range(37)]
+    _g[0][0] = float("nan")
+    _p = vtk_out.write_pattern_vtu(
+        _FF(24e6, [i * 5.0 for i in range(37)], [j * 5.0 for j in range(72)], _g),
+        os.path.join(tmp, "nan.vtu"))
+    _txt = open(_p).read()
+    check("a NaN gain never reaches the file as a NaN coordinate",
+          "nan" not in _txt.lower(), "{0} bytes".format(len(_txt)))
+
     check("the balloon diameter is at least twice the model",
           2.0 * vtk_out.auto_radius_mm(300.0) >= 2.0 * 300.0,
           "{0:.0f} mm across".format(2.0 * vtk_out.auto_radius_mm(300.0)))

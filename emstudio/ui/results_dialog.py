@@ -245,7 +245,12 @@ class SweepResultsDialog(QtWidgets.QDialog):
         created = []
         try:
             ff = getattr(self.result, "farfield", None)
-            if ff is not None and ff.phi.size > 4:
+            # theta MATTERS TOO. This gate only ever checked phi, so a
+            # single-theta cut sailed through and write_pattern_vtu produced a
+            # VTU with points and no cells: an overlay that appears in the tree
+            # and draws nothing (2026-08-05). The writer now refuses such a
+            # grid; catch that and SAY SO rather than leaving a dead object.
+            if ff is not None and ff.phi.size > 4 and ff.theta.size > 1:
                 # Sit the balloon ON the antenna and size it to the model. The
                 # far field is referenced to the SOLVER's origin, which for a
                 # structure built from x=0 is one END of it, so an origin-drawn
@@ -269,9 +274,24 @@ class SweepResultsDialog(QtWidgets.QDialog):
             if nf is not None:
                 p = vtk_out.write_field_plane_vtu(nf, os.path.join(workdir, "nearfield.vtu"))
                 created.append(vtk_out.show_in_freecad(p, "Near-field |E| plane", doc).Label)
+        except vtk_out.PatternGridError as exc:
+            # Not a crash: the pattern genuinely cannot be drawn as a balloon.
+            # Explain it and still show whatever else IS drawable.
+            QtWidgets.QMessageBox.warning(
+                self, "EMStudio — no 3-D pattern",
+                "{0}\n\nAnything else the run produced (wire currents, "
+                "near field) has still been added.".format(exc))
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "EMStudio", "3D view failed: {0}".format(exc))
             return
+        if ff is not None and (ff.phi.size <= 4 or ff.theta.size <= 1):
+            QtWidgets.QMessageBox.warning(
+                self, "EMStudio — no 3-D pattern",
+                "This run's far field is a single cut ({0} theta x {1} phi), "
+                "not a full-sphere grid, so a 3-D balloon cannot be built "
+                "from it.\n\nUse the Pattern tab for the 2-D polar plot, or "
+                "re-run with a full-sphere pattern.".format(
+                    ff.theta.size, ff.phi.size))
         if created:
             try:
                 import FreeCADGui
