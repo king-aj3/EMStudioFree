@@ -3,6 +3,60 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.80.0] — 2026-08-05 — the assistant gets a Settings dialog (Pro)
+
+### Added
+- **Assistant Settings dialog** (Pro): endpoint, model and API key get a real
+  UI — previously they were environment variables or the raw parameter
+  editor, and a wrong model name surfaced only as a bare HTTP 404 at question
+  time (measured on a real machine, 2026-08-05). Provider **presets**: local
+  Ollama / LM Studio / **CentralBrain** (AJJ³'s own private AI server,
+  default `http://127.0.0.1:8765/v1` per its documented port) and hosted
+  **OpenAI** / **Anthropic (Claude)** — the latter through Anthropic's
+  OpenAI-compatible layer; both endpoints verified live (401-not-404 without
+  a key). **Fetch models** fills the model list from the server's own
+  `GET /models` answer — no more guessed names — and **Test** runs the full
+  capability preflight (reachable / model served / tool calling / constrained
+  JSON) against the values **as typed**, before Save.
+- `llm.api_key()`: the key now also resolves from the `AssistantApiKey`
+  preference (env still wins; the dialog warns per-field when an env var
+  overrides it, and states plainly that the preference is stored in plain
+  text — prefer the env var on shared machines). An explicit key parameter
+  threads through every network call so Test probes exactly what was typed;
+  gate-covered with the parameter-beats-env and empty-key-sends-no-header
+  cases, mutation-proven (reverting the plumbing fails 2 checks).
+- gui_smoke: the settings dialog is constructed for real — prefill from
+  preferences, preset application (which must never clobber a typed model),
+  password echo on the key field, empty-field probe semantics, and save-back
+  are all asserted.
+
+### Fixed — an adversarial review fleet (9 agents, per-finding refutation)
+confirmed 5 distinct findings in the first cut; all fixed before shipping:
+- **Test/Fetch probed the wrong configuration when env vars were in play**:
+  empty fields fell back to compile-time defaults instead of the effective
+  env→pref→default resolution, and an empty key field meant "send no key" —
+  so Test reported 401 in the dialog's own recommended setup (key in the env
+  var). Empty fields now probe exactly what the assistant will use.
+- **The Bearer key was forwarded on HTTP redirects to whatever host the
+  Location header named** (reproduced live with two loopback servers). The
+  key now rides an *unredirected* header, which urllib never copies; a
+  redirecting endpoint fails with an honest 401 instead of leaking the key.
+- **A key containing a stray CR/LF leaked verbatim into message boxes** via
+  http.client's "Invalid header value" repr. Keys are stripped and control
+  characters refused with a message that never echoes the key.
+- **Cancelling a Fetch/Test/preflight progress dialog stranded the UI**
+  (button or dock permanently disabled — the worker's completion is never
+  delivered after a cancel). Every run_generic_gui call in the dock now
+  passes on_cancel.
+- **The gui_smoke self-skip was over-broad**: a from-import of three names
+  would report a renamed Pro attribute as a false "free tree" skip. Module
+  import + attribute access now, matching the _assistant_dock precedent.
+- Bonus, from AJ updating Pro live: **the licence dialog told updaters to
+  enter their key while the status line said "active"**. An update install
+  with an empty key now says the activation is kept (it always was — the
+  activation file survives module updates by design) and reminds about the
+  restart. The intro states it too.
+
 ## [0.79.0] — 2026-08-04 — Windows gets a NEC engine by one click, and a licence claim that was wrong from day one
 
 ### Added

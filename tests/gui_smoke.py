@@ -2054,6 +2054,82 @@ def _solver_setup_dialog():
         ", ".join(sorted(solvers.WIN_INSTALL_PLANS)))
 
 
+def _assistant_settings_dialog():
+    """The assistant Settings dialog: prefill from prefs, presets, save-back.
+
+    WHY THIS EXISTS: the endpoint/model/key had NO configuring UI at all —
+    env vars or the raw parameter editor — and the work box spent a morning
+    on a bare HTTP 404 that this dialog now makes self-diagnosable
+    (2026-08-05). Runs against the real (throwaway under run_pro_freecad)
+    parameter store and restores every key it touches.
+    """
+    # Import the MODULE, not names: a from-import of missing names raises
+    # ImportError too, which would report a renamed attribute in the PRO tree
+    # as a false "free tree" skip (review-fleet finding — same pattern as
+    # _assistant_dock above).
+    try:
+        from emstudio.ui import assistant_dock as AD
+    except ImportError:
+        return "skipped — Pro assistant not present (free tree)"
+    import FreeCAD
+    from PySide import QtWidgets
+
+    AssistantSettingsDialog = AD.AssistantSettingsDialog
+    _PRESETS = AD._PRESETS
+    grp = FreeCAD.ParamGet(AD._PREF_GROUP)
+    keys = ("AssistantEndpoint", "AssistantModel", "AssistantApiKey")
+    old = {k: grp.GetString(k, "") for k in keys}
+    try:
+        grp.SetString("AssistantEndpoint", "http://example.invalid:9/v1")
+        grp.SetString("AssistantModel", "gate-model")
+        grp.SetString("AssistantApiKey", "sk-guitest")
+        dlg = AssistantSettingsDialog()
+        assert dlg.endpoint_edit.text() == "http://example.invalid:9/v1", \
+            "endpoint not prefilled from the preference"
+        assert dlg.model_combo.currentText() == "gate-model", \
+            "model not prefilled from the preference"
+        assert dlg.key_edit.text() == "sk-guitest", \
+            "key not prefilled from the preference"
+        assert dlg.key_edit.echoMode() == QtWidgets.QLineEdit.Password, \
+            "the API key renders in clear text"
+
+        # A preset must fill the endpoint but never clobber a typed model.
+        anthropic = next(i for i, p in enumerate(_PRESETS)
+                         if "Anthropic" in p[0])
+        dlg.preset_combo.setCurrentIndex(anthropic)
+        assert dlg.endpoint_edit.text() == "https://api.anthropic.com/v1", \
+            "preset did not fill the endpoint"
+        assert dlg.model_combo.currentText() == "gate-model", \
+            "preset clobbered a model the user had typed"
+
+        # Save writes exactly what the fields hold.
+        dlg.endpoint_edit.setText("http://example.invalid:7/v1")
+        dlg._save()
+        assert grp.GetString("AssistantEndpoint", "") == \
+            "http://example.invalid:7/v1", "Save did not persist the endpoint"
+        assert grp.GetString("AssistantApiKey", "") == "sk-guitest", \
+            "Save did not persist the key"
+        dlg.deleteLater()
+
+        # Empty fields must probe the EFFECTIVE configuration — Test lied in
+        # env-var setups otherwise (review-fleet finding: an empty key field
+        # sent "no key" instead of resolving normally, so Test reported 401
+        # against the very setup the dialog recommends).
+        from emstudio.assistant import llm as _llm
+        dlg2 = AssistantSettingsDialog()
+        dlg2.endpoint_edit.clear()
+        dlg2.model_combo.setCurrentText("")
+        dlg2.key_edit.clear()
+        assert dlg2._entered() == (_llm.endpoint_url(), _llm.model_name(),
+                                   None), \
+            "empty fields must fall back to the effective runtime values"
+        dlg2.deleteLater()
+    finally:
+        for k, v in old.items():
+            grp.SetString(k, v)
+    return "prefill + preset (no model clobber) + save-back OK"
+
+
 def main():
     _log("EMStudio real-GUI smoke test")
     _log("----------------------------")
@@ -2089,6 +2165,8 @@ def main():
           "§7-S6)", _rfdf_dialog)
     check("Assistant dock (§3-A3: builds, degrades with no endpoint, "
           "labels ungrounded answers)", _assistant_dock)
+    check("Assistant settings dialog (prefill / presets / save-back)",
+          _assistant_settings_dialog)
     check("shipped examples open with VISIBLE geometry", _examples_are_visible)
     check("3-D result overlay is coloured by its field, not flat grey",
           _pattern_overlay_coloured)

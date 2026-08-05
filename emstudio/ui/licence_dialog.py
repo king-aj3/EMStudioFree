@@ -145,7 +145,9 @@ class LicenceDialog(QtWidgets.QDialog):
             "EMStudio Pro adds the System Designer (matching networks, phased "
             "arrays, RF direction finding) and the AI assistant.<br>"
             "Buy it at <a href='{0}'>{0}</a> — you receive a licence key and a "
-            "zip file. Install the zip here, then enter the key.".format(STORE_URL))
+            "zip file. Install the zip here, then enter the key.<br>"
+            "<b>Updating?</b> Just install the new zip — your activation is "
+            "kept; the key is only needed once.".format(STORE_URL))
         intro.setWordWrap(True)
         intro.setOpenExternalLinks(True)
         outer.addWidget(intro)
@@ -245,7 +247,18 @@ class LicenceDialog(QtWidgets.QDialog):
             return
 
         if not key:
-            self._say("Enter your licence key to activate.")
+            # An UPDATE install: the activation file survives module updates
+            # by design, so a user replacing the zip must not be told to dig
+            # out their key again -- that message, shown next to a status
+            # line saying "active", read as a demand and confused the very
+            # first updater (AJ himself, 2026-08-05).
+            ok, why = licence.check()
+            if ok:
+                self._say("Updated. Your existing activation is kept ({0}) — "
+                          "no key needed. Restart FreeCAD to load the new "
+                          "version.".format(why))
+            else:
+                self._say("Enter your licence key to activate.")
             self._refresh_status()
             return
 

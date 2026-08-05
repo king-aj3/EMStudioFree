@@ -14,8 +14,13 @@ Full manual with step-by-step tutorials: [docs/USER_MANUAL](docs/USER_MANUAL.md)
 
 > **EMStudio Pro ($149, available now)** adds the System Designer — matching,
 > filters/diplexers, phased arrays with tapers, and RF direction finding — plus
-> the AI assistant. Buy at [ajj3us.gumroad.com](https://ajj3us.gumroad.com) and
-> install it from **EMStudio → Help → EMStudio Pro — install / activate**.
+> the AI assistant. The assistant talks to *your* model server: its
+> **Settings…** button carries presets for local Ollama / LM Studio /
+> CentralBrain and hosted OpenAI / Anthropic (any OpenAI-compatible endpoint
+> works), with Fetch-models and a Test probe so a wrong model name is caught
+> before you ask a question. Buy at
+> [ajj3us.gumroad.com](https://ajj3us.gumroad.com) and install it from
+> **EMStudio → Help → EMStudio Pro — install / activate**.
 > See [docs/PRO](docs/PRO.md).
 
 ## Toolbar commands
