@@ -13,8 +13,11 @@ card deck (nec2c's comma-separated free format):
   ``Crossed`` emits the negative-Z0 crossed-line convention — the LPDA feeder),
 * the analysis frequency sweep becomes the ``FR`` card.
 
-Curved edges are rejected in Phase 1 (NEC needs piecewise-straight wires; automatic
-polyline discretization is a Phase-2 item).
+Curved edges are DISCRETIZED into chords (NEC needs piecewise-straight wires):
+a chord's deflection is held to one wire radius, so the modelled wire never
+leaves the conductor it stands for, and any chord still longer than lambda/10
+is split. A straight edge takes an untouched code path and emits the identical
+card it always did — the frozen-deck gates depend on that.
 """
 
 from __future__ import annotations
@@ -27,6 +30,12 @@ C0 = 299792458.0  # m/s
 
 MM_TO_M = 1e-3
 
+#: Chord deflection for a discretized curve, as a fraction of the wire radius.
+#: MEASURED, not chosen — see :func:`_edge_chords` for the convergence table
+#: this came from. Raising it coarsens the model; 1.0 costs 4.3 % of the
+#: input resistance on the analytic loop benchmark.
+CHORD_DEFLECTION_FRAC = 0.25
+
 
 class WireModelError(ValueError):
     """The analysis cannot be expressed as a NEC2 wire model."""
@@ -34,6 +43,86 @@ class WireModelError(ValueError):
 
 def _is_straight(edge):
     return type(edge.Curve).__name__ == "Line"
+
+
+def _edge_chords(edge, radius_m, lam_min_m):
+    """Straight chords approximating a CURVED edge, as [(p1_m, p2_m), ...].
+
+    NEC2 has no curved primitive: a GW card *is* a straight wire. A curve is
+    therefore represented by chords, and the only question is how many.
+
+    Two criteria, whichever is finer:
+
+    * **Geometric** — the chord must not stray far inside the real conductor.
+      A chord's maximum departure from the arc it replaces is its deflection,
+      and one wire RADIUS is the outer bound worth considering (beyond it the
+      modelled current leaves the metal it stands for). One radius is NOT the
+      right default, though — that was assumed once and then MEASURED, on a
+      loop whose radiation resistance is analytic (300 mm loop, 3 mm wire,
+      20 MHz, C/lambda 0.126). Input resistance against chord density:
+
+          deflection    chords    R [ohm]    vs converged
+            1.00 r        23       0.05713      -4.3 %
+            0.50 r        32       0.05810      -2.7 %
+            0.25 r        45       0.05870      -1.7 %
+            0.10 r        71       0.05917      -0.9 %
+            0.05 r       100       0.05941      -0.4 %
+            0.02 r       158       0.05966       ref
+
+      It converges, and CHORD_DEFLECTION_FRAC = 0.25 buys the knee: within
+      2 % of the converged answer for half the wires of a 0.1 r model. (The
+      converged value sits ~21 % above the leading-order small-loop formula
+      R = 31171 (A/lambda^2)^2; refinement moves monotonically AWAY from that
+      formula and then stops, so the gap is the formula's own idealization —
+      uniform current, infinitely thin wire — not a discretization error.)
+    * **Electrical** — NEC2's thin-wire kernel wants segments short against
+      the wavelength; the deck's own ``SegmentsPerWavelength`` (>= 10) is
+      applied to each chord downstream, and a chord longer than lambda/10 is
+      split here so that rule can be met at all.
+
+    Curvature can vary along the edge, so the deflection criterion is applied
+    by OCC (``discretize(Deflection=...)``) rather than assumed uniform.
+    """
+    defl_mm = max(radius_m / MM_TO_M * CHORD_DEFLECTION_FRAC, 1e-9)
+    pts = None
+    try:
+        pts = edge.discretize(Deflection=defl_mm)
+    except Exception:                                        # noqa: BLE001
+        pts = None
+    if not pts or len(pts) < 2:
+        # OCC declined (some analytic curves refuse a deflection request).
+        # Fall back to a count from the edge's own length and deflection.
+        n = max(2, int(math.ceil(edge.Length / max(defl_mm * 4.0, 1e-9))))
+        pts = edge.discretize(Number=min(n, 20000))
+    if len(pts) < 2:
+        raise WireModelError(
+            "could not discretize curved edge (length {0:.4g} mm)".format(
+                edge.Length))
+
+    max_chord_m = lam_min_m / 10.0
+    out = []
+    for a, b in zip(pts[:-1], pts[1:]):
+        p1 = (a.x * MM_TO_M, a.y * MM_TO_M, a.z * MM_TO_M)
+        p2 = (b.x * MM_TO_M, b.y * MM_TO_M, b.z * MM_TO_M)
+        seg_len = math.dist(p1, p2)
+        if seg_len <= 0.0:
+            continue
+        # Split anything still longer than lambda/10 so the segment rule is
+        # satisfiable. Straight-line split: these pieces are already chords.
+        n_split = max(1, int(math.ceil(seg_len / max_chord_m)))
+        if n_split == 1:
+            out.append((p1, p2))
+            continue
+        for i in range(n_split):
+            t0 = i / float(n_split)
+            t1 = (i + 1) / float(n_split)
+            out.append((
+                tuple(p1[k] + (p2[k] - p1[k]) * t0 for k in range(3)),
+                tuple(p1[k] + (p2[k] - p1[k]) * t1 for k in range(3)),
+            ))
+    if not out:
+        raise WireModelError("curved edge discretized to nothing")
+    return out
 
 
 def _edge_key(link_obj, subname):
@@ -103,8 +192,13 @@ def _tl_cards(analysis, wires):
     tls = query.get_transmission_lines(analysis)
     if not tls:
         return []
+    # A discretized curve contributes MANY wires under one key; the TL must
+    # attach to the chord carrying the centre segment, not to whichever chord
+    # is enumerated last (which is what a plain dict assignment would pick).
     index = {}
     for i, w in enumerate(wires):
+        if w["key"] in index and not w.get("center"):
+            continue
         index[w["key"]] = (i + 1, (w["nseg"] + 1) // 2)
     cards = []
     for tl in tls:
@@ -230,36 +324,61 @@ def build_wire_model_multi(analysis, solver):
     seen_keys = set()
     key_to_index = {}
     for edge, radius_m, key in _iter_material_edges(analysis):
-        if not _is_straight(edge):
-            raise WireModelError(
-                "edge {0} is not straight; NEC2 wires must be line segments".format(key)
-            )
         if key in seen_keys and len(ports) > 1:
             raise WireModelError(
                 "wire edge {0} is referenced more than once — the multi-port "
                 "deck and the Z-extraction decks would disagree on wire "
                 "numbering".format(key))
         seen_keys.add(key)
-        v1 = edge.Vertexes[0].Point
-        v2 = edge.Vertexes[-1].Point
-        p1 = (v1.x * MM_TO_M, v1.y * MM_TO_M, v1.z * MM_TO_M)
-        p2 = (v2.x * MM_TO_M, v2.y * MM_TO_M, v2.z * MM_TO_M)
-        length = math.dist(p1, p2)
-        if length <= 0.0:
-            continue
-        nseg = max(3, int(math.ceil(length / lam_min * seg_per_wl)))
-        fed = key in feed_keys
-        if (fed or key in tl_keys) and nseg % 2 == 0:
-            nseg += 1  # odd count -> a true center segment (source / TL end)
-        if fed:
-            key_to_index[key] = len(wires)
-        wires.append(
-            {"p1": p1, "p2": p2, "radius": radius_m, "nseg": nseg, "fed": fed,
-             "key": key}
-        )
+        needs_center = (key in feed_keys) or (key in tl_keys)
+
+        if _is_straight(edge):
+            # UNCHANGED PATH — every existing model must produce the identical
+            # card it did before curved edges were supported (frozen decks).
+            v1 = edge.Vertexes[0].Point
+            v2 = edge.Vertexes[-1].Point
+            pieces = [((v1.x * MM_TO_M, v1.y * MM_TO_M, v1.z * MM_TO_M),
+                       (v2.x * MM_TO_M, v2.y * MM_TO_M, v2.z * MM_TO_M))]
+            min_seg = 3
+        else:
+            # A curve becomes chords. Each chord IS a straight wire, so the
+            # 3-segment floor that gives a lone straight wire a centre segment
+            # is not wanted here — it would chop every chord into thirds and
+            # drive the segment-length-to-radius ratio under NEC2's thin-wire
+            # limit. Only the chord that carries the feed needs a centre.
+            pieces = _edge_chords(edge, radius_m, lam_min)
+            min_seg = 1
+
+        # The feed (or TL end) lands on the chord nearest the EDGE MIDPOINT —
+        # the same place the excitation sat when a curved edge was one wire.
+        fed_piece = 0
+        if needs_center and len(pieces) > 1:
+            mid = edge.valueAt((edge.FirstParameter + edge.LastParameter) / 2.0)
+            mid_m = (mid.x * MM_TO_M, mid.y * MM_TO_M, mid.z * MM_TO_M)
+            fed_piece = min(
+                range(len(pieces)),
+                key=lambda i: math.dist(
+                    tuple((pieces[i][0][k] + pieces[i][1][k]) / 2.0
+                          for k in range(3)), mid_m))
+
+        for i, (p1, p2) in enumerate(pieces):
+            length = math.dist(p1, p2)
+            if length <= 0.0:
+                continue
+            nseg = max(min_seg,
+                       int(math.ceil(length / lam_min * seg_per_wl)))
+            fed = (key in feed_keys) and i == fed_piece
+            if needs_center and i == fed_piece and nseg % 2 == 0:
+                nseg += 1  # odd count -> a true center segment (source / TL end)
+            if fed or (needs_center and i == fed_piece):
+                key_to_index[key] = len(wires)
+            wires.append(
+                {"p1": p1, "p2": p2, "radius": radius_m, "nseg": nseg,
+                 "fed": fed, "key": key, "center": i == fed_piece}
+            )
 
     if not wires:
-        raise WireModelError("no straight PEC wire edges found in the analysis")
+        raise WireModelError("no PEC wire edges found in the analysis")
     feeds = []
     for p in ports:                      # PortNumber order (query.get_ports)
         key = _port_edge_key(p)

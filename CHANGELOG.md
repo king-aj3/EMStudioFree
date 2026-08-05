@@ -3,6 +3,63 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.83.0] — 2026-08-05 — NEC2 solves CURVED wires
+
+### Added
+- **Automatic discretization of curved wire edges** — the "Phase-2 item" the
+  writer had carried since it was written. A helix, loop or spiral drawn as a
+  real curve was previously refused outright ("edge is not straight"), so the
+  only route was hand-building a polyline. NEC2 has no curved primitive (a GW
+  card *is* a straight wire), so a curve becomes chords.
+
+  Chord density is set by a **deflection bound expressed in wire radii**, and
+  the default was MEASURED rather than chosen. Against a loop whose radiation
+  resistance is analytic (300 mm loop, 3 mm wire, 20 MHz):
+
+      deflection    chords    R [ohm]    vs converged
+        1.00 r        23       0.05713      -4.3 %
+        0.25 r        45       0.05870      -1.7 %   <- shipped default
+        0.02 r       158       0.05966       ref
+
+  `CHORD_DEFLECTION_FRAC = 0.25` sits at the knee. Refinement moves
+  monotonically away from the leading-order small-loop formula and then stops
+  ~21 % above it — that gap is the formula's own idealization (uniform
+  current, infinitely thin wire), not a discretization error, which is why
+  the gate pins CONVERGENCE and uses the analytic value only as a sanity
+  bound. Any chord still longer than lambda/10 is split.
+
+  Cross-checked three independent ways on a 6 m helix: a hand-built 103-chord
+  polyline resonated at 18.65 / 25.78 MHz, the solid extractor's 80-chord
+  model at 18.89 / 25.4 MHz, and the same helix as a SMOOTH curve now at
+  18.4 / 24.49 MHz — agreement to a few percent across three segmentation
+  strategies.
+
+- **The straight-wire path is untouched, deliberately.** A straight edge takes
+  the original code path and emits the identical card, because the frozen
+  dipole/monopole/yagi/lpda decks depend on it. Chords do NOT inherit the
+  3-segment floor that gives a lone straight wire its centre segment: each
+  chord already IS a straight wire, and thirding every chord would drive the
+  segment-length-to-radius ratio under NEC2's thin-wire limit.
+
+- The feed (and any transmission-line end) lands on the chord nearest the
+  EDGE midpoint — where the excitation sat when a curved edge was one wire.
+  A curve now contributes many wires under one key, so `_tl_cards` was
+  indexing whichever chord came last; it now picks the centre chord.
+
+- Gate `tests/validation/curved_wire_nec2.py` (SOLVER tier): the straight path
+  is unchanged, chords carry no 3-segment floor, every chord midpoint lies
+  within the deflection bound of the true curve, the feed placement rule, the
+  chord count responds to the deflection setting, and the live loop solve.
+
+### Fixed
+- **Three Pro validation gates could not run on Windows at all**
+  (`array_nec2`, `array_taper_nec2`, `rfdf_nec2`): each looked up the solver
+  with a bare `shutil.which("nec2c")`, hard-coding one engine by name, while
+  the supported Windows engine is nec2++ (since v0.77.8) and no nec2c build
+  exists there. They now use EMStudio's own `find_backend("nec2")`, which
+  honours the preference/env/PATH/managed-dir chain the product uses. All
+  three pass on Windows for the first time.
+
 ## [0.82.0] — 2026-08-05 — draw a SOLID conductor, simulate it as an antenna
 
 ### Added

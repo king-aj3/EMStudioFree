@@ -56,7 +56,8 @@ FAST = {
 
 SOLVER = [
     "amr_palace", "bh_elmer", "cavity_palace", "circwaveguide_palace",
-    "coax_palace", "coil_inductance_elmer", "cylcavity_palace", "dipole_nec2",
+    "coax_palace", "coil_inductance_elmer", "curved_wire_nec2",
+    "cylcavity_palace", "dipole_nec2",
     "fastsweep_palace",
     "heat_ktemp_elmer", "heat_radiation_elmer", "heat_sigma_elmer",
     "induction_elmer", "isolation_nec2", "isolation_openems",
