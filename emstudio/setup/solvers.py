@@ -769,39 +769,56 @@ def _managed_dirs(key):
 #: "current build" names, so they do not go stale with each release.
 #: Elmer gui/nompi is deliberate on BOTH axes: nompi because EMStudio drives
 #: a headless serial ElmerSolver and MS-MPI needs its own admin installer;
-#: gui — NOT nogui — because the nogui zip ships no MinGW runtime DLLs at
-#: all (libgfortran-5 etc.; only static .a archives in its stripped
-#: toolchain), so its ElmerSolver.exe dies 0xC0000135 before printing a
-#: byte. The gui zip is 11 MB larger and self-contained. Measured live on
-#: the guided install, 2026-08-04.
+#: gui — NOT nogui — because when this was chosen the nogui zip shipped no
+#: MinGW runtime DLLs at all (only static .a archives in its stripped
+#: toolchain), so its ElmerSolver.exe died 0xC0000135 before printing a
+#: byte. CSC's 2026-08-05 rebuild fixed the runtime across the board, but
+#: gui stays: it is the variant actually verified end to end here, and a
+#: rolling "current build" URL is not the place to switch variants on the
+#: strength of one upstream rebuild.
 WIN_INSTALL_PLANS = {
     "elmer": {
-        "estimate": "2-10 min (a ~160 MB download; no compile)",
+        "estimate": "3-15 min (a ~219 MB download; no compile)",
         "url": "https://www.nic.funet.fi/pub/sci/physics/elmer/bin/windows/"
                "ElmerFEM-gui-nompi-Windows-AMD64.zip",
         # The file that proves extraction found the real tree, relative to it.
         "proof": os.path.join("bin", "ElmerSolver.exe"),
-        # CSC's Windows ZIPS ship NO MinGW runtime DLLs (measured 2026-08-04:
-        # ElmerSolver.exe's import table wants libgfortran-5 etc., nothing in
-        # either zip provides them, and the exe dies 0xC0000135 before
-        # printing a byte — the .exe installer bundles them, but it may
-        # demand elevation, which is exactly what a locked-down box lacks).
-        # The guided install therefore completes the tree from MSYS2's
-        # official repo. GCC's Windows runtime is backward-compatible:
-        # libgfortran.so-version 5 covers GCC 8 through current, so a newer
-        # runtime under a GCC 10-built Elmer is the supported direction.
-        # MSYS2 splits the runtime finely (measured against the live index,
-        # 2026-08-04): libgcc_s_seh-1 + libquadmath-0 + libgomp-1 come from
-        # gcc-libs, libgfortran-5 from gcc-LIBGFORTRAN, libwinpthread-1 from
-        # libwinpthread (the old "-git" suffixed name is GONE from the index).
-        # libgomp-1 is here because MSYS2's OpenBLAS is an OpenMP build —
-        # found by walking ElmerSolver's transitive import closure, not by
-        # guessing. This tuple is the VERIFY list; the installer copies every
-        # DLL the packages ship, so a new transitive dep degrades to a clear
-        # error here rather than a silent 0xC0000135.
+        # UPSTREAM FIXED THIS — the completion step below is now normally a
+        # NO-OP. When ElmerCSC/elmerfem#858 was filed the Windows zips shipped
+        # NO MinGW runtime DLLs and ElmerSolver.exe died 0xC0000135 before
+        # printing a byte. CSC refreshed the funet build on **2026-08-05** and
+        # it now carries 316 DLLs in bin/, beside the exe. VERIFIED on the
+        # Windows VM the same day: extracted the refreshed zip, stripped PATH
+        # to C:\Windows, ran NO completion step — ElmerSolver reached "ELMER
+        # SOLVER FINISHED" (exit 0) and ElmerGrid ran (exit 0). It is genuinely
+        # self-contained.
+        #
+        # The completion path is KEPT as a fallback, because the zip is a
+        # rolling "current build" URL: if CSC ever rebuilds without the
+        # runtime, this silently repairs it instead of handing the user a
+        # 0xC0000135 with no message. `need` is computed per-DLL, so on a
+        # complete zip nothing is downloaded at all.
+        #
+        # **libgomp-1.dll was REMOVED from this list on 2026-08-05.** It was
+        # here because MSYS2's OpenBLAS is an OpenMP build — but CSC's own
+        # libopenblas is not, so the refreshed zip neither ships it nor needs
+        # it. Leaving it listed made `need` permanently non-empty, which fired
+        # the MSYS2 download on every install of an already-complete tree and
+        # turned a working install into a hard failure on any box whose
+        # tar.exe cannot read zstd. A VERIFY list must describe what the
+        # binary actually imports, or it stops being a check and becomes a
+        # trigger.
+        #
+        # MSYS2 package names, measured against the live index 2026-08-04:
+        # libgcc_s_seh-1 + libquadmath-0 come from gcc-libs, libgfortran-5
+        # from gcc-LIBGFORTRAN, libwinpthread-1 from libwinpthread (the old
+        # "-git" suffixed name is GONE from the index). GCC's Windows runtime
+        # is backward-compatible — libgfortran so-version 5 covers GCC 8
+        # through current — so a newer runtime under a GCC 10-built Elmer is
+        # the supported direction.
         "runtime_dlls": ("libgfortran-5.dll", "libgcc_s_seh-1.dll",
                          "libquadmath-0.dll", "libwinpthread-1.dll",
-                         "libopenblas.dll", "libgomp-1.dll"),
+                         "libopenblas.dll"),
         "runtime_pkgs": ("mingw-w64-x86_64-gcc-libs",
                          "mingw-w64-x86_64-gcc-libgfortran",
                          "mingw-w64-x86_64-libwinpthread",
