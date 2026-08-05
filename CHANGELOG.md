@@ -3,6 +3,47 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.87.0] — 2026-08-05 — "ERROR, ERROR, ERROR" is not an answer
+
+A user drew a **solid helix coil**, attached a material, a lumped port on a
+face and a NEC2 solver, pressed Run Solver, and got:
+
+    port 'EMPort' must reference a wire edge for the NEC2 backend
+
+Every step they took was reasonable. NEC2 simply cannot solve a body — it is a
+thin-wire method: centre line plus radius. The workbench **already knew how to
+derive exactly that from a solid**, so refusing was a choice, not a limitation.
+Nothing on screen mentioned "Antenna from Selection", so from the outside the
+tool just looked broken. Their words: *"If I was a new user I would quit and
+de-install this crap."* Fair.
+
+### Fixed
+- **Run Solver now offers to fix it instead of refusing.** Before a NEC2 run
+  it builds the wire model (cheap — the run does it first anyway). If that
+  fails *and* the analysis references a solid, it explains the problem in
+  plain language and offers **"Build the wire model and run (recommended)"**
+  as the default button. Accepting derives the centreline and radius from the
+  body, re-points the material and the feed at the derived wire, **keeps the
+  user's solver, sweep and port impedance**, reports every change, and runs.
+  Nothing they set up is discarded.
+- **The error message itself now prescribes a cure.** It names the offending
+  object, says *why* a solid cannot be used, and gives the concrete next
+  action. It also detects the solid through a **face** reference by checking
+  the parent shape — a port on `Face1` resolves to a Face, which has no
+  `.Solids`, so testing only the resolved sub-shape missed the exact case the
+  message exists for.
+- The wrong-solver assist runs on this path too: if the repaired conductor is
+  electrically thick, the openEMS recommendation appears here as well.
+
+### Gated
+`antenna_from_selection` gains 12 checks reproducing that exact document —
+solid helix, material, port on `Face1`, NEC2 — asserting the message is
+actionable (names the object, says why, prescribes an action, is not a
+one-liner) and that the repair produces a runnable model with a centre feed
+(62 wires, feed index 31 of 62) whose radius came from the solid (6 mm), with
+the user's own solver kept.
+
+
 ## [0.86.0] — 2026-08-05 — the workbench now tells you when you picked the wrong solver, and offers to fix it
 
 ### Added

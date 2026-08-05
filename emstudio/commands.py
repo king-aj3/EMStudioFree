@@ -481,6 +481,70 @@ class _RunSolver:
             "ToolTip": "Run the selected solver (or the analysis' only solver) and plot results",
         }
 
+    @staticmethod
+    def _nec2_preflight(ana, solver):
+        """True to go ahead. Offers to REPAIR a solid-based analysis first.
+
+        Returns False when the user cancelled or the repair failed — the caller
+        must not start the run in that case.
+        """
+        from PySide import QtWidgets
+
+        from emstudio.antenna import from_selection as fs
+        from emstudio.solvers.nec2 import writer as wr
+
+        try:
+            wr.build_wire_model(ana, solver)
+            return True                       # already runnable, say nothing
+        except Exception as exc:              # noqa: BLE001 — reported below
+            problem = str(exc)
+
+        solid = fs.find_solid_reference(ana)
+        if solid is None:
+            # Not the solid case. Still show the (now actionable) message.
+            _warn(problem)
+            return False
+
+        box = QtWidgets.QMessageBox(FreeCADGui.getMainWindow())
+        box.setIcon(QtWidgets.QMessageBox.Question)
+        box.setWindowTitle("EMStudio — this needs a wire model first")
+        box.setText(
+            "'{0}' is a SOLID, and NEC2 cannot solve a solid.\n\n"
+            "NEC2 is a thin-wire solver: it models a conductor as a centre "
+            "line plus a radius. Your coil has both — they just have to be "
+            "measured off the body first.\n\n"
+            "I can do that now: follow the conductor's centreline, take its "
+            "radius from the cross-section, point your material and feed at "
+            "the result, and keep your solver and sweep. Nothing you have set "
+            "up is thrown away.".format(solid.Label))
+        fix = box.addButton("Build the wire model and run  (recommended)",
+                            QtWidgets.QMessageBox.AcceptRole)
+        box.addButton(QtWidgets.QMessageBox.Cancel)
+        box.setDefaultButton(fix)
+        box.exec_()
+        if box.clickedButton() is not fix:
+            return False
+
+        try:
+            info = fs.repair_for_wire_solver(FreeCAD.ActiveDocument, ana,
+                                             source_obj=solid)
+        except Exception as exc:              # noqa: BLE001
+            _warn("Could not derive the wire model from '{0}':\n\n{1}"
+                  .format(solid.Label, exc))
+            return False
+
+        # If it is now the WRONG solver for this conductor, say so here too --
+        # the same assist the Antenna-from-Selection path gives.
+        adv = info["plan"].get("solver_advice")
+        extra = ""
+        if adv:
+            extra = "\n\nHEADS UP:\n" + adv["plain"]
+        QtWidgets.QMessageBox.information(
+            FreeCADGui.getMainWindow(), "EMStudio — fixed",
+            "Wire model built from '{0}':\n\n  {1}\n\nRunning now.{2}".format(
+                solid.Label, "\n  ".join(info["changed"]), extra))
+        return True
+
     def IsActive(self):
         return FreeCAD.ActiveDocument is not None
 
@@ -512,6 +576,19 @@ class _RunSolver:
         stype = query.em_type(solver)
         if stype == "EMStudio::SolverNEC2":
             from emstudio.solvers import nec2
+
+            # PREFLIGHT, AND OFFER THE FIX. Building the wire model is cheap
+            # and it is exactly what the run does first, so failing here costs
+            # nothing and lets us respond with an action instead of an error.
+            #
+            # WHY: a user drew a solid helix, attached a material, a port and
+            # this solver, pressed Run, and got "port must reference a wire
+            # edge" with nowhere to go. Every one of those steps was
+            # reasonable. NEC2 simply cannot use a body — and the workbench
+            # already knows how to derive the centreline from one, so refusing
+            # was a choice, not a limitation.
+            if not self._nec2_preflight(ana, solver):
+                return
 
             def run_fn(a, s, cb):
                 return nec2.run(a, s, line_callback=cb)

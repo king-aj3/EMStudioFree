@@ -157,6 +157,7 @@ def main():
 
     gate_wrong_solver_assist()
     gate_progress_is_real()
+    gate_solid_analysis_repair()
 
     print("-------------------")
     if FAILURES:
@@ -284,6 +285,93 @@ def gate_progress_is_real():
           run_gui._eta_text(_S(), 5, 0) == "0%")
     check("a finished job shows no countdown",
           "left" not in run_gui._eta_text(_S(), 100, 100))
+    FreeCAD.closeDocument(doc.Name)
+
+
+def gate_solid_analysis_repair():
+    """The path a real user actually takes, and what happens when it fails.
+
+    AJ drew a SOLID helix, attached a material, a lumped port ON A FACE and a
+    NEC2 solver, pressed Run, and got "port 'EMPort' must reference a wire
+    edge" with nowhere to go. Every one of those steps is reasonable; NEC2
+    simply cannot use a body. Nothing pointed at "Antenna from Selection",
+    so the workbench looked broken.
+
+    So this pins BOTH halves: the message has to be actionable, and the
+    workbench has to be able to REPAIR the analysis in place rather than make
+    the user rebuild it.
+    """
+    import FreeCAD
+    import Part
+
+    from emstudio.antenna import from_selection as fs
+    from emstudio.objects import analysis as A
+    from emstudio.objects import material as M
+    from emstudio.objects import ports as P
+    from emstudio.objects import query
+    from emstudio.objects import solver_objs as S
+    from emstudio.solvers.nec2 import writer as wr
+
+    print("solid analysis -> assisted repair")
+    doc = FreeCAD.newDocument("repair_gate")
+    path = Part.Wire(Part.makeHelix(60.0, 300.0, 100.0).Edges)
+    e0 = path.Edges[0]
+    prof = Part.Wire(Part.makeCircle(6.0, path.Vertexes[0].Point,
+                                     e0.tangentAt(e0.FirstParameter)))
+    mk = Part.BRepOffsetAPI.MakePipeShell(path)
+    mk.setFrenetMode(True)
+    mk.add(prof, True, True)
+    mk.build()
+    mk.makeSolid()
+    obj = doc.addObject("Part::Feature", "SolidHelix")
+    obj.Shape = mk.shape()
+    doc.recompute()
+
+    ana = A.makeAnalysis(doc)
+    mat = M.makeMaterial(doc, ana, name="EMMaterial", category="Metal (PEC)",
+                         references=[(obj, "")])
+    mat.WireRadius = "6 mm"
+    port = P.makeLumpedPort(doc, ana, name="EMPort",
+                            references=[(obj, "Face1")])
+    port.Excited = True
+    S.makeSolverNEC2(doc, ana)
+    doc.recompute()
+
+    # 1. the failure must EXPLAIN and PRESCRIBE, not just refuse
+    try:
+        wr.build_wire_model(ana, query.get_solvers(ana)[0])
+        check("a port on a solid's face is refused", False)
+        msg = ""
+    except Exception as exc:                            # noqa: BLE001
+        msg = str(exc)
+        check("a port on a solid's face is refused", True)
+    check("the message names the actual object", "SolidHelix" in msg)
+    check("it says WHY a solid cannot be used", "thin-wire" in msg)
+    check("it prescribes a concrete next action",
+          "Antenna from Selection" in msg)
+    check("it is not a bare one-liner", len(msg.splitlines()) >= 3)
+
+    # 2. the workbench can find the culprit on its own
+    solid = fs.find_solid_reference(ana)
+    check("the offending solid is identified automatically",
+          solid is not None and solid.Name == obj.Name)
+
+    # 3. and REPAIR it in place, keeping what the user set up
+    info = fs.repair_for_wire_solver(doc, ana, source_obj=solid)
+    wires, feed_index, _ = wr.build_wire_model(ana, query.get_solvers(ana)[0])
+    check("after the repair the NEC2 model builds", len(wires) > 1,
+          "{0} wires".format(len(wires)))
+    check("the feed is a valid index into the wires",
+          isinstance(feed_index, int) and 0 <= feed_index < len(wires))
+    check("the feed sits mid-conductor (a centre feed)",
+          abs(feed_index / float(len(wires)) - 0.5) < 0.1,
+          "index {0} of {1}".format(feed_index, len(wires)))
+    check("the user's own solver object was kept",
+          len(query.get_solvers(ana)) == 1)
+    check("the repair reports what it changed", len(info["changed"]) >= 2)
+    check("the radius came from the solid, not a guess",
+          abs(info["plan"]["radius_mm"] / 6.0 - 1.0) < 0.05,
+          "{0:.4g} mm".format(info["plan"]["radius_mm"]))
     FreeCAD.closeDocument(doc.Name)
 
 

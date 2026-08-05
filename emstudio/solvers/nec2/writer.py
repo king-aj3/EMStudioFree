@@ -209,9 +209,47 @@ def _port_edge_key(port):
             return _edge_key(link_obj, sub)
         if sub == "" and shape is not None and len(shape.Edges) == 1:
             return _edge_key(link_obj, "Edge1")
+    # An error is only useful if it says what to DO. This one used to name the
+    # symptom and stop, and a real user hit it on a solid coil, had nothing to
+    # act on, and reasonably concluded the workbench was broken. Say what is
+    # wrong, WHY it is wrong, and the one action that fixes it.
+    what = []
+    solid_obj = None
+    for link_obj, shape, sub in query.resolved_references(port):
+        name = getattr(link_obj, "Label", "?")
+        if sub:
+            what.append("{0}:{1}".format(name, sub))
+        else:
+            what.append(name)
+        # Check the PARENT's shape, not the resolved sub-shape: a port on
+        # Face1 resolves to a Face, which has no .Solids, so testing only the
+        # sub-shape misses the very case this message exists for.
+        parent = getattr(link_obj, "Shape", None)
+        if (shape is not None and getattr(shape, "Solids", None)) or \
+                (parent is not None and getattr(parent, "Solids", None)):
+            solid_obj = name
+    got = ", ".join(what) or "nothing"
+    if solid_obj:
+        raise WireModelError(
+            "port '{0}' is attached to a SOLID ({1}), and NEC2 cannot use a "
+            "solid.\n\n"
+            "NEC2 is a thin-wire solver: it models a conductor as a centre "
+            "line plus a radius, so it needs an EDGE to feed, not a face or a "
+            "body.\n\n"
+            "FIX: select the solid and use EMStudio -> Tools -> 'Antenna from "
+            "Selection'. It measures the conductor's centreline and radius "
+            "from the solid, builds the wire, the PEC material and a centre "
+            "feed, and leaves you ready to press Run Solver."
+            .format(port.Label, solid_obj))
     raise WireModelError(
-        "port '{0}' must reference a wire edge for the NEC2 backend".format(port.Label)
-    )
+        "port '{0}' must reference a wire EDGE for the NEC2 backend, but it "
+        "references {1}.\n\n"
+        "NEC2 models conductors as centre lines, so the feed has to sit on an "
+        "edge. Pick the edge in the 3-D VIEW (not in the tree, and not a "
+        "face) when you create the port.\n\n"
+        "If you started from a solid body, use EMStudio -> Tools -> 'Antenna "
+        "from Selection' instead — it derives the wire model for you."
+        .format(port.Label, got))
 
 
 def _tl_edge_keys(tl):

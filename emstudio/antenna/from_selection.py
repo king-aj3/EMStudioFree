@@ -309,3 +309,91 @@ def build(doc, source_obj, p, points_label="AntennaWire"):
         solver_objs.makeSolverNEC2(doc, ana)
     doc.recompute()
     return ana, wire_obj
+
+
+def find_solid_reference(analysis):
+    """The first SOLID a NEC2 analysis references, or None.
+
+    Used to tell "this analysis is unrunnable because it is pointed at a body"
+    apart from "the port is on the wrong edge", so the GUI can offer the right
+    repair instead of a generic complaint.
+    """
+    from emstudio.objects import query
+
+    for getter in (query.get_ports, query.get_materials):
+        for obj in getter(analysis):
+            for link_obj, shape, _sub in query.resolved_references(obj):
+                if shape is not None and getattr(shape, "Solids", None):
+                    return link_obj
+    return None
+
+
+def repair_for_wire_solver(doc, analysis, source_obj=None, radius_mm=None,
+                           progress_cb=None):
+    """Make a solid-based analysis actually runnable on NEC2, IN PLACE.
+
+    The user's mistake is not really a mistake: they drew a solid conductor,
+    attached a material, a port and a NEC2 solver, and pressed Run. Everything
+    about that is reasonable. NEC2 simply cannot use a body — it needs the
+    centre line. So rather than refusing and making them rebuild the analysis
+    by hand, derive the wire from the solid they already drew and re-point the
+    material and the feed at it. The solver, the sweep and the port impedance
+    they set are all kept.
+
+    Returns a dict describing what changed, for showing back to the user.
+    """
+    from emstudio.objects import query
+
+    src = source_obj or find_solid_reference(analysis)
+    if src is None:
+        raise AntennaBuildError(
+            "nothing in this analysis references a solid, so there is no body "
+            "to derive a wire model from")
+    shape = getattr(src, "Shape", None)
+    if shape is None:
+        raise AntennaBuildError("'{0}' has no shape".format(src.Label))
+
+    p = plan(shape, radius_mm=radius_mm, progress_cb=progress_cb)
+    if p["points"] is None:
+        raise AntennaBuildError(
+            "'{0}' is not a solid conductor — nothing to extract".format(
+                src.Label))
+
+    import Part
+
+    wire_obj = doc.addObject("Part::Feature", "AntennaWire")
+    wire_obj.Shape = Part.makePolygon(p["points"])
+    doc.recompute()
+    n_edges = len(wire_obj.Shape.Edges)
+    if n_edges < 1:
+        raise AntennaBuildError("the derived wire model has no edges")
+
+    changed = []
+    for mat in query.get_materials(analysis):
+        if not str(mat.Category).startswith("Metal"):
+            continue
+        mat.References = [(wire_obj, "")]
+        mat.WireRadius = "{0} mm".format(p["radius_mm"])
+        changed.append("material '{0}' now covers the wire model, radius "
+                       "{1:.4g} mm".format(mat.Label, p["radius_mm"]))
+
+    feed_edge = "Edge{0}".format(n_edges // 2 + 1)
+    for port in query.get_ports(analysis):
+        port.References = [(wire_obj, feed_edge)]
+        changed.append("port '{0}' moved to {1} — the middle of the wire, "
+                       "which is a centre feed".format(port.Label, feed_edge))
+
+    # Only set the sweep if the user left it at nothing useful; their numbers
+    # are theirs. A zero/absent start is the tell-tale of "never touched".
+    try:
+        f1 = float(analysis.FrequencyStart.getValueAs("Hz"))
+    except Exception:                                   # noqa: BLE001
+        f1 = 0.0
+    if f1 <= 0.0:
+        analysis.FrequencyStart = "{0} Hz".format(p["f1_hz"])
+        analysis.FrequencyStop = "{0} Hz".format(p["f2_hz"])
+        changed.append("sweep set to {0:.4g}-{1:.4g} MHz around the "
+                       "half-wave resonance".format(p["f1_hz"] / 1e6,
+                                                    p["f2_hz"] / 1e6))
+    doc.recompute()
+    return {"plan": p, "wire": wire_obj, "source": src, "changed": changed}
