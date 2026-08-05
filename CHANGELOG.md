@@ -35,6 +35,20 @@ de-install this crap."* Fair.
 - The wrong-solver assist runs on this path too: if the repaired conductor is
   electrically thick, the openEMS recommendation appears here as well.
 
+### Fixed (continued)
+- **"Show in 3D View" drew the pattern balloon INSIDE the antenna.**
+  `auto_radius_mm` used `fraction=0.5`, so the balloon's RADIUS was half the
+  model's largest dimension — its **diameter exactly equalled the model's own
+  size**. Drawn centred on the geometry, it therefore shared the same volume,
+  and on a solid helix the coil wraps around it and hides it. Reported as
+  *"when I add the 3D pattern to the model it is not shown, even if I change
+  what to show"* — the object was there, visible, correctly coloured by
+  `Gain_dBi`, and buried. The docstring had even recorded that the older fixed
+  100 mm balloon "disappears inside its own antenna"; the fix only got halfway.
+  The radius is now one full extent, so the balloon sits outside the geometry's
+  bounding sphere, and the results dialog draws it at 55% transparency so it
+  does not hide the model it describes. Gated at four model sizes.
+
 ### Gated
 `antenna_from_selection` gains 12 checks reproducing that exact document —
 solid helix, material, port on `Face1`, NEC2 — asserting the message is

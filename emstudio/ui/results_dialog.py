@@ -256,8 +256,11 @@ class SweepResultsDialog(QtWidgets.QDialog):
                     ff, os.path.join(workdir, "pattern3d.vtu"),
                     radius_mm=(vtk_out.auto_radius_mm(extent) if extent else 100.0),
                     center_mm=(centre or (0.0, 0.0, 0.0)))
+                # Semi-transparent: the balloon now ENCLOSES the antenna, so
+                # an opaque one would hide the very geometry it describes.
                 created.append(vtk_out.show_in_freecad(
-                    p, "Pattern balloon @ {0:.3f} GHz".format(ff.freq / 1e9), doc).Label)
+                    p, "Pattern balloon @ {0:.3f} GHz".format(ff.freq / 1e9),
+                    doc, transparency=55).Label)
             cur = getattr(self.result, "currents", None)
             if cur is not None:
                 p = vtk_out.write_currents_vtu(cur, os.path.join(workdir, "currents.vtu"))

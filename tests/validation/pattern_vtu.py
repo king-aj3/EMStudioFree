@@ -212,6 +212,22 @@ def main():
     check("auto_radius_mm on a 450 mm array is array-sized, not 100 mm",
           vtk_out.auto_radius_mm(450.0) >= 225.0,
           "{0:.1f} mm".format(vtk_out.auto_radius_mm(450.0)))
+    # THE BALLOON MUST ENCLOSE THE ANTENNA, NOT SHARE ITS VOLUME.
+    # At the old fraction of 0.5 the radius was HALF the extent, so the
+    # balloon's DIAMETER exactly equalled the model's own size: on a solid
+    # helix the coil wrapped around it and hid it completely, reported
+    # 2026-08-05 as "I add the 3D pattern and it is not shown". A radius of at
+    # least one full extent puts the surface outside the geometry's bounding
+    # sphere, which is the only way it is legible.
+    for extent in (40.0, 300.0, 450.0, 2000.0):
+        check("a {0:.0f} mm model's balloon encloses it (radius >= extent)"
+              .format(extent),
+              vtk_out.auto_radius_mm(extent) >= extent,
+              "radius {0:.0f} mm vs extent {1:.0f} mm".format(
+                  vtk_out.auto_radius_mm(extent), extent))
+    check("the balloon diameter is at least twice the model",
+          2.0 * vtk_out.auto_radius_mm(300.0) >= 2.0 * 300.0,
+          "{0:.0f} mm across".format(2.0 * vtk_out.auto_radius_mm(300.0)))
     check("auto_radius_mm refuses a degenerate extent rather than returning 0",
           vtk_out.auto_radius_mm(0.0) > 0.0,
           "{0:.1f} mm".format(vtk_out.auto_radius_mm(0.0)))

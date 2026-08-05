@@ -68,14 +68,30 @@ def _vtu(points, cells, cell_type, scalars):
 
 
 # ------------------------------------------------------------------ pattern balloon
-def auto_radius_mm(extent_mm, fraction=0.5, minimum_mm=50.0):
-    """A balloon radius that reads well beside geometry ``extent_mm`` across.
+#: Balloon RADIUS as a multiple of the geometry's largest dimension.
+#: 1.0 makes the balloon's DIAMETER twice the model, so it clearly surrounds
+#: the antenna instead of sharing its volume.
+BALLOON_FRACTION = 1.0
 
-    The fixed 100 mm default is right for a single patch and useless for an
-    8-element array 450 mm wide — the balloon disappears inside its own antenna.
-    Scale with the geometry instead, with a floor so a tiny (or degenerate)
-    extent still yields something visible rather than a point at the origin.
+
+def auto_radius_mm(extent_mm, fraction=None, minimum_mm=50.0):
+    """A balloon radius that reads well AROUND geometry ``extent_mm`` across.
+
+    The fixed 100 mm default was right for a single patch and useless for an
+    8-element array 450 mm wide — the balloon disappeared inside its own
+    antenna. Scaling with the geometry fixed that only halfway: at the old
+    fraction of 0.5 the RADIUS was half the extent, so the balloon's DIAMETER
+    exactly equalled the model's own size and it still shared the same volume.
+    On a solid helix the coil simply wraps around the balloon and hides it —
+    reported 2026-08-05 as "I add the 3D pattern and it is not shown".
+
+    A radius of one full extent puts the whole balloon OUTSIDE the geometry's
+    bounding sphere, which is what every EM tool draws and the only way the
+    thing is legible without hiding the model. The floor keeps a tiny or
+    degenerate extent from collapsing to a point at the origin.
     """
+    if fraction is None:
+        fraction = BALLOON_FRACTION
     return max(float(minimum_mm), float(fraction) * abs(float(extent_mm)))
 
 
