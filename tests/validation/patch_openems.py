@@ -20,6 +20,20 @@ if _ROOT not in sys.path:
 
 
 def main():
+    # A live FDTD run needs the openEMS PYTHON modules, not just the binary.
+    # Without them this gate used to die with SolverError -- a FAILURE that
+    # says nothing about EMStudio, and that made the battery red on every box
+    # where openEMS is not installed. Absence of an optional backend is a
+    # SKIP; the same correction the nec2c gates got in v0.83.0. The
+    # deck-writing paths stay covered by smoke.py and the STL mesh gate.
+    from emstudio.setup.solvers import find_openems_python
+
+    if find_openems_python() is None:
+        print("  skip  no openEMS python environment -- set "
+              "EMSTUDIO_OPENEMS_PYTHON, or install openEMS with its venv "
+              "beside the binary")
+        print("PATCH GATE PASSED")
+        return 0
     import FreeCAD
 
     from emstudio.solvers import openems

@@ -21,6 +21,7 @@ FreeCAD imports stay inside functions (headless-importable).
 """
 from __future__ import annotations
 
+import math
 import os
 
 
@@ -34,6 +35,240 @@ def _export_solid(shape, name, workdir):
     shape.exportBrep(path)
     bb = shape.BoundBox
     return path, (bb.XMin, bb.YMin, bb.ZMin, bb.XMax, bb.YMax, bb.ZMax)
+
+
+def _auto_lc_mm(shape, bbox):
+    """Default body mesh size in mm. Returns ``(lc, feature_mm_or_None)``.
+
+    The old default was ``min(bbox side)/10``, which describes the body's
+    ENVELOPE, not the thing that has to be resolved. On the real user helix
+    that is ~22 mm — COARSER than the 20 mm conductor it is meshing, so the
+    conductor got barely one element across it and the CoilSolver's stranded
+    normalization degrades (the writer's own note asks for 2-3 elements across
+    the coil section).
+
+    ``min_feature_mm`` recovers the real feature size from volume/surface
+    (2V/A -> a rod's radius, a plate's thickness); it reads 9.22 mm on that
+    helix against a true 19.98 mm across flats, i.e. the conservative half.
+    Using it puts ~2 elements across the conductor.
+
+    The finer of the two is taken, so this can only REFINE an existing
+    default, never coarsen one.
+    """
+    min_dim = min(bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2])
+    envelope = max(min_dim / 10.0, 1.0)
+    try:
+        from emstudio.geometry.measure import min_feature_mm
+
+        feat = float(min_feature_mm(shape=shape) or 0.0)
+    except Exception:                                           # noqa: BLE001
+        feat = 0.0
+    if feat > 0.0:
+        return max(min(envelope, feat), 0.1), feat
+    return envelope, None
+
+
+#: A terminal face is crossed BY the current, so its normal points along the
+#: conductor — i.e. roughly PERPENDICULAR to the winding axis (a helix's pitch
+#: angle tilts it only a couple of degrees). A closed annular tube also has two
+#: equal-area planar faces, but they are its flat ends and their normals lie
+#: ALONG the axis. Without this test the shipped 3-D Solenoid template — a
+#: genuinely closed tube — is reported as having "two free ends", which
+#: gui_smoke caught. 0.5 sits far from both cases (helix ~0.03, tube 1.0).
+_TERMINAL_AXIS_DOT_MAX = 0.5
+
+
+def _faces_look_like_terminals(caps, normal):
+    """True when a pair of end caps is really the conductor's two TERMINALS.
+
+    Deliberately FreeCAD-free — it only reads ``.x/.y/.z`` off whatever
+    ``normalAt`` returns, so the rule can be gated without FreeCAD present.
+    """
+    try:
+        na = math.sqrt(sum(float(c) ** 2 for c in normal))
+        if na <= 0.0:
+            return False
+        for _area, face in caps:
+            n = face.normalAt(0, 0)
+            nn = math.sqrt(n.x * n.x + n.y * n.y + n.z * n.z)
+            if nn <= 0.0:
+                return False
+            dot = (n.x * normal[0] + n.y * normal[1] + n.z * normal[2])
+            if abs(dot / (nn * na)) > _TERMINAL_AXIS_DOT_MAX:
+                return False              # points along the axis: a flat end
+        return True
+    except Exception:                                           # noqa: BLE001
+        return False
+
+
+def _end_caps_quiet(shape, normal=None):
+    """``end_caps`` that never raises — used only to offer a hint.
+
+    With ``normal`` given, only caps that look like real current TERMINALS are
+    returned, so a closed tube's flat ends do not masquerade as free ends.
+    """
+    try:
+        from emstudio.geometry import wire_extract
+
+        caps = wire_extract.end_caps(shape)
+        if normal is not None and caps \
+                and not _faces_look_like_terminals(caps, normal):
+            return []
+        return caps
+    except Exception:                                           # noqa: BLE001
+        return []
+
+
+def _face_bbox(face):
+    bb = face.BoundBox
+    return (bb.XMin, bb.YMin, bb.ZMin, bb.XMax, bb.YMax, bb.ZMax)
+
+
+def _resolve_terminals(coil, shape, label, normal):
+    """The two terminal faces of an OPEN conductor. Returns (boxes, note, area).
+
+    ``area`` is one terminal cap's area in mm^2 — the conductor's OWN
+    cross-section, which is what makes the geometric-turns count below
+    possible.
+
+    Uses the coil's explicit ``StartFace``/``EndFace`` if set, otherwise the
+    geometric detection in :func:`wire_extract.end_caps` — the smallest pair
+    of equal-area planar faces, which is what a swept conductor's caps are
+    (proven on the real user helix: exactly 2 found, 282.843 mm^2 each).
+
+    The chosen faces are always REPORTED, never picked silently: which face
+    the current enters through is a modelling decision the user is entitled
+    to audit, and this project's stated direction is to explain rather than
+    to be quietly clever.
+    """
+    from emstudio.geometry import wire_extract
+
+    faces = []
+    for prop in ("StartFace", "EndFace"):
+        link = getattr(coil, prop, None)
+        if not link:
+            continue
+        obj, subs = link
+        subs = [s for s in (subs or []) if s.startswith("Face")]
+        if len(subs) != 1:
+            raise Axi3DModelError(
+                "coil '{0}': {1} must reference exactly ONE face".format(
+                    label, prop))
+        faces.append(obj.Shape.getElement(subs[0]))
+    if faces and len(faces) != 2:
+        raise Axi3DModelError(
+            "coil '{0}': set BOTH StartFace and EndFace, or neither (an open "
+            "conductor has two ends, and guessing the other one is exactly "
+            "the kind of silent choice that produces a wrong field)".format(
+                label))
+
+    if faces:
+        how = "named by StartFace/EndFace"
+    else:
+        caps = wire_extract.end_caps(shape)
+        if len(caps) != 2:
+            raise Axi3DModelError(
+                "coil '{0}' is marked OPEN, but its solid has no pair of end "
+                "faces to drive it through ({1} candidate(s) found). An open "
+                "coil is driven by Dirichlet conditions on its two terminal "
+                "faces, so they must exist. If the conductor really is a "
+                "closed loop, tick Closed; otherwise name the two faces "
+                "explicitly in StartFace/EndFace.".format(label, len(caps)))
+        if not _faces_look_like_terminals(caps, normal):
+            raise Axi3DModelError(
+                "coil '{0}' is marked OPEN, but the only pair of end faces "
+                "found points ALONG the winding axis — those are a closed "
+                "ring's flat ends, not current terminals (current crosses a "
+                "terminal, so its normal runs along the conductor). Either "
+                "the coil really is closed (tick Closed), the Axis is wrong, "
+                "or the two real ends must be named in "
+                "StartFace/EndFace.".format(label))
+        faces = [caps[0][1], caps[1][1]]
+        how = "auto-detected as the smallest pair of equal-area planar faces"
+
+    boxes = {"start": _face_bbox(faces[0]), "end": _face_bbox(faces[1])}
+    note = ("coil '{0}': OPEN conductor — terminal faces {1}. "
+            "Start: area {2:.4g} mm^2 at ({3:.1f}, {4:.1f}, {5:.1f}); "
+            "End: area {6:.4g} mm^2 at ({7:.1f}, {8:.1f}, {9:.1f}). Current "
+            "enters through Start and leaves through End; swap them (or set "
+            "Reversed) if the field comes out inverted.".format(
+                label, how,
+                float(faces[0].Area), faces[0].CenterOfMass.x,
+                faces[0].CenterOfMass.y, faces[0].CenterOfMass.z,
+                float(faces[1].Area), faces[1].CenterOfMass.x,
+                faces[1].CenterOfMass.y, faces[1].CenterOfMass.z))
+    return boxes, note, float(faces[0].Area)
+
+
+def _turns_from_areas(section_area_mm2, cap_area_mm2):
+    """Winding count implied by a half-plane section and one cap. Ratio only."""
+    if not section_area_mm2 or not cap_area_mm2 or float(cap_area_mm2) <= 0.0:
+        return None
+    turns = float(section_area_mm2) / float(cap_area_mm2)
+    return turns if turns > 0.0 else None
+
+
+#: Azimuths sampled when counting how many times a conductor winds. A single
+#: half-plane QUANTIZES: it is crossed a whole number of times, so a 6.44-turn
+#: helix reads 7 at some azimuths and 6 at others (measured on the fixture:
+#: 7,6,6,6,6,6,6,6,6,6,7,7,7,7,7,7). The mean over uniformly spaced azimuths
+#: is the true count; the residue is bounded by ~0.5/samples of a turn, and 16
+#: gave 6.4375 against the parametric truth 6.43588 (0.025 %) for 2.8 s.
+_TURN_SAMPLES = 16
+
+
+def _measure_geometric_turns(shape, normal, cap_area_mm2,
+                             samples=_TURN_SAMPLES):
+    """How many times the conductor itself winds about its axis, or None.
+
+    One terminal cap is ONE turn's cross-section, and a half-plane through
+    the axis is crossed once per turn — so the ratio counts the winding the
+    SOLID already carries: ~6.44 on the real user helix, 1.0 on a C-shape.
+
+    This matters because Elmer means different things by ``Desired Coil
+    Current`` in its two branches, and the difference is silent. MEASURED
+    2026-08-05 on the fixture: requesting 100 on the OPEN branch put 100 A in
+    the CONDUCTOR, and its 6.44 geometric turns delivered ~644 ampere-turns —
+    the field landed 0.72 % from the finite-solenoid closed form for 644, and
+    6.39x above the one for 100. The CLOSED branch normalizes over a
+    half-plane instead, which counts those turns itself, so the same request
+    means 100 ampere-turns there.
+
+    Returns None if the sections cannot be built — the caller then says
+    nothing rather than printing a fabricated turn count.
+    """
+    try:
+        import FreeCAD
+        import Part
+
+        n = FreeCAD.Vector(*normal).normalize()
+        bb = shape.BoundBox
+        reach = bb.DiagonalLength * 2.0 + 10.0
+        centre = bb.Center
+        seed = FreeCAD.Vector(1.0, 0.0, 0.0)
+        if abs(seed.dot(n)) > 0.9:
+            seed = FreeCAD.Vector(0.0, 1.0, 0.0)
+        radial0 = (seed - n * seed.dot(n)).normalize()
+        perp = n.cross(radial0)
+
+        counts = []
+        for k in range(int(samples)):
+            a = 2.0 * math.pi * k / float(samples)
+            radial = (radial0 * math.cos(a) + perp * math.sin(a)).normalize()
+            p0 = centre - n * (reach / 2.0)
+            p1 = p0 + n * reach
+            p2 = p1 + radial * reach
+            p3 = p0 + radial * reach
+            face = Part.Face(Part.makePolygon([p0, p1, p2, p3, p0]))
+            area = float(shape.common(face).Area)
+            t = _turns_from_areas(area, cap_area_mm2)
+            if t is not None:
+                counts.append(t)
+        if not counts:
+            return None
+        return sum(counts) / float(len(counts))
+    except Exception:                                           # noqa: BLE001
+        return None
 
 
 def _coil_section_area_m2(shape, normal):
@@ -101,6 +336,7 @@ def build_3d_model(analysis, solver, workdir):
     bodies = []
     used = set()
     geo_owner = set()
+    notes = []
 
     def _name(label):
         base = "".join(c if c.isalnum() else "_" for c in label.lower()).strip("_") or "body"
@@ -134,20 +370,81 @@ def build_3d_model(analysis, solver, workdir):
                 geo_owner.add(link_obj.Name)
                 name = _name(coil.Label)
                 path, bb = _export_solid(shape, name, workdir)
-                min_dim = min(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2])
                 normal = coil_mod.axis_vector(coil)
-                bodies.append({
+                closed = bool(getattr(coil, "Closed", True))
+                lc_auto, feat = _auto_lc_mm(shape, bb)
+                if lc_user <= 0 and feat is not None:
+                    notes.append(
+                        "coil '{0}': body mesh size defaulted to {1:.3g} mm, "
+                        "sized from the conductor's own smallest feature "
+                        "({2:.3g} mm from 2V/A) rather than its bounding box "
+                        "— the CoilSolver needs 2-3 elements across the "
+                        "section. Set MeshSizeBodies to override.".format(
+                            coil.Label, lc_auto, feat))
+                body = {
                     "name": name,
                     "shape": {"kind": "brep", "path": path, "bbox": bb},
                     "mu_r": 1.0,
-                    "lc": lc_user if lc_user > 0 else max(min_dim / 10.0, 1.0),
+                    "lc": lc_user if lc_user > 0 else lc_auto,
                     "coil": {"amp_turns": amp_turns, "normal": normal,
+                             "closed": closed,
                              # Total conductor area cut by a half-plane through
                              # the axis — counts EVERY turn, so
                              # J_avg x this == the delivered ampere-turns.
                              "section_area_m2": _coil_section_area_m2(
                                  shape, normal)},
-                })
+                }
+                if closed:
+                    # Free ends on a coil declared closed is the exact
+                    # configuration that produced a 160x-wrong field. It is
+                    # cheap to spot here, BEFORE a solve that can run for
+                    # half an hour, so say so rather than waiting for the
+                    # delivered-ampere-turns guard to catch it afterwards.
+                    if len(_end_caps_quiet(shape, normal)) == 2:
+                        notes.append(
+                            "coil '{0}' is marked Closed, but its solid has "
+                            "two free ends. If the conductor does not close "
+                            "on itself, untick Closed — Elmer is TOLD the "
+                            "path is closed and believes it, and an open one "
+                            "silently under-delivers current.".format(
+                                coil.Label))
+                else:
+                    boxes, note, cap_mm2 = _resolve_terminals(
+                        coil, shape, coil.Label, normal)
+                    body["terminals"] = boxes
+                    notes.append(note)
+                    # One terminal cap IS the conductor's own cross-section —
+                    # the section Elmer normalizes on the open branch, and so
+                    # the one the delivery guard must compare against.
+                    body["coil"]["cap_area_m2"] = cap_mm2 * 1e-6
+                    g = _measure_geometric_turns(shape, normal, cap_mm2)
+                    body["coil"]["turns_geometric"] = g
+                    if g is not None:
+                        notes.append(
+                            "coil '{0}': the SOLID itself winds {1:.4g} "
+                            "time(s) about the axis, and on the open branch "
+                            "Elmer drives {2:.6g} A through the conductor — "
+                            "so the model delivers about {3:.6g} "
+                            "ampere-turns.".format(
+                                coil.Label, g, amp_turns, amp_turns * g))
+                        # The double-count. Turns is documented as "turns
+                        # wound through this cross-section", which is 1 for a
+                        # single drawn conductor; the winding count is already
+                        # in the geometry. Multiplying the two silently scales
+                        # every field by Turns.
+                        if int(coil.Turns) > 1 and g > 1.5:
+                            notes.append(
+                                "coil '{0}': POSSIBLE DOUBLE COUNT — Turns is "
+                                "{1} AND the solid already winds {2:.3g} "
+                                "times, so the drive is being multiplied "
+                                "twice ({3:.6g} ampere-turns). For a single "
+                                "drawn conductor set Turns = 1 and let the "
+                                "geometry supply the turns; use Turns > 1 "
+                                "only when ONE cross-section carries that "
+                                "many strands.".format(
+                                    coil.Label, int(coil.Turns), g,
+                                    amp_turns * g))
+                bodies.append(body)
 
         for mat in query.get_materials(analysis):
             if list(getattr(mat, "BHCurveB", None) or []):
@@ -167,12 +464,11 @@ def build_3d_model(analysis, solver, workdir):
                 geo_owner.add(link_obj.Name)
                 name = _name(mat.Label)
                 path, bb = _export_solid(shape, name, workdir)
-                min_dim = min(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2])
                 bodies.append({
                     "name": name,
                     "shape": {"kind": "brep", "path": path, "bbox": bb},
                     "mu_r": mu_r, "sigma": sigma,
-                    "lc": lc_user if lc_user > 0 else max(min_dim / 10.0, 1.0),
+                    "lc": lc_user if lc_user > 0 else _auto_lc_mm(shape, bb)[0],
                 })
     except AxiModelError as exc:  # reference errors from _referenced_solids
         raise Axi3DModelError(str(exc))
@@ -192,6 +488,10 @@ def build_3d_model(analysis, solver, workdir):
         "air": {"kind": "pad", "pad": pad},
         "lc_air": pad / 4.0,
         "units_mm": True,
+        # Modelling decisions taken on the user's behalf. run3d surfaces these
+        # with the solver's own warnings — the choice of terminal faces is not
+        # something to make silently.
+        "notes": notes,
     }
 
 
@@ -218,7 +518,7 @@ def run3d(analysis, solver, workdir=None, line_callback=None):
     # were hard-coded 0.0 placeholders before, which is why nothing noticed
     # that an open coil produced no usable energy at all.
     coils = [b for b in model["bodies"] if b.get("coil")]
-    warnings = list(res["solver_warnings"])
+    warnings = list(model.get("notes") or []) + list(res["solver_warnings"])
     energy_j = res.get("energy_j")
 
     inductance_h = None
@@ -230,31 +530,77 @@ def run3d(analysis, solver, workdir=None, line_callback=None):
         if nia > 0.0:
             inductance_h = 2.0 * float(energy_j) / (nia * nia)
 
-    # --- the open-coil / under-delivery guard ---------------------------
+    # --- the delivered-ampere-turns guard -------------------------------
+    # Delivered = J_avg x the half-plane section, which counts EVERY turn.
+    # It covers BOTH topologies, but what it should be compared AGAINST
+    # differs, because Elmer's two branches normalize over different
+    # cross-sections (measured — see _measure_geometric_turns):
+    #   closed  the half-plane itself, so 'Desired Coil Current' already IS
+    #           the ampere-turns and expected == requested;
+    #   open    ONE conductor cross-section, so the solid's own geometric
+    #           turns multiply the request.
+    # Using the closed rule on an open coil would flag a CORRECT 6.44-turn
+    # helix as 644 % over-delivered.
     delivered = []
     j_avg = res.get("j_avg") or []
+    open_current = res.get("open_coil_current") or []
     for i, b in enumerate(coils):
-        area = (b["coil"] or {}).get("section_area_m2")
-        req = abs(float(b["coil"]["amp_turns"]))
+        coil = b["coil"] or {}
+        is_open = not coil.get("closed", True)
+        req = abs(float(coil["amp_turns"]))
+        turns_g = 1.0
+        if is_open:
+            # Compare LIKE WITH LIKE. On this branch Elmer normalizes ONE
+            # conductor cross-section, so the comparable pair is conductor
+            # current against requested current — one terminal cap is that
+            # section, and the winding count cancels out of the ratio
+            # entirely. (Using the half-plane here instead would compare
+            # 7 crossings' worth of current against a 6.44-turn request and
+            # report a correct coil as 8.6 % over-delivered.)
+            area = coil.get("cap_area_m2") or coil.get("section_area_m2")
+            turns_g = float(coil.get("turns_geometric") or 1.0)
+        else:
+            area = coil.get("section_area_m2")
+        if is_open and not (i < len(open_current) and open_current[i]):
+            warnings.append(
+                "coil '{0}' is OPEN but Elmer reported no normalized coil "
+                "current — the drive may not have been applied at all. Check "
+                "that the two terminal faces are the conductor's real "
+                "ends.".format(b["name"]))
         if area is None or i >= len(j_avg) or req <= 0.0:
             delivered.append(None)
             continue
         got = abs(float(j_avg[i])) * float(area)
-        delivered.append(got)
+        # Reported: the AMPERE-TURNS the model produces. For a closed coil the
+        # half-plane already counted the turns; for an open one they multiply
+        # in from the geometry.
+        delivered.append(got * turns_g)
         frac = got / req
-        # Generous bounds on purpose: a healthy closed coil measures 0.9998,
-        # an open one 0.008. Anything outside 0.5..2.0 is a real defect, not
-        # mesh coarseness (the writer's own -0.5 % note is far inside this).
-        if not (0.5 <= frac <= 2.0):
+        # Generous bounds on purpose: a healthy closed coil measures 0.9998
+        # and a correctly driven open split ring 0.9998, while a mis-declared
+        # open helix measured 0.052. Anything outside 0.5..2.0 is a real
+        # defect, not mesh coarseness (the writer's own -0.5 % note is far
+        # inside this).
+        if 0.5 <= frac <= 2.0:
+            continue
+        if is_open:
+            warnings.append(
+                "coil '{0}': the solver drove {1:.4g} A through the conductor "
+                "against {2:.4g} requested ({3:.1%}). The terminal faces are "
+                "the usual cause — check that Start and End are the "
+                "conductor's two real ends, and not two faces of the same "
+                "cut. Every field value from this run is wrong by roughly "
+                "this factor.".format(b["name"], got, req, frac))
+        else:
             warnings.append(
                 "coil '{0}': the solver delivered {1:.4g} ampere-turns "
                 "against {2:.4g} requested ({3:.1%}). The current is not "
                 "circulating as asked — the usual cause is an OPEN conductor "
-                "(free ends), because the deck declares 'Coil Closed'. Close "
-                "the current path (add a return leg) or set the coil's Axis "
-                "to the real winding axis. Every field value from this run "
-                "is wrong by roughly this factor.".format(
-                    b["name"], got, req, frac))
+                "(free ends), because the deck declares 'Coil Closed'. Untick "
+                "the coil's Closed property, close the current path (add a "
+                "return leg), or set the coil's Axis to the real winding "
+                "axis. Every field value from this run is wrong by roughly "
+                "this factor.".format(b["name"], got, req, frac))
 
     case = {
         "freq_hz": 0.0,

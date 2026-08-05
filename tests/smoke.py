@@ -107,6 +107,154 @@ def _solver_detection_runs():
         assert info.backend.key == key
 
 
+def _elmer_env_fortran_compiler():
+    """A zip-layout Elmer gets ELMER_Fortran_COMPILER when it ships a compiler.
+
+    `elmerf90` (which builds Elmer USER FUNCTIONS) has the BUILD HOST's compiler
+    path baked in, so on any other machine it compiles nothing — measured exit
+    127, no output. `ELMER_Fortran_COMPILER` is the runtime override, and the
+    Windows zip already ships a working GNU Fortran 10.2.0 under
+    `stripped_gfortran/`. Pointing one at the other makes UDFs work with no user
+    configuration (measured: a real `USE DefUtils` UDF, 95 812-byte DLL).
+
+    EMStudio ships no UDF today, so this changes nothing that runs — which is
+    exactly why it needs a check, or it would rot unnoticed until the first
+    user function fails for a reason nobody would connect to a compiler path.
+    """
+    import tempfile
+
+    from emstudio.solvers.elmer import runner
+
+    if os.name != "nt":
+        return "skipped off Windows (elmer_env returns None by design)"
+
+    root = tempfile.mkdtemp()
+    os.makedirs(os.path.join(root, "share", "elmersolver", "lib"))
+    os.makedirs(os.path.join(root, "bin"))
+    exe = os.path.join(root, "bin", "ElmerSolver.exe")
+    open(exe, "w").close()
+
+    # no shipped compiler -> the variable must NOT be invented
+    env = runner.elmer_env(exe)
+    assert env and env.get("ELMER_HOME") == root, "elmer_env broke"
+    assert "ELMER_Fortran_COMPILER" not in env, \
+        "pointed at a compiler that is not there"
+
+    # shipped compiler present -> wired up
+    gf = os.path.join(root, "stripped_gfortran", "bin",
+                      "x86_64-w64-mingw32-gfortran.exe")
+    os.makedirs(os.path.dirname(gf))
+    open(gf, "w").close()
+    env = runner.elmer_env(exe)
+    assert env.get("ELMER_Fortran_COMPILER") == gf, \
+        "shipped gfortran not wired: {0}".format(env.get("ELMER_Fortran_COMPILER"))
+
+    # a user's own choice always wins
+    os.environ["ELMER_Fortran_COMPILER"] = "C:/mine/gfortran.exe"
+    try:
+        env = runner.elmer_env(exe)
+        assert "ELMER_Fortran_COMPILER" not in env, \
+            "overrode the user's own ELMER_Fortran_COMPILER"
+    finally:
+        os.environ.pop("ELMER_Fortran_COMPILER", None)
+    return "wired to the shipped stripped_gfortran"
+
+
+def _openems_python_resolver():
+    """openEMS's interpreter is found on BOTH venv layouts, and asks no FreeCAD.
+
+    openEMS is the one backend driven through a python module rather than a
+    CLI, so "is it usable?" is a question about an interpreter. Two things are
+    pinned here:
+
+    1. The resolver must be importable WITHOUT FreeCAD. It used to live in
+       ``solvers/openems/runner.py``, whose import chain reaches
+       ``objects.analysis`` -> ``import FreeCAD`` — so a gate could not ask
+       whether openEMS existed without FreeCAD, and four openEMS gates FAILED
+       where they should have skipped.
+    2. Windows puts a virtualenv's interpreter at ``venv\\Scripts\\python.exe``,
+       not ``venv/bin/python``. Only the POSIX layout was probed, so a working
+       Windows install could never be detected.
+    """
+    import subprocess
+    import tempfile
+
+    from emstudio.setup import solvers
+
+    # (1) FreeCAD-free: prove it in a CHILD interpreter, because this one may
+    # already have FreeCAD imported.
+    #
+    # Compare BEFORE and AFTER rather than asserting absence: under freecadcmd
+    # `sys.executable` IS freecadcmd, so the child has FreeCAD loaded by
+    # construction and a bare "not in sys.modules" fails on a correct resolver.
+    # (It did — caught by running the free export under FreeCAD, which is the
+    # whole reason that rule exists.) The check is strict under `python3
+    # smoke`, which is what CI runs, and degrades to a no-op under freecadcmd.
+    probe = ("import sys; sys.path.insert(0, {0!r});"
+             "before = 'FreeCAD' in sys.modules;"
+             "import emstudio.setup.solvers as s;"
+             "after = 'FreeCAD' in sys.modules;"
+             "assert before or not after, 'importing the resolver pulled in FreeCAD';"
+             "assert callable(s.find_openems_python)").format(_ROOT)
+    out = subprocess.run([sys.executable, "-c", probe], capture_output=True,
+                         text=True)
+    assert out.returncode == 0, \
+        "find_openems_python is not FreeCAD-free: " + (out.stderr or "")[-200:]
+
+    # (2) both venv layouts, against a synthetic install tree.
+    # The fake binary is made EXECUTABLE: find_backend's env override requires
+    # os.access(.., X_OK), which a bare empty file fails on POSIX. An earlier
+    # draft tolerated a None result instead, and that branch was unfalsifiable
+    # — deleting the Windows layout still passed. Assert the exact path.
+    root = tempfile.mkdtemp()
+    for parts in (("venv", "bin", "python"), ("venv", "Scripts", "python.exe")):
+        tree = os.path.join(root, parts[1])
+        exe = os.path.join(tree, "bin", "openEMS")
+        os.makedirs(os.path.dirname(exe), exist_ok=True)
+        open(exe, "w").close()
+        os.chmod(exe, 0o755)
+        cand = os.path.join(tree, *parts)
+        os.makedirs(os.path.dirname(cand), exist_ok=True)
+        open(cand, "w").close()
+        os.environ["EMSTUDIO_OPENEMS"] = exe
+        try:
+            got = solvers.find_openems_python()
+        finally:
+            os.environ.pop("EMSTUDIO_OPENEMS", None)
+        assert got == cand, \
+            "venv layout {0} not resolved: got {1}".format("/".join(parts), got)
+
+    # the env override always wins and needs no install tree at all
+    with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as fh:
+        fake = fh.name
+    os.environ["EMSTUDIO_OPENEMS_PYTHON"] = fake
+    try:
+        assert solvers.find_openems_python() == fake
+    finally:
+        os.environ.pop("EMSTUDIO_OPENEMS_PYTHON", None)
+        os.unlink(fake)
+
+
+def _openems_gates_skip_without_openems():
+    """The four live-FDTD gates SKIP a missing backend; they must not fail.
+
+    Absence of an optional backend is not a defect in EMStudio. These four
+    raised SolverError instead, turning every openEMS-less machine's battery
+    red — the same correction the nec2c gates got in v0.83.0.
+    """
+    gates = ("patch_openems", "msl_notch_openems", "patch_auto_openems",
+             "patch_stl_openems")
+    for name in gates:
+        path = os.path.join(_ROOT, "tests", "validation", name + ".py")
+        src = open(path, encoding="utf-8").read()
+        assert "from emstudio.setup.solvers import find_openems_python" in src, \
+            name + " does not probe openEMS through the FreeCAD-free resolver"
+        head = src.split("def main():", 1)[1].split("import FreeCAD", 1)[0]
+        assert "find_openems_python() is None" in head, \
+            name + " probes openEMS only AFTER importing FreeCAD, so it cannot skip"
+        assert "return 0" in head, name + " does not return 0 on the skip path"
+
+
 def _installer_build_plans():
     """Guided-build recipes are well-formed and never touch sudo."""
     from emstudio.setup import solvers
@@ -1467,6 +1615,12 @@ def main():
     check("version.py matches package.xml", _version_matches_package_xml)
     check("package.xml keeps <subdirectory>./</subdirectory>", _package_xml_subdirectory_guard)
     check("solver detection runs", _solver_detection_runs)
+    check("Elmer zip layout wires ELMER_Fortran_COMPILER (UDFs on Windows)",
+          _elmer_env_fortran_compiler)
+    check("openEMS python resolver: FreeCAD-free, both venv layouts",
+          _openems_python_resolver)
+    check("openEMS gates SKIP a missing backend (never fail)",
+          _openems_gates_skip_without_openems)
     check("icons parse as valid XML/SVG", _icons_parse_as_xml)
     check("installer build plans well-formed (no sudo)", _installer_build_plans)
     check("install text is platform-segregated (Win/Linux)", _install_text_platform_segregation)

@@ -100,6 +100,34 @@ class Coil:
             )
             obj.Axis = AXES
             obj.Axis = "+Z"
+        # TOPOLOGY. Elmer's CoilSolver must be TOLD whether the current path
+        # closes on itself; it cannot see it. Declaring a closed path over a
+        # conductor with free ends does not fail loudly — measured on a split
+        # ring it aborts, but on a user's 6.4-turn helix it quietly delivered
+        # 5.17 of 100 requested ampere-turns and returned a field ~160x under
+        # theory. Default True keeps every pre-existing document and frozen
+        # deck byte-identical; untick it for a genuinely open conductor (a
+        # C-shape, a hairpin, a split ring, an un-joined helix).
+        if "Closed" not in props:
+            obj.addProperty(
+                "App::PropertyBool",
+                "Closed",
+                _GROUP,
+                "The current path closes on itself (a full loop). Untick for "
+                "an OPEN conductor with two free ends — its two terminal "
+                "faces are then found automatically and reported.",
+            )
+            obj.Closed = True
+        # Optional manual override of the auto-detected terminals. Empty =
+        # detect from the geometry (the smallest pair of equal-area planar
+        # faces), which is what almost every swept conductor wants.
+        for prop, tip in (
+                ("StartFace", "Optional: the face current ENTERS through "
+                              "(open coils). Empty = auto-detect."),
+                ("EndFace", "Optional: the face current LEAVES through "
+                            "(open coils). Empty = auto-detect.")):
+            if prop not in props:
+                obj.addProperty("App::PropertyLinkSub", prop, _GROUP, tip)
 
     def onDocumentRestored(self, obj):
         self._ensure_properties(obj)

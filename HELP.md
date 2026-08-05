@@ -54,7 +54,7 @@ thing; **System** designs a system of them. Every command has its own icon.
 | **Template: Microstrip Notch Filter** | Two-port S-params with a quarter-wave open stub (openEMS trace-aware meshing; notch ~3.7 GHz) |
 | **Template: Induction Heating** | Coil + aluminum billet (Elmer, ~10 s) |
 | **Template: WPT Coil Pair** | Coupled-coil pair: L1/L2/M + coupling k (Elmer) |
-| **Template: 3-D Solenoid (Magnetostatic)** | GENERAL 3-D magnetostatics: any closed coil solid, B-field map (Elmer WhitneyAV, ~30 s; TEAM-7-validated chain) |
+| **Template: 3-D Solenoid (Magnetostatic)** | GENERAL 3-D magnetostatics: any coil solid — closed OR open (untick the coil's `Closed` for free ends) — B-field map + inductance (Elmer WhitneyAV, ~30 s; TEAM-7-validated chain) |
 
 ### Tools (calculators & designers)
 | Command | What it does |

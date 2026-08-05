@@ -70,8 +70,12 @@ short-circuit.
 The full Elmer arc — induction heating with a steady and transient thermal
 chain (radiation BC, k(T), σ(T)-coupled Joule), nonlinear B-H iron with a
 Static DC saturation mode, wireless-power coil coupling L/M/k, and **general
-3-D magnetostatics on any solid**. Validated to −0.6 % against closed-form coil
-fields and **2.83 % RMS against the measured TEAM Problem 7 benchmark**.
+3-D magnetostatics on any solid — closed OR open**. A conductor with free
+ends (a C-shape, a hairpin, an un-joined helix) is driven through its two
+terminal faces, which EMStudio finds and then tells you about. Validated to
+−0.6 % against closed-form coil fields, **2.83 % RMS against the measured
+TEAM Problem 7 benchmark**, and −0.79 % for an open split ring against the
+exact arc field.
 
 ### Propagation, coverage and EMC
 Point-to-point link budgets (free-space, ITU-R P.526 knife-edge, two-ray

@@ -17,23 +17,13 @@ from emstudio.solvers.base import SolverError, SolverJob, make_workdir
 from . import writer
 
 
-def find_openems_python():
-    """Interpreter with the openEMS/CSXCAD python modules.
-
-    Order: EMSTUDIO_OPENEMS_PYTHON env var -> venv next to the detected openEMS
-    binary (the layout our guided install produces) -> None.
-    """
-    env = os.environ.get("EMSTUDIO_OPENEMS_PYTHON", "")
-    if env and os.path.isfile(env):
-        return env
-    info = solver_setup.find_backend("openems")
-    if info.found:
-        # <prefix>/bin/openEMS -> <prefix>/venv/bin/python
-        prefix = os.path.dirname(os.path.dirname(info.path))
-        cand = os.path.join(prefix, "venv", "bin", "python")
-        if os.path.isfile(cand):
-            return cand
-    return None
+#: Re-exported for every existing caller. The implementation LIVES in
+#: ``emstudio.setup.solvers`` because that module is FreeCAD-free, and this one
+#: is not: importing it drags in ``writer`` -> ``objects.analysis`` ->
+#: ``import FreeCAD``. A gate that only wants to ask "is openEMS available?"
+#: must be able to do so without FreeCAD, or it cannot skip cleanly — which is
+#: exactly why four openEMS gates were failing instead of skipping.
+find_openems_python = solver_setup.find_openems_python
 
 
 def run(analysis, solver, workdir=None, line_callback=None):

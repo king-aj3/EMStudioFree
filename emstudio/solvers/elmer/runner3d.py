@@ -44,8 +44,32 @@ _ENERGY_RE = re.compile(
 #: order the coils appear in the deck. Delivered current = this x the coil
 #: cross-sectional area, and comparing that with the REQUESTED ampere-turns
 #: is how an open (non-circulating) coil is caught — see model3d.
+#:
+#: CLOSED COILS ONLY. The open branch takes a different code path in Elmer and
+#: prints no average current density at all (measured 2026-08-05 on a 324 deg
+#: split ring) — it reports the two numbers below instead.
 _JAVG_RE = re.compile(
     r"CoilSolver:\s*Average current density:\s*([0-9.EeDd+-]+)")
+
+#: The OPEN branch's own reporting. ``Initial coil current`` x ``Coil
+#: potential multiplier`` is the normalized coil current, and it equals the
+#: requested value BY CONSTRUCTION — the multiplier is chosen to make it so.
+#:
+#: Be clear about what that is worth: measured across three runs with the
+#: cross section correct, 4x wrong and omitted, BOTH numbers were byte
+#: identical while the field moved by 75 %. So this pair proves the open drive
+#: ran and normalized to a finite value; it CANNOT detect a mis-scaled coil,
+#: and must never be presented as a delivery measurement.
+_OPEN_I0_RE = re.compile(
+    r"CoilSolver:\s*Initial coil current for coil\s*\d+:\s*([0-9.EeDd+-]+)")
+_OPEN_MULT_RE = re.compile(
+    r"CoilSolver:\s*Coil potential multiplier:\s*([0-9.EeDd+-]+)")
+
+#: CoilSolver's own complaints. "Crappy potentials in coil 1" / "No negative
+#: current sources on coil 1 end!" are what a MIS-DECLARED topology produces,
+#: and they preceded the hard ERROR on the split ring. They were being dropped
+#: — only "did not converge" was scanned for.
+_COIL_WARN = "coilsolver"
 
 
 def _fortran_float(text):
@@ -64,6 +88,8 @@ def parse_scalars(log_path):
     """
     energy = None
     j_avg = []
+    open_i0 = []
+    open_mult = []
     with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
             m = _ENERGY_RE.search(line)
@@ -73,7 +99,17 @@ def parse_scalars(log_path):
             m = _JAVG_RE.search(line)
             if m:
                 j_avg.append(_fortran_float(m.group(1)))
-    return {"energy_j": energy, "j_avg": j_avg}
+                continue
+            m = _OPEN_I0_RE.search(line)
+            if m:
+                open_i0.append(_fortran_float(m.group(1)))
+                continue
+            m = _OPEN_MULT_RE.search(line)
+            if m:
+                open_mult.append(_fortran_float(m.group(1)))
+    open_current = [i0 * mult for i0, mult in zip(open_i0, open_mult)]
+    return {"energy_j": energy, "j_avg": j_avg,
+            "open_coil_current": open_current}
 
 
 def parse_norms(log_path):
@@ -155,10 +191,16 @@ def run_model3d(model, workdir=None, line_callback=None):
     with open(log_path, "w", encoding="utf-8") as log:
         def _cb(line):
             log.write(line + "\n")
+            low = line.lower()
             if "ERROR::" in line:
                 errors.append(line)
-            if "did not converge" in line.lower():
+            if "did not converge" in low:
                 warns.append(line)
+            # CoilSolver's own complaints — "Crappy potentials in coil 1",
+            # "No negative current sources on coil 1 end!" — are exactly what a
+            # mis-declared topology produces, and they were being discarded.
+            if "warning::" in low and _COIL_WARN in low:
+                warns.append(line.strip())
             if line_callback is not None:
                 line_callback(line)
 
@@ -195,4 +237,5 @@ def run_model3d(model, workdir=None, line_callback=None):
         "duration_s": time.time() - t0,
         "energy_j": scalars["energy_j"],
         "j_avg": scalars["j_avg"],
+        "open_coil_current": scalars["open_coil_current"],
     }

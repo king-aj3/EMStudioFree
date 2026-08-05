@@ -90,13 +90,37 @@ def elmer_env(exe):
     elmer_lib = os.path.join(root, "share", "elmersolver", "lib")
     if not os.path.isdir(elmer_lib):
         return None
-    return {
+    env = {
         "ELMER_HOME": root,
         "ELMER_LIB": elmer_lib,
         "PATH": os.pathsep.join((
             os.path.join(root, "bin"), os.path.join(root, "lib"),
             elmer_lib, os.environ.get("PATH", ""))),
     }
+    # ELMER_Fortran_COMPILER — disarms a Windows landmine BEFORE we can step on
+    # it. `elmerf90` compiles Elmer USER FUNCTIONS, and on every machine that is
+    # not the build host it compiles nothing: the build host's compiler path is
+    # baked into the binary (`D:/msys64/mingw64/bin/gfortran.exe`). EMStudio
+    # ships no UDF today, so this changes NOTHING that currently runs — it is
+    # here so that the day one is added, it already works on Windows instead of
+    # failing in a way nobody would connect to the compiler.
+    #
+    # The variable is a RUNTIME override read by elmerf90.c
+    # (`fc = env_fc ? env_fc : ELMERF90_FC`), pointed out by Juha Ruokolainen on
+    # ElmerCSC/elmerfem#858 as untested. We tested it: with it set to the
+    # compiler the zip ALREADY SHIPS, elmerf90 builds a real `USE DefUtils` UDF
+    # (95 812-byte DLL, exit 0); without it, exit 127 and no output.
+    #
+    # Consistent with this function's standing rule — it is DEFENSIVE, setting
+    # what a zip layout needs rather than the minimum one Elmer build happens to
+    # require. Only set when the shipped compiler is actually present, and never
+    # over a user's own choice.
+    if not os.environ.get("ELMER_Fortran_COMPILER"):
+        gfortran = os.path.join(root, "stripped_gfortran", "bin",
+                                "x86_64-w64-mingw32-gfortran.exe")
+        if os.path.isfile(gfortran):
+            env["ELMER_Fortran_COMPILER"] = gfortran
+    return env
 
 
 def _run_case(elmersolver, model, f_hz, tag, excitation, workdir, mesh_src,

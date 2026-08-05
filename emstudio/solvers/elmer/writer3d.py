@@ -38,6 +38,10 @@ writer only needs the body/physics fields):
     list of ``{name, sigma, mu_r}`` dicts; a driven coil additionally has
     ``coil = {"amp_turns": signed NI, "normal": (nx,ny,nz)}`` (bulk σ is
     forced to the CoilSolver dummy value 1.0 — stranded source).
+    An OPEN conductor (free ends: a C-shape, a hairpin, a split ring) adds
+    ``"closed": False`` plus ``"section_area_m2"``, and its mesh must carry
+    the two terminal boundaries ``<name>_start`` / ``<name>_end`` — see
+    ``emstudio.meshing.gmsh_3d`` and the open-coil note on Solver 1 below.
 ``transient``
     optional ``{"f_hz": f, "periods": n, "steps_per_period": m}`` — BDF1
     time stepping with the cosine drive; the LAST step lands on the cosine
@@ -83,6 +87,32 @@ def write_sif3d(model, path, body_ids, boundary_ids, mesh_dir="mesh",
     for b in bodies:
         if b["name"] not in body_ids:
             raise Elmer3DModelError("mesh has no body '{0}'".format(b["name"]))
+
+    # --- open vs closed ---------------------------------------------------
+    # 'Coil Closed' is a SOLVER-level keyword in Elmer's SOLVER.KEYWORDS —
+    # there is no per-Component form — so ONE CoilSolver cannot be told that
+    # coil A is closed and coil B is open. Refusing is the only honest answer:
+    # picking either value would silently mis-drive half the coils, and the
+    # delivery guard would then report a failure whose cause is the deck, not
+    # the geometry.
+    open_coils = [b for b in coils if not b["coil"].get("closed", True)]
+    if open_coils and len(open_coils) != len(coils):
+        raise Elmer3DModelError(
+            "this model mixes open and closed coils ({0} open of {1}), and "
+            "Elmer's 'Coil Closed' applies to the CoilSolver as a whole — "
+            "there is no per-coil form. Solve them in separate analyses, or "
+            "close the open conductor's current path.".format(
+                len(open_coils), len(coils)))
+    coils_closed = not open_coils
+    for b in open_coils:
+        for end in ("start", "end"):
+            grp = "{0}_{1}".format(b["name"], end)
+            if grp not in boundary_ids:
+                raise Elmer3DModelError(
+                    "open coil '{0}' needs the mesh boundary '{1}' — an open "
+                    "conductor is driven through Dirichlet conditions on its "
+                    "two terminal faces, so they must be tagged as named "
+                    "boundaries by the mesher".format(b["name"], grp))
     transient = model.get("transient")
     if transient:
         for key in ("f_hz", "periods", "steps_per_period"):
@@ -180,6 +210,21 @@ def write_sif3d(model, path, body_ids, boundary_ids, mesh_dir="mesh",
         w("  Desired Coil Current = Real {0:.9g}".format(
             float(coil["amp_turns"])))
         w("  Coil Normal(3) = Real {0:.9g} {1:.9g} {2:.9g}".format(*normal))
+        # 'Coil Cross Section' is deliberately NOT emitted, for either
+        # topology. It is a legal keyword and the obvious thing to reach for
+        # ("Cross section (area) of the coil that may be used to related total
+        # current and current density" — Elmer's own coilsolver.xml), but it
+        # was MEASURED on the 324 deg split ring, 2026-08-05, and it is a
+        # silent-wrong-number generator:
+        #   correct area  -> Bz -0.77 % vs the analytic arc
+        #   4x the area   -> Bz -75.19 %, i.e. EXACTLY a quarter, no warning
+        #   omitted       -> Bz -0.79 %, the same right answer
+        # So Elmer derives the section correctly from the mesh, and supplying
+        # one can only override a correct value with our own. It would also be
+        # ambiguous for a wound conductor: the half-plane section this project
+        # computes counts EVERY turn, so feeding it to an N-turn open helix
+        # would divide the field by N. Do not "complete" the component block
+        # by adding it.
         w("End")
         w("")
 
@@ -188,15 +233,20 @@ def write_sif3d(model, path, body_ids, boundary_ids, mesh_dir="mesh",
     w('  Equation = "CoilSolver"')
     w('  Procedure = "CoilSolver" "CoilSolver"')
     w("  Exec Solver = Before All")
-    w("  Coil Closed = Logical True")
+    # 'Coil Closed' is an ASSERTION Elmer trusts — it prints "Assuming that all
+    # coils are closed!" and believes it. Declaring True over a conductor with
+    # free ends does not fail; it silently under-delivers (measured 5.17
+    # against 100 ampere-turns on a 6.4-turn open helix, 2026-08-05). So the
+    # value is DERIVED from the model, never assumed. An open coil instead
+    # gets Dirichlet conditions on its two terminal faces (Boundary Conditions
+    # below), which is Elmer's documented open-coil form: coilsolver.xml says
+    # of 'Coil Start'/'Coil End' — "Not needed if coil is closed".
+    w("  Coil Closed = Logical {0}".format("True" if coils_closed else "False"))
     w("  Normalize Coil Current = Logical True")
     # Report the current the solver actually DELIVERED. Requested-vs-delivered
-    # is the only reliable open-coil detector: 'Coil Closed = True' above is an
-    # ASSERTION Elmer trusts ("CoilSolver: Assuming that all coils are
-    # closed!"), and an open conductor silently under-delivers — measured
-    # 5.17 against 100 ampere-turns on a 6.4-turn open helix, 2026-08-05.
-    # Topology cannot substitute: an Euler/genus test calls EMStudio's own
-    # closed template tube genus-0, because OCC seam edges break the count.
+    # is the measurement that proves the drive worked, in BOTH topologies.
+    # Topology alone cannot substitute: an Euler/genus test calls EMStudio's
+    # own closed template tube genus-0, because OCC seam edges break the count.
     w("  Calculate Coil Current = Logical True")
     w("  Calculate Elemental Fields = Logical True")
     w("  Fix Input Current Density = Logical False")
@@ -337,6 +387,21 @@ def write_sif3d(model, path, body_ids, boundary_ids, mesh_dir="mesh",
     w("  Jfix = Real 0.0")
     w("End")
     w("")
+    # An OPEN coil's two terminal faces. These carry ONLY the CoilSolver's
+    # Dirichlet flags — no 'A {e} = 0', which would short the vector potential
+    # across the conductor's own ends and is a different physical statement
+    # entirely.
+    bc = 1
+    for b in open_coils:
+        for end, keyword in (("start", "Coil Start"), ("end", "Coil End")):
+            bc += 1
+            grp = "{0}_{1}".format(b["name"], end)
+            w("Boundary Condition {0}".format(bc))
+            w('  Name = "{0}"'.format(grp))
+            w("  Target Boundaries(1) = {0}".format(boundary_ids[grp]))
+            w("  {0} = Logical True".format(keyword))
+            w("End")
+            w("")
     if transient:
         w("Initial Condition 1")
         w("  A {e} = Real 0.0")

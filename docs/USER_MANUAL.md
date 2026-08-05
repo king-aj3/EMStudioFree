@@ -461,16 +461,41 @@ waveform distortion, no hysteresis loss). Non-coaxial geometry needs the
 `AnalysisType` to *3-D Magnetostatic (DC)* and the axisymmetric limit is
 gone — every referenced solid is meshed as-is (WhitneyAV chain, validated
 against closed-form coil fields at −0.6 % and the measured TEAM Problem 7
-benchmark at 2.8 % RMS). Mark any closed-loop coil solid (racetrack, bent,
-off-axis — not just rings) with **Coil Excitation**; it is driven by
-N·I ampere-turns. Try **Template: 3-D Solenoid (Magnetostatic)** — a tube
-coil that solves in ~30 s — then swap in your own coil shape. Results:
-the **B-field map** in the 3-D viewport ("Show Fields in 3D"). Notes:
-coil bodies must not touch each other or the air boundary; a closed
+benchmark at 2.8 % RMS). Mark any coil solid (racetrack, bent, off-axis —
+not just rings) with **Coil Excitation**; it is driven by N·I ampere-turns.
+Set the coil's `Axis` to the direction its current circulates AROUND — a
+wrong axis silently corrupts the drive. Try **Template: 3-D Solenoid
+(Magnetostatic)** — a tube coil that solves in ~30 s — then swap in your own
+coil shape. Results: the **B-field map** in the 3-D viewport ("Show Fields
+in 3D").
+
+**Open conductors (free ends).** Elmer has to be TOLD whether the current
+path closes on itself; it cannot see it, and declaring a closed path over a
+conductor with free ends does not fail — it quietly under-delivers current
+and every field is wrong by that factor. So if your conductor has two ends
+— a C-shape, a hairpin, a split ring, a helix whose ends are not joined —
+**untick the coil's `Closed`**. EMStudio then finds the two terminal faces,
+tells you which ones it picked and where, and drives the current in through
+one and out of the other. Name them yourself with `StartFace`/`EndFace` if
+the automatic choice is wrong. Validated against the exact arc field
+`B = µ0·I·φ/(4πR)` at −0.79 %.
+
+One thing to watch, because the two cases genuinely differ: on an **open**
+coil the current you ask for is the current in the CONDUCTOR, and the
+solid's own winding multiplies it. A 6.4-turn helix asked for 100 A
+therefore delivers ~644 ampere-turns. EMStudio measures how many times your
+solid winds, reports it, and warns you if `Turns` would multiply it a
+second time — for a single drawn conductor leave `Turns` at 1 and let the
+geometry supply the turns.
+
+Notes: coil bodies must not touch each other or the air boundary; a closed
 coil's circulation sense is chosen by the solver, so if the field comes
 out inverted simply toggle the Coil's `Reversed`; there are no
-eddy/thermal quantities at DC, and 3-D inductance extraction is a
-planned slice (the axisymmetric analyses report L/M/k today).
+eddy/thermal quantities at DC. Coil **inductance** is reported from the
+stored field energy (L = 2W/I², validated −1.75 % against the analytic
+loop). `MeshSizeBodies` defaults from your conductor's own smallest
+feature, not its bounding box, so the conductor gets ~2 elements across
+it; set it explicitly to converge further.
 
 ## 6f. Tutorial: resonant-cavity modes (Palace FEM)
 

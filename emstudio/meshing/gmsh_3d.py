@@ -33,8 +33,14 @@ validated 3-D probe decks). Qt-free and FreeCAD-free (subprocess to gmsh).
 Body shape descriptors (``body["shape"]``):
 
 ``{"kind": "box", "origin": (x,y,z), "size": (dx,dy,dz)}``
-``{"kind": "tube", "center": (x,y), "r_in": ri, "r_out": ro, "z0": z0, "z1": z1}``
+``{"kind": "tube", "center": (x,y), "r_in": ri, "r_out": ro, "z0": z0, "z1": z1,
+   "angle_deg": a}``
     annular cylinder about a z-parallel axis; ``r_in`` 0 = solid cylinder.
+    ``angle_deg`` (default 360) sweeps only part of the ring, giving a SPLIT
+    RING — the canonical OPEN conductor, with two flat terminal faces. OCC
+    sweeps from +x toward +y (probe-verified 2026-08-05: a 324 deg wedge put
+    its start cap at y=0, x in [r_in, r_out], and its end cap centred on
+    R*cos(324 deg), R*sin(324 deg)).
 ``{"kind": "racetrack", "cx0","cy0","cx1","cy1", "r_in", "r_out", "z0","z1"}``
     rounded-rectangular prism ring (a racetrack coil): the four corner-arc
     centers span the rectangle (cx0,cy0)-(cx1,cy1); the inner window is
@@ -53,6 +59,7 @@ Body shape descriptors (``body["shape"]``):
 """
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 
@@ -61,6 +68,63 @@ from emstudio.setup import solvers as solver_setup
 
 class Mesh3DError(ValueError):
     """The 3-D model cannot be meshed as requested."""
+
+
+def _tube_angle_rad(shape):
+    """Angular sweep of a ``tube``, in radians. 2*pi = a full closed ring."""
+    a = float(shape.get("angle_deg", 360.0) or 360.0)
+    if not (0.0 < a <= 360.0):
+        raise Mesh3DError("tube angle_deg must be in (0, 360], got {0}".format(a))
+    return math.radians(a)
+
+
+def _arc_xy_bbox(cx, cy, r_in, r_out, ang):
+    """Tight x/y extents of an annular wedge sweeping 0..``ang`` about (cx,cy).
+
+    A loose full-circle box would be wrong here for two reasons that both
+    matter: ``Volume In BoundingBox`` re-identification needs a box that does
+    not swallow neighbours, and the air domain is sized from these extents.
+    The extremes are the four radial corners, PLUS the outer radius wherever
+    the arc crosses an axis (+x, +y, -x, -y) — a 270 deg arc reaches -r_out in
+    x even though neither of its end faces does.
+    """
+    xs, ys = [], []
+    for r in (r_in, r_out):
+        for a in (0.0, ang):
+            xs.append(cx + r * math.cos(a))
+            ys.append(cy + r * math.sin(a))
+    k = 0
+    while k * (math.pi / 2.0) <= ang + 1e-12:
+        a = k * (math.pi / 2.0)
+        xs.append(cx + r_out * math.cos(a))
+        ys.append(cy + r_out * math.sin(a))
+        k += 1
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def tube_terminal_boxes(shape):
+    """The two terminal-face bounding boxes of a partial ``tube``.
+
+    Returns ``{"start": bbox6, "end": bbox6}`` for a split ring, or ``None``
+    for a full (closed) one, which has no terminals at all. The boxes are
+    exact and DEGENERATE in one direction — ``write_geo_3d`` pads them by its
+    own ``eps`` before selecting, exactly as it does for volumes.
+    """
+    if shape["kind"] != "tube":
+        raise Mesh3DError("tube_terminal_boxes wants a tube, got '{0}'".format(
+            shape["kind"]))
+    ang = _tube_angle_rad(shape)
+    if abs(ang - 2.0 * math.pi) < 1e-12:
+        return None
+    cx, cy = shape["center"]
+    r_in, r_out = float(shape.get("r_in", 0.0)), float(shape["r_out"])
+    z0, z1 = float(shape["z0"]), float(shape["z1"])
+    out = {}
+    for key, a in (("start", 0.0), ("end", ang)):
+        xs = [cx + r * math.cos(a) for r in (r_in, r_out)]
+        ys = [cy + r * math.sin(a) for r in (r_in, r_out)]
+        out[key] = (min(xs), min(ys), z0, max(xs), max(ys), z1)
+    return out
 
 
 def _shape_bbox(shape):
@@ -72,6 +136,11 @@ def _shape_bbox(shape):
     if k == "tube":
         cx, cy = shape["center"]
         r = float(shape["r_out"])
+        ang = _tube_angle_rad(shape)
+        if abs(ang - 2.0 * math.pi) >= 1e-12:
+            x0, y0, x1, y1 = _arc_xy_bbox(
+                cx, cy, float(shape.get("r_in", 0.0)), r, ang)
+            return (x0, y0, shape["z0"], x1, y1, shape["z1"])
         return (cx - r, cy - r, shape["z0"], cx + r, cy + r, shape["z1"])
     if k == "racetrack":
         r = float(shape["r_out"])
@@ -98,12 +167,19 @@ def _emit_shape(w, shape, tag):
         h = z1 - z0
         if h <= 0:
             raise Mesh3DError("tube z1 must exceed z0")
+        ang = _tube_angle_rad(shape)
+        # A full ring emits SEVEN arguments exactly as before, so every
+        # existing deck stays byte-identical; only a split ring adds the
+        # eighth. The inner cutter must sweep the SAME angle, or the
+        # difference would eat the wedge's own flat end faces.
+        arc = "" if abs(ang - 2.0 * math.pi) < 1e-12 else ", {0:.12g}".format(ang)
         w("v{0}o = newv; Cylinder(v{0}o) = {{{1:.9g}, {2:.9g}, {3:.9g}, 0, 0, "
-          "{4:.9g}, {5:.9g}}};".format(tag, cx, cy, z0, h, float(shape["r_out"])))
+          "{4:.9g}, {5:.9g}{6}}};".format(tag, cx, cy, z0, h,
+                                          float(shape["r_out"]), arc))
         if float(shape.get("r_in", 0.0)) > 0.0:
             w("v{0}i = newv; Cylinder(v{0}i) = {{{1:.9g}, {2:.9g}, {3:.9g}, 0, 0, "
-              "{4:.9g}, {5:.9g}}};".format(tag, cx, cy, z0 - 0.001, h + 0.002,
-                                           float(shape["r_in"])))
+              "{4:.9g}, {5:.9g}{6}}};".format(tag, cx, cy, z0 - 0.001, h + 0.002,
+                                              float(shape["r_in"]), arc))
             w("v{0}() = BooleanDifference{{ Volume{{v{0}o}}; Delete; }}"
               "{{ Volume{{v{0}i}}; Delete; }};".format(tag))
         else:
@@ -166,6 +242,12 @@ def write_geo_3d(bodies, geo_path, air, lc_air, size_fields=None,
 
     :param bodies: list of dicts ``{name, shape, lc}`` (``hole`` shapes are
         subtracted from the previous body and get no Physical Volume).
+        An OPEN conductor may add ``terminals`` —
+        ``{"start": (x0,y0,z0,x1,y1,z1), "end": (...)}``, the two terminal
+        faces' EXACT bounding boxes in final (post-``scale``) units — which
+        become Physical Surfaces ``<name>_start`` / ``<name>_end`` for the
+        .sif's ``Coil Start`` / ``Coil End`` boundary conditions. Each box
+        must select exactly one surface; the geo asserts it.
     :param air: ``{"kind": "pad", "pad": p}`` (box: union bbox padded by p),
         ``{"kind": "box", "origin": .., "size": ..}`` or
         ``{"kind": "cylinder", "r": R, "z0": z0, "z1": z1}`` (about z at 0,0).
@@ -275,6 +357,56 @@ def write_geo_3d(bodies, geo_path, air, lc_air, size_fields=None,
         w('Physical Volume("{0}", {1}) = {{vB{2}()}};'.format(name, j + 2, t))
     w("sOuter() = CombinedBoundary{ Volume{vAll()}; };")
     w('Physical Surface("outer", {0}) = {{sOuter()}};'.format(len(tags) + 2))
+    w("")
+
+    # ---------- terminal faces of OPEN conductors ----------
+    # Elmer's CoilSolver drives an open coil through Dirichlet BCs on its two
+    # ends ("Coil Start"/"Coil End" — not needed if the coil is closed), and a
+    # .sif can only reference a boundary that EXISTS as named boundary
+    # elements. gmsh writes boundary elements only for surfaces in a Physical
+    # Surface, so the terminals must be tagged here or the open path cannot be
+    # expressed at all.
+    #
+    # Selection is by bounding box, the same idiom the volumes above use, and
+    # it is probe-verified to survive BooleanFragments (2026-08-05: a split
+    # ring's two caps stayed uniquely selectable after fragmenting, kept their
+    # exact 1.6e-5 m^2 area, and did NOT appear in the 'outer' skin — internal
+    # faces cancel out of CombinedBoundary).
+    #
+    # The count is ASSERTED IN THE GEO. Selecting 0 surfaces would emit an
+    # empty group and selecting 2 would silently drive the wrong face; either
+    # way the solve would run and return a plausible wrong number, which is
+    # this project's least acceptable failure mode. gmsh's Error()+Abort exits
+    # non-zero (verified) and mesh_3d already turns that into a Mesh3DError.
+    surf_id = len(tags) + 3
+    for name, t in tags:
+        terms = next((b.get("terminals") for b in solids
+                      if b["name"] == name), None)
+        if not terms:
+            continue
+        for end in ("start", "end"):
+            if end not in terms:
+                raise Mesh3DError(
+                    "body '{0}': terminals need BOTH 'start' and 'end' "
+                    "(an open conductor has two ends)".format(name))
+            bb = terms[end]
+            if len(bb) != 6:
+                raise Mesh3DError(
+                    "body '{0}': terminal '{1}' needs a 6-tuple bounding "
+                    "box".format(name, end))
+            grp = "{0}_{1}".format(name, end)
+            w("sT{0}{1}() = Surface In BoundingBox {{{2:.9g}-eps, {3:.9g}-eps, "
+              "{4:.9g}-eps, {5:.9g}+eps, {6:.9g}+eps, {7:.9g}+eps}};".format(
+                  t, end, *bb))
+            w("If (#sT{0}{1}() != 1)".format(t, end))
+            w('  Error("EMStudio: terminal \'{0}\' selected %g surface(s), '
+              'expected exactly 1 — widen or tighten the terminal bounding '
+              'box", #sT{1}{2}());'.format(grp, t, end))
+            w("  Abort;")
+            w("EndIf")
+            w('Physical Surface("{0}", {1}) = {{sT{2}{3}()}};'.format(
+                grp, surf_id, t, end))
+            surf_id += 1
     w("")
 
     # ---------- mesh size fields ----------

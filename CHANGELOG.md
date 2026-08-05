@@ -3,6 +3,87 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.85.0] — 2026-08-05 — a conductor may now have two ends
+
+Until now every coil in the Elmer 3-D path was declared closed, because the
+writer hard-coded `Coil Closed = Logical True`. Elmer trusts that declaration —
+it prints "Assuming that all coils are closed!" and believes it — so a
+conductor with free ends was solved against a false premise. There was no way
+to express one at all.
+
+### Added
+* **True open-coil support.** `EMCoil` gains **`Closed`** (default True, so
+  every existing document and frozen deck is byte-identical) plus optional
+  `StartFace`/`EndFace`. Untick it and the two terminal faces are found
+  automatically, tagged through gmsh as named boundaries, and driven with
+  Elmer's `Coil Start` / `Coil End` Dirichlet conditions.
+  **Validated against an exact closed form**: a 324° split ring (R = 100 mm,
+  4×4 mm section, 1000 A) lands **−0.79 %** from Biot-Savart's
+  `B = µ0·I·φ/(4πR)`, and delivers **99.98 %** of the requested current.
+  On the real user helix the field lands **−0.72 %** from the
+  finite-solenoid closed form.
+  The chosen faces are always REPORTED, never picked silently.
+* **`gmsh_3d` partial tubes** — `angle_deg` on a `tube` gives a split ring, the
+  canonical open conductor. The geo now ASSERTS that each terminal bounding box
+  selects exactly one surface and aborts if not: selecting none would emit an
+  empty group and selecting two would drive the wrong face, and either way the
+  solve would run and return a plausible wrong number.
+* **A geometric-turns measurement, and a double-count warning.** The two Elmer
+  branches mean different things by `Desired Coil Current` — the closed one
+  normalizes over a half-plane (which counts the turns itself), the open one
+  over ONE conductor cross-section (so the solid's own winding multiplies in).
+  Measured: 100 A requested on the open branch through a 6.44-turn helix
+  delivers ~644 ampere-turns, **6.39× above** what the same request means
+  closed. EMStudio now measures that winding count and says so, and warns when
+  `Turns > 1` would multiply it a second time.
+
+### Fixed
+* **`MeshSizeBodies` defaulted from the bounding box** — ~22 mm on the user's
+  helix, COARSER than the 20 mm conductor it was meshing. It now sizes from the
+  body's own smallest feature (2V/A = 9.22 mm there), putting ~2 elements
+  across the conductor. It can only refine the old default, never coarsen it.
+* **Four openEMS gates FAILED where they should have skipped.** Absence of an
+  optional backend is not a defect. They now skip, the same correction the
+  nec2c gates got in v0.83.0.
+* **`find_openems_python` only knew the POSIX venv layout** (`venv/bin/python`),
+  so a working Windows openEMS install could never be detected. It now probes
+  `venv\Scripts\python.exe` too, and lives in the FreeCAD-free resolver so a
+  gate can ask "is openEMS available?" without importing FreeCAD.
+* **CoilSolver's own warnings were being discarded** — only "did not converge"
+  was scanned for, so "Crappy potentials in coil 1" and "No negative current
+  sources on coil 1 end!" (exactly what a mis-declared topology produces) never
+  reached the user.
+* **`elmer_env()` now sets `ELMER_Fortran_COMPILER`** on a Windows zip layout
+  that ships its own compiler. This changes nothing that currently runs —
+  EMStudio ships no Elmer user function — but it disarms a landmine before we
+  can step on it: `elmerf90` has the BUILD HOST's compiler path baked in, so on
+  any other machine it compiles nothing (measured: exit 127, no output). With
+  the variable pointed at the `stripped_gfortran` the zip already ships, it
+  builds a real `USE DefUtils` UDF (95 812-byte DLL, exit 0). A user's own
+  setting always wins. Found via Juha Ruokolainen on
+  [ElmerCSC/elmerfem#858](https://github.com/ElmerCSC/elmerfem/issues/858),
+  who flagged the override as untested; we tested it.
+
+### Measured, and deliberately NOT done
+* **`Coil Cross Section` is not emitted.** It is a legal keyword and the
+  obvious thing to reach for, and it is a silent-wrong-number generator: on the
+  split ring, the correct area gave −0.77 %, **4× the area gave −75.19 %** —
+  exactly a quarter, with no warning — and omitting it gave the same right
+  answer, because Elmer derives the section correctly from the mesh. It also
+  suppresses the average-current-density report the delivery guard runs on.
+* **Testing.** `tests/validation/open_coil_elmer.py` — 38 checks, **10/10
+  mutations caught**. Two of those mutations found real weaknesses in the gate
+  itself (a substring `Abort;` check that a commented-out line still satisfied,
+  and an unfalsifiable branch in the venv-layout probe).
+
+### Also
+* **`tests/run_pro_freecad.py`** — the Windows leg of the test harness. There
+  was none, which is why `gui_smoke` went unrun from v0.80.0 to v0.84.0 while
+  `commands.py` and `installer_dialog.py` changed underneath it. A PowerShell
+  version was written first and is not viable: Cylance Script Control blocks
+  `.ps1` execution outright on the work box. gui_smoke now passes on native
+  Windows (32 checks, FreeCAD 1.0 and 1.1).
+
 ## [0.84.0] — 2026-08-05 — "Antenna from Selection", and openEMS says when it cannot
 
 Driven by a real session: a user drew a coil, tried to simulate it, and hit a

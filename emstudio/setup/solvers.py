@@ -419,6 +419,41 @@ def _probe_version(path, version_args):
         return ""
 
 
+def find_openems_python():
+    """Interpreter carrying the openEMS/CSXCAD python modules, or None.
+
+    openEMS is the one backend EMStudio drives through a PYTHON module rather
+    than a CLI, so "is openEMS usable?" is a question about an interpreter, not
+    an executable. Order: ``EMSTUDIO_OPENEMS_PYTHON`` -> a venv beside the
+    detected openEMS binary (the layout the guided install produces) -> None.
+
+    It lives HERE, in the FreeCAD-free resolver, rather than in the openEMS
+    runner: importing that runner drags in ``writer`` -> ``objects.analysis``
+    -> ``import FreeCAD``, so a caller who only wants to ask whether the
+    backend exists could not ask without FreeCAD. That is precisely why four
+    openEMS gates FAILED where they should have skipped.
+
+    BOTH venv layouts are probed. Python puts a virtualenv's interpreter at
+    ``venv/bin/python`` on POSIX but ``venv\\Scripts\\python.exe`` on Windows,
+    and only the POSIX one was ever checked — so a working Windows openEMS
+    install could never be found.
+    """
+    env = os.environ.get("EMSTUDIO_OPENEMS_PYTHON", "")
+    if env and os.path.isfile(env):
+        return env
+    info = find_backend("openems")
+    if info.found:
+        # <prefix>/bin/openEMS -> <prefix>/venv/{bin/python,Scripts/python.exe}
+        prefix = os.path.dirname(os.path.dirname(info.path))
+        for parts in (("venv", "bin", "python"),
+                      ("venv", "Scripts", "python.exe"),
+                      ("venv", "bin", "python.exe")):
+            cand = os.path.join(prefix, *parts)
+            if os.path.isfile(cand):
+                return cand
+    return None
+
+
 def find_backend(key):
     """Locate a single backend by registry key. Returns a :class:`SolverInfo`."""
     backend = BACKENDS[key]
