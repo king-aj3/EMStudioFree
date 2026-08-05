@@ -135,9 +135,23 @@ class MagneticsResult:
             add("EMStudio magnetics results (Elmer, GENERAL 3-D magnetostatic"
                 " — WhitneyAV)")
             add("")
-            add("B-field map: use 'Show Fields in 3D'. Coil inductance/flux-")
-            add("linkage extraction for 3-D coils is a planned slice; the")
-            add("axisymmetric analyses report L/M/k today.")
+            add("B-field map: use 'Show Fields in 3D'.")
+            case0 = (self.sweep_cases() or [{}])[0]
+            L = case0.get("inductance_h")
+            if L is not None:
+                add("")
+                add("  stored magnetic energy   {0:.6g} J".format(
+                    case0.get("energy_j", 0.0)))
+                add("  inductance (1-turn equiv) {0:.6g} H".format(L))
+                add("  an N-turn winding driven as N*I ampere-turns has "
+                    "L = {0:.6g} x N^2 H".format(L))
+            got = case0.get("delivered_amp_turns") or []
+            for b, d in zip(self.bodies, got):
+                if d is not None and b.get("is_coil") and b.get("amp_turns"):
+                    add("  coil '{0}': delivered {1:.6g} of {2:.6g} "
+                        "ampere-turns ({3:.1%})".format(
+                            b["name"], d, abs(float(b["amp_turns"])),
+                            d / abs(float(b["amp_turns"]))))
         else:
             add("EMStudio magnetics results (Elmer, axisymmetric {0})".format(
                 "static DC" if self.meta.get("static") else "harmonic"))

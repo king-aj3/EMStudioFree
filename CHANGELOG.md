@@ -3,6 +3,50 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.81.0] — 2026-08-05 — 3-D coils: the winding axis, inductance, and a delivery guard
+
+Found by a user driving a real 6.44-turn octagonal-conductor helix through the
+3-D magnetostatic path and getting an axial field **160x below theory**, with
+no warning of any kind.
+
+### Fixed
+- **The 3-D magnetostatic path hard-coded a +Z coil normal** (`model3d.py`),
+  so any coil wound about X or Y handed Elmer's CoilSolver an axis
+  perpendicular to the real one. The solver picks its current-fixing nodes
+  from that vector, so the drive was wrong and nothing said so. **This was the
+  dominant cause of the 160x error** — not the coil's open topology, which was
+  the first hypothesis. `EMCoil` now carries an **`Axis`** property (+X/+Y/+Z,
+  default +Z so every existing document and frozen deck is byte-identical).
+  Measured on the user's helix: axial B went from 1.28e-5 T to **3.18e-4 T**,
+  against **3.485e-4 T** from the finite-solenoid closed form — within 9 %,
+  the residual being the mesh coarseness the writer already warns about.
+
+### Added
+- **Coil inductance for general 3-D coils** — the "planned slice" that
+  `model3d.py` used to fill with a hard-coded `energy_j = 0.0`. The deck now
+  asks `MagnetoDynamicsCalcFields` for `Calculate Field Energy` and the result
+  carries `energy_j` plus `inductance_h` (L = 2W/I^2), reported in the
+  magnetics summary. **Validated against the analytic circular-loop formula
+  L = mu0*R*[ln(8R/a_gmd) - 2] at -1.75 %** (ring R = 100 mm, 4 x 4 mm
+  section). The keyword matters: `Calculate Magnetic Field Energy` does NOT
+  exist in Elmer and would have silently done nothing — the real name was
+  taken from `share/elmersolver/lib/SOLVER.KEYWORDS` before emitting, per the
+  never-name-a-keyword-from-memory rule.
+- **Delivered-ampere-turns guard.** `Coil Closed = Logical True` is an
+  assertion the deck makes on the user's behalf ("CoilSolver: Assuming that
+  all coils are closed!"), so a mis-driven coil solves cleanly and lies. The
+  deck now asks for `Calculate Coil Current`, and the result compares
+  delivered against requested ampere-turns, warning outside 0.5-2.0x.
+  Delivered is exact because it is measured across a half-plane through the
+  winding axis, which every turn crosses exactly once. Measured separation:
+  a healthy closed ring 99.98 %, the mis-driven helix 5.2 % — 19x apart.
+  **A topological (Euler/genus) test was tried first and rejected**: it reports
+  EMStudio's own closed template tube as genus-0, because OCC's seam edges
+  break the naive V-E+F count. The gate pins that it is not reintroduced.
+- Gate `tests/validation/coil_inductance_elmer.py` (SOLVER tier): the analytic
+  loop inductance, both guard directions from measured data, and the three
+  deck keywords — including that the non-existent one is never emitted.
+
 ## [0.80.0] — 2026-08-05 — the assistant gets a Settings dialog (Pro)
 
 ### Added

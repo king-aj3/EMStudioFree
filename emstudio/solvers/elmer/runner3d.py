@@ -34,6 +34,47 @@ _NORM_RE = re.compile(
     r"ComputeChange:\s+\S+\s+\(ITER=\d+\)\s+\(NRM,RELC\):\s+\(\s*([0-9.Ee+-]+)"
     r"\s+[0-9.Ee+-]+\s*\)\s+::\s+(.+?)\s*$")
 
+#: Total magnetic field energy, printed by MagnetoDynamicsCalcFields when
+#: ``Calculate Field Energy`` is on. The label is "ElectroMagnetic Field
+#: Energy" — MEASURED from a real run, not guessed from the keyword name.
+_ENERGY_RE = re.compile(
+    r"ElectroMagnetic Field Energy:\s*([0-9.EeDd+-]+)")
+
+#: CoilSolver's normalized average current density (A/m^2) per coil, in the
+#: order the coils appear in the deck. Delivered current = this x the coil
+#: cross-sectional area, and comparing that with the REQUESTED ampere-turns
+#: is how an open (non-circulating) coil is caught — see model3d.
+_JAVG_RE = re.compile(
+    r"CoilSolver:\s*Average current density:\s*([0-9.EeDd+-]+)")
+
+
+def _fortran_float(text):
+    """Elmer prints Fortran doubles; 1.0D-3 is not a Python literal."""
+    return float(text.replace("D", "E").replace("d", "e"))
+
+
+def parse_scalars(log_path):
+    """Global scalars scraped from the solver log.
+
+    Returns ``{"energy_j": float|None, "j_avg": [float, ...]}``. Absent
+    values stay None/empty rather than defaulting to 0.0 — a silent zero
+    reads as "no energy" instead of "not reported", and this project has
+    been bitten by exactly that (the hard-coded ``energy_j = 0.0`` these
+    replace).
+    """
+    energy = None
+    j_avg = []
+    with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            m = _ENERGY_RE.search(line)
+            if m:
+                energy = _fortran_float(m.group(1))     # last one wins
+                continue
+            m = _JAVG_RE.search(line)
+            if m:
+                j_avg.append(_fortran_float(m.group(1)))
+    return {"energy_j": energy, "j_avg": j_avg}
+
 
 def parse_norms(log_path):
     """Last reported NRM per solver equation name (lower-cased)."""
@@ -143,6 +184,7 @@ def run_model3d(model, workdir=None, line_callback=None):
             vtu = cand
             break
 
+    scalars = parse_scalars(log_path)
     return {
         "norms": parse_norms(log_path),
         "saveline": saveline,
@@ -151,4 +193,6 @@ def run_model3d(model, workdir=None, line_callback=None):
         "body_ids": body_ids,
         "solver_warnings": warns,
         "duration_s": time.time() - t0,
+        "energy_j": scalars["energy_j"],
+        "j_avg": scalars["j_avg"],
     }

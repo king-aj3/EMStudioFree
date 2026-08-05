@@ -16,6 +16,18 @@ import FreeCAD
 
 _GROUP = "EMStudio"
 
+#: Winding-axis choices. The VECTOR each maps to lives in AXIS_VECTORS so the
+#: solver layer never re-parses the label.
+AXES = ["+X", "+Y", "+Z"]
+AXIS_VECTORS = {"+X": (1.0, 0.0, 0.0),
+                "+Y": (0.0, 1.0, 0.0),
+                "+Z": (0.0, 0.0, 1.0)}
+
+
+def axis_vector(obj):
+    """The coil's winding axis as a unit vector; +Z for documents predating it."""
+    return AXIS_VECTORS.get(getattr(obj, "Axis", "+Z"), (0.0, 0.0, 1.0))
+
 
 class Coil:
     """Proxy for a coil excitation."""
@@ -71,6 +83,23 @@ class Coil:
                 "Reverse the winding sense (current flows in -phi)",
             )
             obj.Reversed = False
+        # The WINDING AXIS. Until v0.81.0 the 3-D magnetostatic path hard-coded
+        # a +Z coil normal (model3d.py), so a coil wound about X or Y was handed
+        # Elmer a normal perpendicular to its real axis — the CoilSolver picks
+        # its current-fixing nodes from that vector, so the drive was wrong and
+        # nothing said so. Found on a user's Y-axis helix, 2026-08-05. Default
+        # +Z keeps every pre-existing document and frozen deck byte-identical.
+        if "Axis" not in props:
+            obj.addProperty(
+                "App::PropertyEnumeration",
+                "Axis",
+                _GROUP,
+                "Winding axis: the coil's current circulates AROUND this "
+                "direction. Must match the geometry — a wrong axis silently "
+                "corrupts the drive.",
+            )
+            obj.Axis = AXES
+            obj.Axis = "+Z"
 
     def onDocumentRestored(self, obj):
         self._ensure_properties(obj)

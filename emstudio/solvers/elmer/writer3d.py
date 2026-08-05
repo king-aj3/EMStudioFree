@@ -190,6 +190,14 @@ def write_sif3d(model, path, body_ids, boundary_ids, mesh_dir="mesh",
     w("  Exec Solver = Before All")
     w("  Coil Closed = Logical True")
     w("  Normalize Coil Current = Logical True")
+    # Report the current the solver actually DELIVERED. Requested-vs-delivered
+    # is the only reliable open-coil detector: 'Coil Closed = True' above is an
+    # ASSERTION Elmer trusts ("CoilSolver: Assuming that all coils are
+    # closed!"), and an open conductor silently under-delivers — measured
+    # 5.17 against 100 ampere-turns on a 6.4-turn open helix, 2026-08-05.
+    # Topology cannot substitute: an Euler/genus test calls EMStudio's own
+    # closed template tube genus-0, because OCC seam edges break the count.
+    w("  Calculate Coil Current = Logical True")
     w("  Calculate Elemental Fields = Logical True")
     w("  Fix Input Current Density = Logical False")
     w("  Linear System Solver = Iterative")
@@ -235,6 +243,11 @@ def write_sif3d(model, path, body_ids, boundary_ids, mesh_dir="mesh",
     w('  Potential Variable = String "A"')
     w("  Calculate Magnetic Field Strength = Logical True")
     w("  Calculate Current Density = Logical True")
+    # Magnetic field energy -> the coil INDUCTANCE, L = 2W/I^2. The keyword is
+    # 'Calculate Field Energy'; 'Calculate Magnetic Field Energy' does NOT
+    # exist in this build (checked against share/elmersolver/lib/
+    # SOLVER.KEYWORDS before emitting — the brew-tinyxml rule).
+    w("  Calculate Field Energy = Logical True")
     w("  Calculate Nodal Fields = Logical True")
     w("  Calculate Elemental Fields = Logical True")
     w("  Linear System Solver = Iterative")

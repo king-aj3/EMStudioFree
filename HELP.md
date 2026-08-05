@@ -35,7 +35,7 @@ thing; **System** designs a system of them. Every command has its own icon.
 | **New EM Analysis** | Container for one simulation (sweep, boundaries, mesh settings live on it) |
 | **EM Material** | Assign PEC/dielectric to the selected geometry (works on solids, faces, wires, imported STL meshes) |
 | **Lumped Port** | Feed point on the selected edge/face; set Direction + Impedance |
-| **Coil Excitation** | Mark the selected ring/tube solid as an N-turn current-driven winding (magnetics) |
+| **Coil Excitation** | Mark the selected solid as an N-turn current-driven winding (magnetics). **Set `Axis` to the real winding axis** (+X/+Y/+Z — the direction the current circulates *around*); a wrong axis silently corrupts the drive. 3-D runs report the stored energy, the coil **inductance**, and the ampere-turns actually delivered — a delivery far from 100 % means the current is not circulating as asked |
 | **Add NEC2 / openEMS / Elmer / Palace Solver** | Attach a solver: NEC2 wire MoM · openEMS full-wave FDTD · Elmer FEM magnetics · Palace FEM full-wave |
 | **Run Solver** | Solve + open results (S11 / VSWR / Impedance / Pattern tabs, Touchstone export; magnetics: powers, L/M/k, fields in 3-D) |
 | **WPT: Sweep Coil Gap** | Parametric study: coupling k across a range of coil gaps, plotted k(gap) |
