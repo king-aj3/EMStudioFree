@@ -93,11 +93,43 @@ def _tier_audit():
         raise SystemExit("run_battery tier audit FAILED: " + "; ".join(msgs))
 
 
+#: Requirements for SOLVER-tier gates. A gate that needs a backend the box may
+#: not have belongs HERE, not in an `if missing: print("PASSED"); return 0`
+#: inside itself.
+#:
+#: WHY: the four openEMS gates used to self-skip and return 0, so the battery
+#: printed "ok" and a standalone run printed "GATE PASSED" — on a box with no
+#: openEMS, four gates reported success while testing nothing, and because
+#: freecadcmd drops print() on exit the exit code was the ONLY signal a caller
+#: saw. Found 2026-08-05 while proving the gates really ran at home; it took a
+#: separate probe of find_openems_python() under freecadcmd to tell a pass from
+#: a skip, which is precisely the question a gate is supposed to answer itself.
+#: Declared here, the battery says "skip" honestly, and running one BY HAND
+#: fails loudly when the backend is absent — correct, because you asked for it.
+SOLVER_REQS = {
+    "patch_openems": "openems_python",
+    "msl_notch_openems": "openems_python",
+    "patch_auto_openems": "openems_python",
+    "patch_stl_openems": "openems_python",
+}
+
+
 def _requirement_missing(req):
     """Return a skip reason if the requirement is unavailable, else None."""
     if req is None:
         return None
     kind, _, arg = req.partition(":")
+    if kind == "openems_python":
+        sys.path.insert(0, _ROOT)
+        try:
+            from emstudio.setup.solvers import find_openems_python
+            if find_openems_python() is None:
+                return ("no openEMS python environment — set "
+                        "EMSTUDIO_OPENEMS_PYTHON, or install openEMS with its "
+                        "venv beside the binary")
+        finally:
+            sys.path.pop(0)
+        return None
     if kind == "itu_maps":
         sys.path.insert(0, _ROOT)
         try:
@@ -145,7 +177,7 @@ def main(argv=None):
 
     plan = [(n, FAST[n], args.fast_timeout) for n in sorted(FAST)]
     if args.all:
-        plan += [(n, None, args.solver_timeout) for n in SOLVER]
+        plan += [(n, SOLVER_REQS.get(n), args.solver_timeout) for n in SOLVER]
 
     print("EMStudio validation battery — {0} gate(s), tier: {1}".format(
         len(plan), "FAST+SOLVER" if args.all else "FAST"))

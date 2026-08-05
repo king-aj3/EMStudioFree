@@ -256,9 +256,35 @@ class _AntennaFromSelection:
         from emstudio.ui import run_gui
 
         def work(_a, _b, _log):
-            return fs.plan(shape, radius_mm=radius_mm)
+            # _log is a reporter: callable for lines, .progress() for the bar.
+            return fs.plan(shape, radius_mm=radius_mm,
+                           progress_cb=getattr(_log, "progress", None))
 
         def done(p):
+            # ASSIST, don't just warn. If the conductor is too thick for the
+            # wire solver at the frequency it will actually be swept at, say so
+            # in plain words and offer the fix as the DEFAULT button — the user
+            # should not have to know which solver is which, go and read what a
+            # thin-wire approximation is, then rebuild the analysis by hand.
+            adv = p.get("solver_advice")
+            if adv:
+                box = QtWidgets.QMessageBox(FreeCADGui.getMainWindow())
+                box.setIcon(QtWidgets.QMessageBox.Warning)
+                box.setWindowTitle("EMStudio — that is the wrong solver")
+                box.setText(adv["plain"])
+                use = box.addButton("Use openEMS  (recommended)",
+                                    QtWidgets.QMessageBox.AcceptRole)
+                keep = box.addButton("Keep NEC2 anyway",
+                                     QtWidgets.QMessageBox.DestructiveRole)
+                box.addButton(QtWidgets.QMessageBox.Cancel)
+                box.setDefaultButton(use)
+                box.exec_()
+                clicked = box.clickedButton()
+                if clicked is use:
+                    p["solver"] = "openems"
+                elif clicked is not keep:
+                    return                      # Cancel, or the dialog closed
+
             text = fs.describe(p)
             ans = QtWidgets.QMessageBox.question(
                 FreeCADGui.getMainWindow(), "EMStudio — antenna from selection",

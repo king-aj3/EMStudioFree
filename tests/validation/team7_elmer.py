@@ -51,11 +51,31 @@ BZ_PEAK = max(abs(b) for b in BZ_MEAS)  # 7.811 mT
 
 #: self-pinned regression norms of THIS deck+mesh (frozen from the first
 #: green run of the production writer, 2026-07-16, RMS 2.83%). Norms are
-#: mesh-locked — they pin OUR pipeline, not Elmer upstream. Tolerance per
-#: the bh_gauge precedent (transient chains drift more than 1e-5 across
-#: builds).
+#: mesh-locked — they pin OUR pipeline, not Elmer upstream.
+#:
+#: MESH-LOCKED MEANS gmsh-VERSION-LOCKED. Measured on two boxes 2026-08-05:
+#:   gmsh 4.12.1 (the version these pins were frozen on) — matches BIT-FOR-BIT
+#:   gmsh 4.15.2                                        — coilsolver +0.082%,
+#:                                                        mgdynamics +0.112%
+#: Same deck, same code, different mesher. The old NORM_TOL of 2e-4 (0.02%)
+#: therefore reported a RED on a perfectly healthy tree the moment a machine
+#: had a newer gmsh — a false alarm on the one gate whose job is to be
+#: believed. The same sensitivity is visible in open_coil_elmer (split ring
+#: -0.79% vs -1.49% across the same two boxes), so it is the mesher, not this
+#: deck.
+#:
+#: 2e-3 is ~1.8x the largest drift actually observed across a three-minor-
+#: version gmsh gap, and still ~50x tighter than the MEASURED physics gate
+#: (10% RMS) that sits beside it. A real regression in our writer moves these
+#: norms by far more than 0.1% — the pin keeps its teeth.
+#: If a future drift exceeds this, do NOT just widen it again: check
+#: `gmsh --version` against GMSH_PINNED_ON first, because that is the cheap
+#: explanation and it has now been the right one twice.
 NORM_PINS = {"coilsolver": 0.58412768, "mgdynamics": 1.7526977e-06}
-NORM_TOL = 2e-4
+NORM_TOL = 2e-3
+#: The mesher that produced NORM_PINS. Reported on drift so the next person
+#: does not have to rediscover the correlation.
+GMSH_PINNED_ON = "4.12.1"
 
 MM = 1e-3
 
@@ -187,9 +207,28 @@ def gate_live():
         if pin is None:
             continue  # pins frozen after the first green run
         got = norms.get(solver)
-        check("self-pinned {0} norm regression".format(solver),
-              got is not None and abs(got / pin - 1.0) < NORM_TOL,
-              "{0} vs pin {1}".format(got, pin))
+        ok = got is not None and abs(got / pin - 1.0) < NORM_TOL
+        detail = "{0} vs pin {1}".format(got, pin)
+        if got is not None and not ok:
+            # Name the cheap explanation IN the failure, so the reader does not
+            # start by suspecting the physics. This correlation has been the
+            # right answer twice (2026-08-05).
+            import shutil as _sh
+            import subprocess as _sp
+            ver = "unknown"
+            exe = _sh.which("gmsh")
+            if exe:
+                try:
+                    ver = (_sp.run([exe, "--version"], capture_output=True,
+                                   text=True, timeout=15).stderr
+                           or _sp.run([exe, "--version"], capture_output=True,
+                                      text=True, timeout=15).stdout).strip()
+                except Exception:  # noqa: BLE001 — diagnostics only
+                    pass
+            detail += ("  [drift {0:+.3%}; this gmsh {1} vs pins frozen on {2}"
+                       " — CHECK THE MESHER BEFORE THE PHYSICS]".format(
+                           got / pin - 1.0, ver, GMSH_PINNED_ON))
+        check("self-pinned {0} norm regression".format(solver), ok, detail)
 
 
 def main():

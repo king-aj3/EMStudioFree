@@ -55,7 +55,7 @@ def half_wave_hz(length_mm):
     return C0 / (2.0 * length_mm * 1e-3)
 
 
-def plan(shape, radius_mm=None, freq_hz=None, span=1.5):
+def plan(shape, radius_mm=None, freq_hz=None, span=1.5, progress_cb=None):
     """Work out the wire model + sweep WITHOUT touching the document.
 
     Separated from :func:`build` so the decision can be shown to the user (and
@@ -66,7 +66,8 @@ def plan(shape, radius_mm=None, freq_hz=None, span=1.5):
     if kind == "solid":
         from emstudio.geometry import wire_extract
 
-        info = wire_extract.extract(shape, freq_hz=freq_hz)
+        info = wire_extract.extract(shape, freq_hz=freq_hz,
+                                    progress_cb=progress_cb)
         points = info["points"]
         length_mm = info["length_mm"]
         derived_radius = info["radius_mm"]
@@ -105,6 +106,59 @@ def plan(shape, radius_mm=None, freq_hz=None, span=1.5):
         "f1_hz": f1,
         "f2_hz": f2,
         "notes": notes,
+        # Which solver this plan will actually create. `build` reads it, so a
+        # caller can flip it after the user chooses.
+        "solver": "nec2",
+        # THE GUARD HAS TO RUN AT THE FREQUENCY THE ANTENNA IS ACTUALLY SWEPT
+        # AT. It used to be evaluated inside wire_extract.extract() against the
+        # caller's OPTIONAL freq_hz — which the GUI command never passes — so
+        # it saw None and returned None every time, while the real sweep
+        # frequency (f_res, derived from the length) was not computed until
+        # afterwards. The check was therefore dead on the ordinary path: a
+        # conductor of any thickness sailed through at its own half-wave
+        # resonance. Found 2026-08-05. Evaluated HERE, after f_res is known.
+        "solver_advice": solver_advice(radius, f_res, kind),
+    }
+
+
+def solver_advice(radius_mm, f_res_hz, kind="solid"):
+    """Is the wire solver honest about THIS conductor at THIS frequency?
+
+    Returns None when NEC2 is fine, else a dict the UI can turn into a choice.
+    NEC2 is a THIN-WIRE method of moments code: it represents a conductor as a
+    filament carrying current, which stops being true once the conductor is an
+    appreciable fraction of a wavelength across. openEMS is full-wave and
+    models the actual body, so it stays right where NEC2 stops being.
+    """
+    from emstudio.geometry import wire_extract
+
+    detail = wire_extract.thin_wire_warning(radius_mm, f_res_hz)
+    if detail is None:
+        return None
+    lam_mm = C0 / float(f_res_hz) * 1000.0
+    across = 2.0 * float(radius_mm) / lam_mm
+    return {
+        "current": "nec2",
+        "recommended": "openems",
+        "diam_over_lambda": across,
+        "limit": wire_extract.THIN_WIRE_DIAM_OVER_LAMBDA,
+        "detail": detail,
+        # Plain enough to act on without knowing what a moment method is.
+        "plain": (
+            "This conductor is too THICK for the wire solver at "
+            "{0:.4g} MHz.\n\n"
+            "It is {1:.3g} wavelengths across, and the wire solver (NEC2) is "
+            "only accurate below {2:.3g}. NEC2 treats a conductor as an "
+            "infinitely thin filament, which this one is not, so its answer "
+            "would look reasonable and be wrong.\n\n"
+            "openEMS is a full-wave solver: it models the solid you actually "
+            "drew, so it stays accurate here. It is slower."
+            .format(float(f_res_hz) / 1e6, across,
+                    wire_extract.THIN_WIRE_DIAM_OVER_LAMBDA)),
+        # openEMS wants the BODY, not the extracted centreline — modelling a
+        # filament in a full-wave solver would throw away the very thickness
+        # that made NEC2 invalid.
+        "uses_solid": kind == "solid",
     }
 
 
@@ -130,6 +184,19 @@ def describe(p, teach=True):
     ]
     for n in p["notes"]:
         lines.append("  NOTE: " + n)
+
+    # The solver line always states which one will be created, so a user who
+    # accepted a switch sees it reflected rather than having to remember.
+    lines.append("  solver            {0}".format(
+        "openEMS (full-wave)" if p.get("solver") == "openems"
+        else "NEC2 (thin wire)"))
+
+    adv = p.get("solver_advice")
+    if adv and p.get("solver") != adv["recommended"]:
+        lines.append("")
+        lines.append("  *** WRONG SOLVER FOR THIS CONDUCTOR ***")
+        for ln in adv["plain"].splitlines():
+            lines.append("  " + ln if ln else "")
 
     if not teach:
         return "\n".join(lines)
@@ -202,8 +269,13 @@ def build(doc, source_obj, p, points_label="AntennaWire"):
     from emstudio.objects import ports as ports_mod
     from emstudio.objects import solver_objs
 
+    # openEMS models the BODY. Building the derived centreline for it would
+    # discard the thickness that is the whole reason we switched away from the
+    # wire solver, so the full-wave path references the original solid.
+    use_openems = p.get("solver") == "openems"
+
     wire_obj = source_obj
-    if p["points"] is not None:
+    if p["points"] is not None and not use_openems:
         import Part
 
         wire_obj = doc.addObject("Part::Feature", points_label)
@@ -231,6 +303,9 @@ def build(doc, source_obj, p, points_label="AntennaWire"):
     port.Impedance = "50 Ohm"
     port.Excited = True
 
-    solver_objs.makeSolverNEC2(doc, ana)
+    if use_openems:
+        solver_objs.makeSolverOpenEMS(doc, ana)
+    else:
+        solver_objs.makeSolverNEC2(doc, ana)
     doc.recompute()
     return ana, wire_obj

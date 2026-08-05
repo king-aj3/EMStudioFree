@@ -86,11 +86,18 @@ def main():
     from emstudio.setup.solvers import find_openems_python
 
     if find_openems_python() is None:
-        print("  skip  no openEMS python environment -- set "
-              "EMSTUDIO_OPENEMS_PYTHON, or install openEMS with its venv "
-              "beside the binary")
-        print("MSL NOTCH GATE PASSED")
-        return 0
+        # NO self-skip-and-pass. This used to print the PASSED banner and
+        # return 0, so on a box without openEMS the gate reported success
+        # while testing nothing -- and freecadcmd drops print(), so the exit
+        # code was the only thing a caller saw. Skipping is the BATTERY's job
+        # (run_battery.SOLVER_REQS declares "openems_python" for this gate and
+        # prints a real "skip"); running this file BY HAND must fail loudly,
+        # because you asked for it specifically.
+        raise SystemExit(
+            "openEMS is required for this gate and was not found -- set "
+            "EMSTUDIO_OPENEMS_PYTHON, or install openEMS with its venv beside "
+            "the binary. (The battery skips this gate automatically; a direct "
+            "run does not.)")
     import numpy as np
     import FreeCAD
 

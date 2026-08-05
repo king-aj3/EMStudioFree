@@ -94,7 +94,7 @@ def _section_pieces(shape, point, direction, reach):
     return [(f.CenterOfMass, f.Area) for f in shape.common(face).Faces]
 
 
-def centreline(shape, step_mm=None, max_steps=200000):
+def centreline(shape, step_mm=None, max_steps=200000, progress_cb=None):
     """March the conductor's centreline. Returns (points, section_area_mm2).
 
     Raises :class:`WireExtractError` when the solid is not a single open
@@ -131,7 +131,19 @@ def centreline(shape, step_mm=None, max_steps=200000):
     tangent.normalize()
     end_pt = f1.CenterOfMass
 
-    for _ in range(max_steps):
+    # A REAL progress denominator. The march does not know its own path length
+    # in advance, but the solid does: volume / section area IS the centreline
+    # length for a swept conductor, to within the end-cap fudge. That turns a
+    # meaningless swinging bar into a percentage, which on a multi-minute
+    # extraction is the difference between "is this hung?" and "40 s to go".
+    try:
+        total_len = float(shape.Volume) / section_area
+    except Exception:                       # noqa: BLE001 — progress only
+        total_len = 0.0
+    travelled = 0.0
+    every = 25                              # ~1 report per 25 boolean cuts
+
+    for _step in range(max_steps):
         pieces = _section_pieces(shape, pts[-1] + tangent * ds, tangent, reach)
         if not pieces:
             break
@@ -140,6 +152,10 @@ def centreline(shape, step_mm=None, max_steps=200000):
         if (cen - pts[-1]).Length > 3.0 * ds:
             break                       # would jump turns: stop honestly
         pts.append(cen)
+        travelled += (pts[-1] - pts[-2]).Length
+        if progress_cb is not None and total_len > 0.0 and _step % every == 0:
+            progress_cb(min(travelled, total_len), total_len,
+                        "Following the conductor's centreline")
         t = pts[-1] - pts[-2]
         if t.Length < 1e-9:
             break
@@ -222,7 +238,8 @@ def thin_wire_warning(radius_mm, freq_hz):
     return None
 
 
-def extract(shape, chord_mm=None, freq_hz=None, step_mm=None):
+def extract(shape, chord_mm=None, freq_hz=None, step_mm=None,
+            progress_cb=None):
     """Full extraction. Returns a dict describing the derived wire model.
 
     Every derived number is reported alongside HOW it was derived — this
@@ -230,7 +247,8 @@ def extract(shape, chord_mm=None, freq_hz=None, step_mm=None):
     wire model silently standing in for a solid is exactly the kind of thing
     a user must be able to audit.
     """
-    pts, section_area = centreline(shape, step_mm=step_mm)
+    pts, section_area = centreline(shape, step_mm=step_mm,
+                                   progress_cb=progress_cb)
     length = polyline_length_mm(pts)
     # Volume/length is a second, independent read of the section: if it
     # disagrees with the end-cap area the sweep is not uniform and the single

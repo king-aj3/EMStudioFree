@@ -9,6 +9,7 @@ Report view. Cancel terminates the solver process.
 from __future__ import annotations
 
 import threading
+import time
 
 import FreeCAD
 from PySide import QtCore, QtWidgets
@@ -20,6 +21,77 @@ class _JobState:
         self.error = None
         self.done = False
         self.abort_cb = None
+        #: (done, total, note) from the worker, or None while unknown.
+        self.progress = None
+        self.t_start = time.time()
+
+
+class _Reporter:
+    """What a worker is handed to talk back with.
+
+    It is CALLABLE, so every existing worker that just does ``log("...")``
+    keeps working untouched — there are two dozen call sites and none of them
+    needed changing. Workers that can say how far along they are call
+    ``log.progress(done, total, note)`` and the dialog stops being a
+    meaningless swinging bar.
+
+    WHY: an indeterminate bar tells the user nothing except "not hung". On a
+    job that can run for minutes — the centreline march over a large solid is
+    the standard example — the two things worth knowing are how much is left
+    and roughly how long that is. Both are cheap once the worker reports a
+    fraction.
+    """
+
+    def __init__(self, state, prefix):
+        self._state = state
+        self._prefix = prefix
+
+    def __call__(self, line):
+        FreeCAD.Console.PrintMessage("[{0}] {1}\n".format(self._prefix, line))
+
+    def progress(self, done, total, note=""):
+        """Report progress. ``total`` <= 0 means 'still unknown'."""
+        try:
+            self._state.progress = (float(done), float(total), str(note))
+        except (TypeError, ValueError):
+            pass
+
+
+def _eta_text(state, done, total):
+    """'42% — about 1 min 20 s left', or just the percent when it is too early.
+
+    Deliberately coarse: a countdown that jitters every 200 ms reads as broken.
+    """
+    pct = 0 if total <= 0 else max(0.0, min(1.0, done / total))
+    txt = "{0:.0f}%".format(pct * 100.0)
+    elapsed = time.time() - state.t_start
+    # Under 3 s of evidence, or under 5% done, any estimate is a guess.
+    if elapsed < 3.0 or pct < 0.05 or pct >= 1.0:
+        return txt
+    remain = elapsed * (1.0 - pct) / pct
+    if remain < 10:
+        return txt + " — a few seconds left"
+    if remain < 90:
+        return txt + " — about {0:.0f} s left".format(remain / 5.0 * 5.0)
+    mins = remain / 60.0
+    if mins < 60:
+        return txt + " — about {0:.0f} min left".format(mins)
+    return txt + " — over an hour left"
+
+
+def _apply_progress(dlg, state, label):
+    """Move the dialog from indeterminate to a REAL bar once numbers arrive."""
+    p = state.progress
+    if not p:
+        return
+    done, total, note = p
+    if total <= 0:
+        return
+    if dlg.maximum() == 0:                   # first real report: switch modes
+        dlg.setRange(0, 1000)
+    dlg.setValue(int(max(0.0, min(1.0, done / total)) * 1000))
+    head = note or label
+    dlg.setLabelText("{0}\n{1}".format(head, _eta_text(state, done, total)))
 
 
 def run_solver_gui(analysis, solver_obj, run_fn, parent=None):
@@ -30,8 +102,7 @@ def run_solver_gui(analysis, solver_obj, run_fn, parent=None):
     """
     state = _JobState()
 
-    def line_cb(line):
-        FreeCAD.Console.PrintMessage("[solver] {0}\n".format(line))
+    line_cb = _Reporter(state, "solver")
 
     def work():
         try:
@@ -59,7 +130,9 @@ def run_solver_gui(analysis, solver_obj, run_fn, parent=None):
             dlg.reset()
             dlg.close()
             _finish(state, parent)
-        elif dlg.wasCanceled():
+            return
+        _apply_progress(dlg, state, "Running {0}".format(solver_obj.Label))
+        if dlg.wasCanceled():
             if state.abort_cb:
                 state.abort_cb()
             timer.stop()
@@ -87,8 +160,7 @@ def run_generic_gui(label, run_fn, on_success, parent=None,
     """
     state = _JobState()
 
-    def line_cb(line):
-        FreeCAD.Console.PrintMessage("[emstudio] {0}\n".format(line))
+    line_cb = _Reporter(state, "emstudio")
 
     def work():
         try:
@@ -117,7 +189,9 @@ def run_generic_gui(label, run_fn, on_success, parent=None,
                     on_error(state.error)
             else:
                 on_success(state.result)
-        elif dlg.wasCanceled():
+            return
+        _apply_progress(dlg, state, label)
+        if dlg.wasCanceled():
             timer.stop()
             FreeCAD.Console.PrintWarning("EMStudio: canceled by user.\n")
             if on_cancel is not None:
