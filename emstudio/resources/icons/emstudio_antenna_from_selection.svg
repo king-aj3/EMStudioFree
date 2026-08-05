@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- a solid conductor (grey) becoming a wire model (blue) with a feed -->
+  <path d="M12 50 C12 26, 24 14, 34 14" fill="none" stroke="#9aa0a6"
+        stroke-width="9" stroke-linecap="round" opacity="0.55"/>
+  <path d="M12 50 C12 26, 24 14, 34 14" fill="none" stroke="#1a73e8"
+        stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="12" cy="50" r="3" fill="#1a73e8"/>
+  <circle cx="34" cy="14" r="3" fill="#1a73e8"/>
+  <circle cx="21" cy="24" r="4.2" fill="#e8710a"/>
+  <path d="M44 20 h14 M44 32 h14 M44 44 h14" stroke="#34a853"
+        stroke-width="3" stroke-linecap="round"/>
+</svg>

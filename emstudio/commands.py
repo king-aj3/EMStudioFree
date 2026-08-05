@@ -17,6 +17,7 @@ import FreeCADGui
 from emstudio.resources import icon_path
 
 CMD_ANALYSIS = "EMStudio_Analysis"
+CMD_ANTENNA_FROM_SEL = "EMStudio_AntennaFromSelection"
 CMD_MATERIAL = "EMStudio_Material"
 CMD_PORT = "EMStudio_LumpedPort"
 CMD_COIL = "EMStudio_Coil"
@@ -54,6 +55,7 @@ CMD_LEGAL = "EMStudio_Legal"
 CMD_LICENCE = "EMStudio_Licence"
 
 ALL_COMMANDS = [
+    CMD_ANTENNA_FROM_SEL,
     CMD_ANALYSIS,
     CMD_MATERIAL,
     CMD_PORT,
@@ -101,6 +103,7 @@ ALL_COMMANDS = [
 # GUI layout; a smoke check asserts it covers exactly the registered commands.
 COMMAND_GROUPS = [
     ("Analysis", [
+        CMD_ANTENNA_FROM_SEL, "Separator",
         CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_COIL, "Separator",
         CMD_SOLVER_NEC2, CMD_SOLVER_OPENEMS, CMD_SOLVER_ELMER, CMD_SOLVER_PALACE,
         "Separator", CMD_RUN, CMD_SWEEP_GAP,
@@ -190,6 +193,101 @@ def _warn(text):
 
 
 # --- commands ------------------------------------------------------------------
+class _AntennaFromSelection:
+    """One click: selection -> a runnable NEC2 wire-antenna analysis.
+
+    Exists because assembling this by hand needs four objects created in the
+    right order under a selection rule that is not discoverable (the material
+    wants the whole object, the port wants a named EdgeN picked in the 3-D
+    view). Getting it wrong yields "port must reference a wire edge", which
+    states the symptom and not the cure.
+    """
+
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_antenna_from_selection.svg"),
+            "MenuText": "Antenna from Selection",
+            "ToolTip": "Turn the selected conductor — a SOLID or a curve — "
+                       "into a runnable NEC2 antenna: wire model, PEC "
+                       "material, centre feed, sweep and solver, with every "
+                       "derived value reported",
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from PySide import QtWidgets
+
+        from emstudio.antenna import from_selection as fs
+
+        sel = FreeCADGui.Selection.getSelectionEx()
+        if not sel:
+            _warn("Select the conductor first — the solid you drew, or its "
+                  "path as a curve/polyline.")
+            return
+        obj = sel[0].Object
+        shape = getattr(obj, "Shape", None)
+        if shape is None:
+            _warn("'{0}' has no shape to work from.".format(obj.Label))
+            return
+
+        # A SOLID carries its own cross-section, so the radius is measured. A
+        # CURVE does not — it is already only a centre line — so it has to be
+        # asked for rather than invented. Ask BEFORE the worker starts, since
+        # a dialog cannot be raised from the worker thread.
+        radius_mm = None
+        if fs.classify(shape) == "wire":
+            guess = max(sum(e.Length for e in shape.Edges) / 2000.0, 0.5)
+            val, ok = QtWidgets.QInputDialog.getDouble(
+                FreeCADGui.getMainWindow(),
+                "EMStudio — conductor radius",
+                "A curve is only a centre line, so it carries no thickness.\n"
+                "What is the conductor's radius?\n\n"
+                "For a round wire this is its radius; for a bar or tube use\n"
+                "the equal-area radius, sqrt(cross-section area / pi).",
+                guess, 0.0001, 1e6, 4)
+            if not ok:
+                return
+            radius_mm = float(val)
+
+        # Extraction from a solid is a boolean march and can take minutes on a
+        # large body, so it never runs on the GUI thread.
+        from emstudio.ui import run_gui
+
+        def work(_a, _b, _log):
+            return fs.plan(shape, radius_mm=radius_mm)
+
+        def done(p):
+            text = fs.describe(p)
+            ans = QtWidgets.QMessageBox.question(
+                FreeCADGui.getMainWindow(), "EMStudio — antenna from selection",
+                text + "\n\nCreate this analysis?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.Yes)
+            if ans != QtWidgets.QMessageBox.Yes:
+                return
+            try:
+                ana, _wire = fs.build(FreeCAD.ActiveDocument, obj, p)
+            except Exception as exc:                     # noqa: BLE001
+                _warn("Could not build the analysis: {0}".format(exc))
+                return
+            FreeCAD.ActiveDocument.recompute()
+            FreeCAD.Console.PrintMessage("EMStudio: " + text + "\n")
+            QtWidgets.QMessageBox.information(
+                FreeCADGui.getMainWindow(), "EMStudio",
+                "'{0}' is ready — press Run Solver.\n\n{1}".format(
+                    ana.Label, text))
+
+        def failed(exc):
+            _warn("Could not read that selection as a conductor:\n\n{0}"
+                  .format(exc))
+
+        run_gui.run_generic_gui("Deriving the wire model", work, done,
+                                parent=FreeCADGui.getMainWindow(),
+                                on_error=failed)
+
+
 class _CreateAnalysis:
     def GetResources(self):
         return {
@@ -1102,6 +1200,7 @@ class _Legal:
 
 def register():
     """Register all EMStudio commands with FreeCADGui (idempotent)."""
+    FreeCADGui.addCommand(CMD_ANTENNA_FROM_SEL, _AntennaFromSelection())
     FreeCADGui.addCommand(CMD_ANALYSIS, _CreateAnalysis())
     FreeCADGui.addCommand(CMD_MATERIAL, _CreateMaterial())
     FreeCADGui.addCommand(CMD_PORT, _CreatePort())

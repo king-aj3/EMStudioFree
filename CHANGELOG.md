@@ -3,6 +3,68 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.84.0] — 2026-08-05 — "Antenna from Selection", and openEMS says when it cannot
+
+Driven by a real session: a user drew a coil, tried to simulate it, and hit a
+different refusal at every step — "port must reference a wire edge" on a solid,
+then "edge is not straight" on a curve. Each message named a symptom and not a
+cure. The audience for this workbench is a hobbyist before it is an RF
+engineer, so a tool that is correct but unusable is not correct enough.
+
+### Added
+- **"Antenna from Selection"** (Analysis group). Select the conductor — a
+  SOLID or a curve — and get a runnable NEC2 analysis: wire model, PEC
+  material, centre feed on the middle edge, a sweep centred on the conductor's
+  own half-wave resonance, and the solver. It replaces four objects created in
+  a specific order under a selection rule that was not discoverable (material
+  wants the whole object; port wants a named EdgeN picked in the 3-D VIEW).
+  A solid has its radius MEASURED from its cross-section; a curve is only a
+  centre line and carries no thickness, so the radius is asked for.
+- **It explains itself.** The confirmation states what was derived AND why:
+  that NEC2 models a conductor by centre line plus radius because RF current
+  is a surface effect and the far field cannot distinguish a polygonal bar
+  from a round wire of equal section; how thin the conductor is against the
+  wavelength (and a warning when it stops being thin); why the sweep sits
+  where it does; and what S11, impedance and pattern each mean when the run
+  finishes. Teaching the *why* is the point, not decoration.
+- Gate `tests/validation/antenna_from_selection.py`: both source kinds end to
+  end, the measured-vs-asked radius rule, the half-wave sweep, the centre-feed
+  edge, that the NEC2 writer accepts what was built, and that the explanation
+  actually contains its teaching.
+
+### Fixed
+- **`discretize(Deflection=...)` cannot be trusted, and v0.83.0 trusted it.**
+  On a B-spline built by interpolation OCC ignores the request outright.
+  MEASURED, budget 2.372 mm on a spline through a 150 mm helix:
+
+      Deflection       108 pts   achieved 124.481 mm   (52x over; one 296 mm chord)
+      QuasiDeflection  129 pts   achieved   1.868 mm
+      Number=640       640 pts   achieved   0.076 mm
+
+  while the same path as an ANALYTIC helix honours it (2.151 mm). 124 mm on a
+  9.5 mm conductor puts the modelled wire thirteen radii outside the metal,
+  silently. The writer now MEASURES the achieved deflection, retries by a
+  method that holds, and raises rather than returning a path it cannot verify.
+  Found by an adversarial design review, then reproduced independently before
+  being believed.
+- **openEMS: an STL body could be absent from the grid and still "simulate".**
+  A non-box body got six grid lines (its bounding-box planes) and never
+  reached `AddEdges2Grid` at all, because `has_solid` was set only in the box
+  branch. Cells inside it were whatever the global wavelength rule gave. Now:
+  the body's smallest feature is measured (`2*V/A` — a plate's thickness
+  exactly, a rod's radius; a bounding box cannot see it, since a 6-turn helix
+  bounds 320 mm and conducts 20 mm), affordable bodies get a local grid, and a
+  body the grid cannot represent is REFUSED with its numbers and pointed at
+  the NEC2 wire backend. The refusal is scoped to metal STL bodies —
+  dielectrics already get explicit lines across a thin substrate, and thin
+  metal is a zero-thickness sheet by design. An earlier, broader draft refused
+  EMStudio's own validated 2.4 GHz patch template, which is why the scope is
+  written down.
+- The refinement budget counts CELLS (the product of per-axis line counts),
+  not lines per axis: 121 lines/axis looks modest until it is multiplied into
+  927k cells for one body.
+- Gate `tests/validation/stl_mesh_openems.py`.
+
 ## [0.83.0] — 2026-08-05 — NEC2 solves CURVED wires
 
 ### Added

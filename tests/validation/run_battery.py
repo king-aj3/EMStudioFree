@@ -55,7 +55,7 @@ FAST = {
 }
 
 SOLVER = [
-    "amr_palace", "bh_elmer", "cavity_palace", "circwaveguide_palace",
+    "amr_palace", "antenna_from_selection", "bh_elmer", "cavity_palace", "circwaveguide_palace",
     "coax_palace", "coil_inductance_elmer", "curved_wire_nec2",
     "cylcavity_palace", "dipole_nec2",
     "fastsweep_palace",
@@ -63,7 +63,8 @@ SOLVER = [
     "induction_elmer", "isolation_nec2", "isolation_openems",
     "isolation_patch_openems", "lpda_nec2", "mmwave_palace", "monopole_nec2",
     "msl_notch_openems", "patch_auto_openems", "patch_openems",
-    "patch_stl_openems", "solenoid3d_elmer", "team7_elmer", "waveguide_palace", "whitney3d_elmer",
+    "patch_stl_openems", "solenoid3d_elmer",
+    "stl_mesh_openems", "team7_elmer", "waveguide_palace", "whitney3d_elmer",
     "wire_current_sharing", "wire_fasthenry", "wire_from_solid", "wpt_elmer",
     "yagi_nec2",
 ]

@@ -146,6 +146,35 @@ def main():
           abs(fed_mid.distanceToPoint(emid) - best) < 1e-6,
           "{0:.3f} mm from midpoint".format(fed_mid.distanceToPoint(emid)))
 
+    # ---- 2b. THE TRAP: OCC ignores Deflection on interpolated splines --
+    # Measured: budget 2.372 mm -> Deflection achieved 124.481 mm (52x over,
+    # one 296 mm chord) on a B-spline through a 150 mm helix, while the same
+    # path as an analytic helix honoured it. The writer must MEASURE what it
+    # got, not trust the request.
+    import math as _m
+
+    bs = Part.BSplineCurve()
+    _pts = []
+    for _i in range(305):
+        _t = 6.43588 * _i / 304.0
+        _a = 2.0 * _m.pi * _t
+        _pts.append(FreeCAD.Vector(150.0 * _m.cos(_a), 31.0758 * _t,
+                                   150.0 * _m.sin(_a)))
+    bs.interpolate(_pts)
+    spline_edge = bs.toShape()
+    check("the trap still exists in this OCC (raw Deflection is ignored)",
+          wr._achieved_deflection_mm(
+              spline_edge,
+              spline_edge.discretize(Deflection=2.372)) > 10.0,
+          "{0:.1f} mm achieved for a 2.372 mm request".format(
+              wr._achieved_deflection_mm(
+                  spline_edge, spline_edge.discretize(Deflection=2.372))))
+    verified = wr._discretize_within(spline_edge, 2.372)
+    check("_discretize_within DETECTS it and returns a compliant path",
+          wr._achieved_deflection_mm(spline_edge, verified) <= 2.372 * 1.5,
+          "{0:.4g} mm achieved".format(
+              wr._achieved_deflection_mm(spline_edge, verified)))
+
     # ---- 3. chord density responds to the deflection rule --------------
     orig = wr.CHORD_DEFLECTION_FRAC
     try:

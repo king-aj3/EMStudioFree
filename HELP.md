@@ -32,6 +32,7 @@ thing; **System** designs a system of them. Every command has its own icon.
 ### Analysis
 | Command | What it does |
 |---|---|
+| **Antenna from Selection** | **Start here for an antenna.** Select the conductor you drew — a **solid** or a **curve** — and this builds the whole runnable NEC2 analysis: wire model, PEC material, centre feed, a sweep around the conductor's own half-wave resonance, and the solver. A solid has its equivalent radius measured from its cross-section; a curve has no thickness, so you are asked for it. It tells you what it assumed **and why** before creating anything |
 | **New EM Analysis** | Container for one simulation (sweep, boundaries, mesh settings live on it) |
 | **EM Material** | Assign PEC/dielectric to the selected geometry (works on solids, faces, wires, imported STL meshes) |
 | **Lumped Port** | Feed point on the selected edge/face; set Direction + Impedance |

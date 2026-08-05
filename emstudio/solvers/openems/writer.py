@@ -33,8 +33,112 @@ def excite_dir_negative(direction):
     return str(direction)[0] == "-"
 
 
+#: Cells the FDTD grid must put across a body's smallest feature before the
+#: geometry means anything. Below 1 the body is thinner than a cell and is
+#: represented by nothing at all; below this it is a staircase caricature.
+MIN_CELLS_ACROSS_FEATURE = 3.0
+
+#: Ceiling on the CELLS local refinement may add for one body. The cost of a
+#: refinement is the PRODUCT of its per-axis line counts, not the largest of
+#: them: blanketing a 6-turn helix's bounding box at its 20 mm conductor is
+#: 105 x 73 x 121 = 927k cells for a single body, inside a domain that is
+#: metres across at its resonance. A per-axis cap misses that entirely — 121
+#: looks modest until it is multiplied. Declining here hands the case to
+#: _refuse_unresolvable, which tells the user plainly that FDTD is the wrong
+#: tool for a lambda/600 conductor.
+MAX_REFINEMENT_CELLS = 200000
+
+#: Per-axis sanity bound, kept alongside the cell budget so a single
+#: pathological axis cannot produce a degenerate grid.
+MAX_REFINEMENT_LINES = 400
+
+
+def _stl_refinement(prim, mesh_res_mm):
+    """Local grid for one STL body: (step_mm, (nx, ny, nz)) or None.
+
+    None means "do not refine": either the global cell already resolves the
+    body, or refining it would cost more lines than :data:`MAX_REFINEMENT_LINES`
+    on some axis. Refusing to refine is not the same as refusing to run — the
+    caller decides that separately, from the same feature size.
+    """
+    feat = float(prim.get("min_feature") or 0.0)
+    if feat <= 0.0:
+        return None
+    step = feat / MIN_CELLS_ACROSS_FEATURE
+    if step >= mesh_res_mm:
+        return None                     # the global grid already resolves it
+    counts = []
+    for i in range(3):
+        extent = prim["stop"][i] - prim["start"][i]
+        if extent <= 0.0:
+            counts.append(2)
+            continue
+        n = int(math.ceil(extent / step)) + 1
+        if n > MAX_REFINEMENT_LINES:
+            return None                 # degenerate on this axis
+        counts.append(max(2, n))
+    if counts[0] * counts[1] * counts[2] > MAX_REFINEMENT_CELLS:
+        return None                     # unaffordable as a whole
+    return step, tuple(counts)
+
+
 class OpenEMSModelError(ValueError):
     """The analysis cannot be expressed as an openEMS model."""
+
+
+def _refuse_unresolvable(mats, mesh_res_mm):
+    """Refuse a body the grid cannot represent at all, with the numbers.
+
+    FDTD is a volume method on a Cartesian grid: a conductor thinner than one
+    cell is not "approximate", it is ABSENT, and the run still produces
+    S-parameters and a radiation pattern that look perfectly plausible. Local
+    refinement (:func:`_stl_refinement`) rescues the affordable cases; this
+    catches the ones no refinement can, and says why in the user's own units.
+
+    The classic example is exactly the geometry that motivated it: a 6-turn
+    helix, 20 mm conductor, resonating near 25 MHz. lambda is 12 m there, so
+    the default grid cell is ~250 mm — the conductor is 0.04 of a cell. No
+    mesh setting fixes that; a lambda/600 conductor in a lambda-sized domain is
+    what thin-wire codes exist for, and the message says so.
+    """
+    worst = None
+    for m in mats:
+        # SCOPE, and every exclusion is load-bearing — an earlier draft of this
+        # check refused EMStudio's own validated 2.4 GHz patch template:
+        #  * DIELECTRICS are excluded: a thin substrate already gets explicit
+        #    lines across its thickness further down (_dielectric_thin_axis_lines),
+        #    so 0.3 global cells across a 1.524 mm Rogers laminate is fine and
+        #    is exactly how the published reference design is meshed.
+        #  * BOXES and SHEETS are excluded: thin metal is modelled as a
+        #    zero-thickness sheet, the openEMS-canonical form, and gets the
+        #    metal-edge thirds rule rather than volume cells.
+        # What is left is the real hazard: a metal STL body with genuine
+        # thickness that no local refinement rescued.
+        if m["kind"] != "metal":
+            continue
+        for p in m["prims"]:
+            if p["kind"] != "stl":
+                continue
+            feat = float(p.get("min_feature") or 0.0)
+            if feat <= 0.0:
+                continue
+            if _stl_refinement(p, mesh_res_mm) is not None:
+                continue                # local refinement will resolve it
+            cells = feat / mesh_res_mm
+            if worst is None or cells < worst[0]:
+                worst = (cells, feat, m["name"])
+    if worst is None or worst[0] >= 1.0:
+        return
+    cells, feat, name = worst
+    raise OpenEMSModelError(
+        "'{0}' has a smallest feature of {1:.4g} mm, but the FDTD cell is "
+        "{2:.4g} mm — {3:.3g} cells across it, so this body would be absent "
+        "from the grid and the run would still report plausible-looking "
+        "results. Either raise MeshResolution until the cell is under "
+        "{1:.4g} mm (the domain is wavelength-sized, so check the cell count "
+        "first), or model this conductor with the NEC2 wire backend, which is "
+        "the accurate method for a conductor this thin against the "
+        "wavelength.".format(name, feat, mesh_res_mm, cells))
 
 
 # --------------------------------------------------------------------------- helpers
@@ -197,6 +301,7 @@ def write_deck(analysis, solver, workdir):
         mesh_res_mm = C0 / f2 / math.sqrt(eps_max) / 1e-3 / n_lines
     else:
         mesh_res_mm = C0 / (f0 + fc) / 1e-3 / max(6, int(analysis.MeshResolution))
+    _refuse_unresolvable(mats, mesh_res_mm)
     dom_lo, dom_hi = _domain(analysis, mats, lam_c_mm)
     if msl_mesh:
         # A microstrip is a GUIDED (not radiating) structure, so the antenna-
@@ -286,6 +391,29 @@ def write_deck(analysis, solver, workdir):
                             a, p["start"][i], p["stop"][i]
                         )
                     )
+                # LOCAL REFINEMENT. Until v0.84.0 an STL body got these six
+                # bounding-box lines and nothing else, so the only thing
+                # sizing the cells inside it was the global mesh_res — a body
+                # thinner than one cell was represented by no cells at all,
+                # silently. Lay a grid across the body's own bounding box fine
+                # enough to resolve its smallest feature, but only when that
+                # is affordable; _stl_refinement decides and returns None when
+                # it is not (the caller has already refused the hopeless case).
+                ref = _stl_refinement(p, mesh_res_mm)
+                if ref is not None:
+                    step, counts = ref
+                    w("# resolve this body's own {0:.4g} mm feature "
+                      "({1} x {2} x {3} lines at {4:.4g} mm)".format(
+                          p.get("min_feature") or 0.0, counts[0], counts[1],
+                          counts[2], step))
+                    for i, a in enumerate(AXES):
+                        if counts[i] <= 2:
+                            continue
+                        w("mesh.AddLine('{0}', np.linspace({1:.9g}, {2:.9g}, "
+                          "{3:d}).tolist())".format(
+                              a, p["start"][i], p["stop"][i], counts[i]))
+                has_solid = True    # an STL body is a solid: it wants the
+                                    # metal-edge thirds rule like any other
         if m["kind"] == "metal":
             if has_solid:
                 w("FDTD.AddEdges2Grid(dirs='all', properties={0}, metal_edge_res=mesh_res/2)".format(m["name"]))

@@ -45,6 +45,71 @@ def _is_straight(edge):
     return type(edge.Curve).__name__ == "Line"
 
 
+def _achieved_deflection_mm(edge, pts):
+    """How far the chords ACTUALLY stray from the curve, in mm."""
+    import Part
+
+    worst = 0.0
+    for a, b in zip(pts[:-1], pts[1:]):
+        mid = a.add(b).multiply(0.5)
+        try:
+            worst = max(worst, edge.distToShape(Part.Vertex(mid))[0])
+        except Exception:                                    # noqa: BLE001
+            return float("inf")        # cannot verify -> treat as a failure
+    return worst
+
+
+def _discretize_within(edge, defl_mm, tol=1.5):
+    """Points along ``edge`` whose chords are VERIFIED within ``defl_mm``.
+
+    ``discretize(Deflection=...)`` cannot be trusted: on a B-spline built by
+    interpolation OCC ignores the request entirely. MEASURED on a spline
+    through a 150 mm-radius helix, budget 2.372 mm:
+
+        Deflection       108 pts   achieved 124.481 mm   (52x over, one
+                                   chord 296 mm)
+        QuasiDeflection  129 pts   achieved   1.868 mm   (honoured)
+        Number=640       640 pts   achieved   0.076 mm   (honoured)
+
+    while the same path as an ANALYTIC helix honours Deflection (2.151 mm).
+    A 124 mm error on a 9.5 mm conductor puts the modelled wire thirteen
+    radii outside the metal — silently, which is the failure class this
+    project treats as worst. So the result is measured and, if the budget is
+    missed, retried by a method that holds; a path that cannot be brought
+    inside the budget raises rather than being quietly returned.
+    """
+    best = None
+    attempts = [("Deflection", {"Deflection": defl_mm}),
+                ("QuasiDeflection", {"QuasiDeflection": defl_mm})]
+    n_est = max(2, int(math.ceil(edge.Length / max(defl_mm * 4.0, 1e-9))))
+    for mult in (1, 2, 4, 8):
+        attempts.append(("Number", {"Number": min(n_est * mult, 20000)}))
+
+    for _name, kw in attempts:
+        try:
+            pts = edge.discretize(**kw)
+        except Exception:                                    # noqa: BLE001
+            continue
+        if not pts or len(pts) < 2:
+            continue
+        got = _achieved_deflection_mm(edge, pts)
+        if best is None or got < best[0]:
+            best = (got, pts)
+        if got <= defl_mm * tol:
+            return pts
+
+    if best is None:
+        raise WireModelError(
+            "could not discretize curved edge (length {0:.4g} mm)".format(
+                edge.Length))
+    got, pts = best
+    raise WireModelError(
+        "a curved edge could not be represented within {0:.4g} mm of the "
+        "conductor: the closest discretization strays {1:.4g} mm, which is "
+        "outside the wire itself. Split the curve or model it as an explicit "
+        "polyline.".format(defl_mm, got))
+
+
 def _edge_chords(edge, radius_m, lam_min_m):
     """Straight chords approximating a CURVED edge, as [(p1_m, p2_m), ...].
 
@@ -84,16 +149,7 @@ def _edge_chords(edge, radius_m, lam_min_m):
     by OCC (``discretize(Deflection=...)``) rather than assumed uniform.
     """
     defl_mm = max(radius_m / MM_TO_M * CHORD_DEFLECTION_FRAC, 1e-9)
-    pts = None
-    try:
-        pts = edge.discretize(Deflection=defl_mm)
-    except Exception:                                        # noqa: BLE001
-        pts = None
-    if not pts or len(pts) < 2:
-        # OCC declined (some analytic curves refuse a deflection request).
-        # Fall back to a count from the edge's own length and deflection.
-        n = max(2, int(math.ceil(edge.Length / max(defl_mm * 4.0, 1e-9))))
-        pts = edge.discretize(Number=min(n, 20000))
+    pts = _discretize_within(edge, defl_mm)
     if len(pts) < 2:
         raise WireModelError(
             "could not discretize curved edge (length {0:.4g} mm)".format(
