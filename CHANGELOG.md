@@ -3,6 +3,67 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.86.0] — 2026-08-05 — the workbench now tells you when you picked the wrong solver, and offers to fix it
+
+### Added
+- **Wrong-solver assist.** "Antenna from Selection" now checks whether the
+  conductor is electrically thin enough for NEC2 **at the frequency it will
+  actually be swept at**, and when it is not, says so in plain language and
+  offers the fix as the **default button**: *Use openEMS (recommended)* /
+  *Keep NEC2 anyway* / *Cancel*. Accepting builds the full-wave analysis on
+  the **solid**, not on the derived centreline — modelling a filament in a
+  full-wave solver would discard the very thickness that made NEC2 invalid.
+  Mutation-tested 4/4, including a "cries wolf on every conductor" mutation:
+  an assist that always fires is one users learn to click past.
+- **Progress bars that carry information.** The dialogs were
+  `QProgressDialog(…, 0, 0, …)` — indeterminate, so they said only "not hung".
+  The worker's log callback is now a reporter that is *still callable* (all 24
+  existing call sites unchanged) with a `.progress(done, total, note)` method.
+  The centreline march reports against a real denominator — `volume /
+  section_area` **is** the centreline length of a swept conductor, known
+  before the march begins — so you get a true percentage plus a coarse ETA.
+  The estimate is withheld until it would be meaningful rather than printing a
+  jittering guess.
+
+### Fixed
+- **The thin-wire guard was dead.** It was evaluated inside
+  `wire_extract.extract()` against `plan()`'s *optional* `freq_hz`, which the
+  GUI command never passes — so it saw `None` and returned `None` every time,
+  while the real sweep frequency (`f_res`, derived from the conductor length)
+  was not computed until afterwards. A conductor of **any** thickness passed
+  silently at its own half-wave resonance. Now evaluated after `f_res` is known.
+- **`antenna_from_selection` had never passed.** It unpacked
+  `build_wire_model()` (single-excitation: `wires, feed_INDEX, sweep`) using
+  `build_wire_model_multi`'s signature and called `len()` on an int, raising
+  `TypeError` before its first assertion. It is SOLVER tier and the work box
+  runs FAST, so nobody had run it. The gate for v0.84.0's headline feature.
+- **Four openEMS gates reported PASSED when they SKIPPED.** They printed the
+  pass banner and returned 0 on the no-openEMS path, so on a box without
+  openEMS they reported success while testing nothing — and because
+  `freecadcmd` drops `print()` on exit, the exit code was the only signal a
+  caller ever saw. Skipping is now the battery's job (`SOLVER_REQS` declares
+  `openems_python`); running one by hand fails loudly, because you asked for it.
+- **Elmer's guided Windows install fired an unnecessary MSYS2 download.** CSC
+  refreshed the funet build on 2026-08-05 (~160 MB → 219 MB) and it now ships
+  its runtime DLLs, closing
+  [#858](https://github.com/ElmerCSC/elmerfem/issues/858). Our `runtime_dlls`
+  VERIFY list still named `libgomp-1.dll` — correct only for MSYS2's OpenMP
+  OpenBLAS, not CSC's — so it was permanently "missing" and triggered the
+  completion step on every install of an already-complete tree, which would
+  hard-fail on any box whose `tar.exe` cannot read zstd. **A VERIFY list must
+  describe what the binary actually imports, or it stops being a check and
+  becomes a trigger.** Verified end to end on a Windows VM.
+
+### Changed
+- `team7_elmer` `NORM_TOL` 2e-4 → **2e-3**, with the mesher named in any
+  failure. The pins are **gmsh-version-locked**: measured on two boxes
+  2026-08-05, gmsh 4.12.1 reproduces them bit-for-bit while 4.15.2 drifts
+  +0.082 % / +0.112 %, so the old tolerance reported RED on a healthy tree.
+  2e-3 is ~1.8× the observed drift and still ~50× tighter than the measured
+  physics gate beside it. The same sensitivity appears in `open_coil_elmer`
+  (split ring −0.79 % vs −1.49 % across the same two boxes), so **a sub-1 %
+  FEM number is not portable across gmsh minor versions**.
+
 ## [0.85.0] — 2026-08-05 — a conductor may now have two ends
 
 Until now every coil in the Elmer 3-D path was declared closed, because the
