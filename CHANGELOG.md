@@ -3,6 +3,51 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.82.0] — 2026-08-05 — draw a SOLID conductor, simulate it as an antenna
+
+### Added
+- **`emstudio/geometry/wire_extract.py` — thin-wire model from a 3-D solid.**
+  Until now nothing converted a solid conductor into something NEC2 could
+  solve: a user with a swept helix had to measure the centreline and pick an
+  equivalent radius BY HAND (and the first hand attempt used the wrong
+  cross-section, which is the argument for automating it).
+
+  The centreline is recovered by **marching cross-sections** — step along the
+  local tangent, cut with a plane normal to it, take the section centroid,
+  update the tangent. The one rule that makes it work on a coil: a cutting
+  plane crosses a multi-turn conductor MANY times, so the section returns
+  several disjoint pieces, and only the piece NEAREST the previous station is
+  correct. Taking the largest or the first walks onto a neighbouring turn and
+  yields a confidently wrong path; a jump beyond a few steps terminates the
+  march instead of guessing.
+
+  Measured on a real 6.44-turn octagonal helix: centreline **6067 mm against
+  the parametric truth of 6030 mm (+0.61 %)**, section area 282.78 vs
+  282.843 mm^2 (**-0.02 %**), equivalent radius **9.487 vs 9.488 mm**. Driven
+  straight into NEC2 the extracted model resonates at **18.89 / 25.4 MHz**
+  against **18.65 / 25.78 MHz** for a hand-built 103-chord model.
+
+- **Provenance, not a silent substitution.** `describe()` reports the method,
+  the chord count, both independent reads of the cross-section (end caps and
+  volume/length), and which equivalent-radius convention was used. When the
+  two section reads disagree by >10 % the sweep is not uniform and one
+  equivalent radius cannot represent it — the extractor says so.
+
+- **The validity boundary is enforced, not assumed.** Thin-wire modelling of a
+  solid is the ACCURATE method while the conductor is electrically thin (the
+  helix is lambda/600 across at its resonance); it stops being true when the
+  section approaches a fraction of a wavelength. `thin_wire_warning()` flags
+  that case rather than returning a number that no longer means anything.
+
+- **Refusals.** A CLOSED loop has no end caps to march from and is refused
+  with that explanation, not approximated. A collapsed or non-terminating
+  march raises rather than returning a partial path.
+
+- Gate `tests/validation/wire_from_solid.py` (SOLVER tier): a straight rod and
+  a swept helix against closed-form answers, the closed-loop refusal, the
+  electrically-thick warning, resampling invariants, and that the provenance
+  block is actually emitted.
+
 ## [0.81.0] — 2026-08-05 — 3-D coils: the winding axis, inductance, and a delivery guard
 
 Found by a user driving a real 6.44-turn octagonal-conductor helix through the

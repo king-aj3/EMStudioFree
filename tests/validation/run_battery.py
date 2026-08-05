@@ -63,7 +63,8 @@ SOLVER = [
     "isolation_patch_openems", "lpda_nec2", "mmwave_palace", "monopole_nec2",
     "msl_notch_openems", "patch_auto_openems", "patch_openems",
     "patch_stl_openems", "solenoid3d_elmer", "team7_elmer", "waveguide_palace", "whitney3d_elmer",
-    "wire_current_sharing", "wire_fasthenry", "wpt_elmer", "yagi_nec2",
+    "wire_current_sharing", "wire_fasthenry", "wire_from_solid", "wpt_elmer",
+    "yagi_nec2",
 ]
 
 _NOT_GATES = {"run_battery", "__init__"}
