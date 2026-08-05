@@ -351,6 +351,30 @@ balloon is sized to the geometry it sits beside, so an eight-element array gets
 an array-sized pattern rather than the fixed 100 mm one that suits a single
 patch.
 
+**What the balloon's SIZE means — and does not.** Gain is dimensionless: a
+far-field pattern has no size in millimetres, and every EM tool draws it at an
+arbitrary scale. What is real is the **shape** and the **colour**:
+
+- the **radius** is the gain in dB above a 30 dB floor, normalised so the peak
+  sits at the balloon's full radius and a null collapses to the centre — so the
+  lobes, nulls and beamwidth you see are the true pattern;
+- the **colour** is genuine `Gain_dBi`, so the legend is the actual measured
+  gain;
+- the **overall diameter** is a drawing convention. EMStudio scales it to the
+  antenna's own size so the balloon surrounds the model instead of hiding
+  inside it.
+
+Read the colours for numbers and the shape for directivity. Do not read the
+diameter as a distance.
+
+**If the balloon appears in the tree but nothing is drawn**, the far field
+could not form a surface. EMStudio now refuses to write an empty overlay and
+tells you why instead, but two causes are worth knowing: a **single-cut**
+pattern (one theta or one phi row) cannot make a 3-D balloon — use the Pattern
+tab's 2-D polar plot; and a run that produced no finite gain values has nothing
+to draw. Overlays are ordinary objects, so old ones from earlier runs stay in
+the tree until you delete them.
+
 One honest limitation on the Array Designer: its Verify builds the array in a
 scratch document that is closed when the run finishes, so there is no array
 geometry left to attach the pattern to. That overlay is centred on the **origin**
