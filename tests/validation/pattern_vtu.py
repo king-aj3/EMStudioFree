@@ -174,6 +174,12 @@ def main():
         def __init__(self, lo, hi):
             (self.XMin, self.YMin, self.ZMin) = lo
             (self.XMax, self.YMax, self.ZMax) = hi
+            # XLength/YLength/ZLength are what geometry_extent_mm reads to
+            # reject infinite datum shapes; a fake without them hides the
+            # very check it is meant to exercise.
+            self.XLength = self.XMax - self.XMin
+            self.YLength = self.YMax - self.YMin
+            self.ZLength = self.ZMax - self.ZMin
 
         def isValid(self):
             return True
@@ -225,6 +231,43 @@ def main():
               vtk_out.auto_radius_mm(extent) >= extent,
               "radius {0:.0f} mm vs extent {1:.0f} mm".format(
                   vtk_out.auto_radius_mm(extent), extent))
+    # DATUM GEOMETRY MUST NOT BE MEASURED AS A MODEL.
+    # A PartDesign Body brings an Origin whose X/Y/Z axes and XY/XZ/YZ planes
+    # are INFINITE: FreeCAD reports bounding boxes of ~2e100 mm and they pass
+    # isValid(). Measuring the document therefore measured 2e100, and the
+    # balloon was written at 1.99e+100 mm — outside Float32, read back as
+    # infinity, so the overlay sat in the tree drawing NOTHING. This is the
+    # ACTUAL cause of the 2026-08-05 report; every earlier reproduction used a
+    # plain Part::Feature, which has no Origin, and so never reproduced it.
+    # Rejected PER OBJECT: discarding the whole measurement merely falls back
+    # to the fixed default and draws an undersized balloon instead.
+    class _BB2:
+        def __init__(s2, x, y, z):
+            s2.XLength, s2.YLength, s2.ZLength = x, y, z
+            s2.XMin = s2.YMin = s2.ZMin = 0.0
+            s2.XMax, s2.YMax, s2.ZMax = x, y, z
+
+        def isValid(s2):
+            return True
+
+    class _Ob:
+        def __init__(s2, tid, x, y, z):
+            s2.TypeId = tid
+            s2.Shape = type("S", (), {"BoundBox": _BB2(x, y, z)})()
+
+    _D = 2.0e100
+    _doc = [_Ob("Part::Feature", 325.0, 225.0, 325.0),
+            _Ob("App::Line", _D, 0.0, 0.0),
+            _Ob("App::Plane", _D, _D, 0.0),
+            _Ob("Fem::FemPostPipeline", 200.0, 142.0, 199.0)]
+    _c, _e = vtk_out.geometry_extent_mm(_doc)
+    check("a PartDesign Origin's infinite datums are not measured as geometry",
+          _e is not None and abs(_e - 325.0) < 1e-6,
+          "extent {0}".format(_e))
+    check("and the model is still measured (not discarded wholesale)",
+          _e is not None and vtk_out.auto_radius_mm(_e) == 325.0,
+          "radius {0}".format(vtk_out.auto_radius_mm(_e) if _e else None))
+
     # THE OVERLAY MUST NOT SIZE ITSELF FROM ITS OWN PREVIOUS OVERLAY.
     # geometry_extent_mm walked EVERY object in the document, including the
     # pattern balloons it had itself created -- and a balloon is deliberately
@@ -240,6 +283,7 @@ def main():
         def __init__(s2, n):
             s2.XMin = s2.YMin = s2.ZMin = -n
             s2.XMax = s2.YMax = s2.ZMax = n
+            s2.XLength = s2.YLength = s2.ZLength = 2.0 * n
 
         def isValid(s2):
             return True

@@ -256,7 +256,27 @@ class SweepResultsDialog(QtWidgets.QDialog):
                 # structure built from x=0 is one END of it, so an origin-drawn
                 # balloon hangs off the edge of its own geometry. Only the draw
                 # position moves; the directions shown are unchanged.
-                centre, extent = vtk_out.geometry_extent_mm(doc.Objects)
+                # Measure the ANTENNA THIS RESULT CAME FROM, not the whole
+                # document. A second analysis or a leftover body would
+                # otherwise move the balloon off its own radiator.
+                # meta carries the analysis LABEL (a string), not the object —
+                # resolve it, or this silently falls back to the whole document
+                # and looks like it worked.
+                geo = []
+                label = self.result.meta.get("analysis")
+                ana = None
+                if label:
+                    from emstudio.objects import query
+                    for cand in query.find_analyses(doc):
+                        if cand.Label == label:
+                            ana = cand
+                            break
+                if ana is not None:
+                    try:
+                        geo = vtk_out.analysis_geometry(ana)
+                    except Exception:                    # noqa: BLE001
+                        geo = []
+                centre, extent = vtk_out.geometry_extent_mm(geo or doc.Objects)
                 p = vtk_out.write_pattern_vtu(
                     ff, os.path.join(workdir, "pattern3d.vtu"),
                     radius_mm=(vtk_out.auto_radius_mm(extent) if extent else 100.0),

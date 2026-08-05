@@ -3,6 +3,46 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.88.1] — 2026-08-05 — the real cause: a PartDesign Origin is 2e100 mm across
+
+v0.88.0 blamed a feedback loop between successive overlays. **That was wrong.**
+The user's own object list showed it:
+
+    MODEL X-axis     2.0e100 x 0.0 x 0.0
+    MODEL XY-plane   2.0e100 x 2.0e100 x 0.0
+
+A **PartDesign Body brings an Origin** whose X/Y/Z axes and XY/XZ/YZ planes are
+INFINITE shapes; FreeCAD reports bounding boxes of ~2e100 mm and they pass
+`isValid()`. `geometry_extent_mm` measured them as geometry, so the balloon was
+written with coordinates of 1.99e+100 — outside the Float32 the VTU uses, read
+back as infinity, overlay in the tree drawing nothing.
+
+**Every earlier reproduction used a plain `Part::Feature`, which has no
+Origin** — which is precisely why none of them reproduced it, and why three
+diagnoses in a row were wrong.
+
+### Fixed
+- Datum/construction shapes are rejected **per object** (any bbox dimension
+  over 1 km is not a model). v0.88.0 rejected the whole *measurement* when it
+  looked absurd, which fell back to the fixed 100 mm default and drew a
+  **200 mm balloon around a 325 mm coil** — undersized, and still wrong.
+  With the real object list the extent is now 325 mm and the balloon 650 mm.
+- **The balloon centres on the antenna that produced the result**, via the
+  analysis' own material/port references, instead of the bounding box of every
+  object in the document. A second analysis or a leftover body previously moved
+  the pattern off its own radiator. The result meta carries the analysis
+  *label*, not the object, so it is resolved through the document — reading it
+  directly would have silently fallen back to whole-document behaviour and
+  looked like it worked.
+
+### Note on what the balloon means
+Gain is dimensionless: a far-field pattern has **no size in mm**, and every EM
+tool draws it at an arbitrary scale. The SHAPE is the true normalized pattern
+(radius linear in dB above a −30 dB floor, peak at full radius) and the
+**colour scalar is real `Gain_dBi`**. The overall diameter is a drawing
+convention — now one that clears the geometry instead of hiding inside it.
+
+
 ## [0.88.0] — 2026-08-05 — the 3-D pattern sized itself from its own last overlay
 
 *"When I add the 3D pattern to the model it is not shown, even if I change what

@@ -73,6 +73,12 @@ def _vtu(points, cells, cell_type, scalars):
 #: the antenna instead of sharing its volume.
 BALLOON_FRACTION = 1.0
 
+#: Anything whose bounding box exceeds this is construction geometry, not a
+#: model: FreeCAD's infinite datum planes/axes measure ~2e100 mm. A real
+#: antenna is never a kilometre across in a CAD document, and if one ever is,
+#: drawing its pattern balloon is not the pressing problem.
+_DATUM_MM = 1.0e6
+
 
 def auto_radius_mm(extent_mm, fraction=None, minimum_mm=50.0):
     """A balloon radius that reads well AROUND geometry ``extent_mm`` across.
@@ -138,6 +144,21 @@ def geometry_extent_mm(objects):
         bb = getattr(shape, "BoundBox", None) if shape is not None else None
         if bb is None or not getattr(bb, "isValid", lambda: False)():
             continue
+        # SKIP DATUM / CONSTRUCTION GEOMETRY. A PartDesign Body brings an
+        # Origin with X/Y/Z axes and XY/XZ/YZ planes, and FreeCAD gives those
+        # INFINITE shapes a bounding box of ~2e100 mm. They pass isValid(), so
+        # measuring the document measured 2e100 and the balloon was written
+        # with coordinates of 1.99e+100 — outside Float32, read back as
+        # infinity, overlay present in the tree and drawing NOTHING.
+        # Diagnosed 2026-08-05 from the user's own object list; every earlier
+        # reproduction used a plain Part::Feature, which has no Origin, which
+        # is exactly why it never reproduced here.
+        # Reject PER OBJECT, not by poisoning the whole extent: discarding the
+        # measurement entirely just falls back to a fixed default and draws an
+        # undersized balloon, which is what the first version of this guard did.
+        dims = (bb.XLength, bb.YLength, bb.ZLength)
+        if not all(math.isfinite(d) for d in dims) or max(dims) > _DATUM_MM:
+            continue
         mins = (bb.XMin, bb.YMin, bb.ZMin)
         maxs = (bb.XMax, bb.YMax, bb.ZMax)
         for i in range(3):
@@ -159,6 +180,28 @@ def geometry_extent_mm(objects):
 
 class PatternGridError(ValueError):
     """The far field cannot form a drawable 3-D balloon."""
+
+
+def analysis_geometry(analysis):
+    """The objects an analysis actually references (materials + ports).
+
+    The pattern belongs to ONE antenna. Measuring the whole document put the
+    balloon on the bounding-box centre of everything present — a second
+    analysis, a leftover body or an unrelated sketch all moved it. Falling back
+    to the document is still right when an analysis references nothing
+    resolvable, because a balloon drawn somewhere beats no balloon at all.
+    """
+    from emstudio.objects import query
+
+    seen, out = set(), []
+    for getter in (query.get_materials, query.get_ports):
+        for obj in getter(analysis) or ():
+            for link_obj, _shape, _sub in query.resolved_references(obj):
+                name = getattr(link_obj, "Name", None)
+                if name and name not in seen:
+                    seen.add(name)
+                    out.append(link_obj)
+    return out
 
 
 def write_pattern_vtu(farfield, path, radius_mm=100.0, floor_db=-30.0,
