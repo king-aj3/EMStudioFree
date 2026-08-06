@@ -515,6 +515,49 @@ def _synthetic_gap_curve():
     ]
 
 
+def _pattern_frequency_picker():
+    """A multi-pattern result builds a working frequency picker.
+
+    The picker only exists when a sweep produced more than one pattern, so no
+    existing gui_smoke path exercised it. Built here from a synthetic result
+    rather than a live sweep — the point is the WIDGET, and a real NEC2 sweep
+    is already covered by tests/validation/pattern_sweep.py.
+    """
+    import numpy as np
+    from PySide import QtGui as QtWidgets  # noqa: N813
+
+    from emstudio.post.farfield import FarFieldResult
+    from emstudio.post.sparams import SweepResult
+    from emstudio.ui.results_dialog import SweepResultsDialog
+
+    th = [0.0, 45.0, 90.0, 135.0, 180.0]
+    ph = [float(p) for p in range(0, 360, 45)]
+    freq = np.linspace(200e6, 400e6, 21)
+    s11 = np.full(freq.shape, 0.2 + 0j)
+    s11[10] = 0.01 + 0j                       # a best match to anchor on
+    res = SweepResult(freq, s11, z0=50.0, meta={"backend": "nec2c"})
+    ffs = [FarFieldResult(f, th, ph,
+                          np.full((len(th), len(ph)), -3.0 + i * 0.1),
+                          meta={"backend": "nec2c"})
+           for i, f in enumerate(np.linspace(200e6, 400e6, 5))]
+    res.farfields = ffs
+    res.farfield = ffs[2]
+
+    dlg = SweepResultsDialog(res)
+    combos = dlg.findChildren(QtWidgets.QComboBox)
+    picks = [c for c in combos if c.count() == len(ffs)]
+    assert picks, "no frequency picker built for a 5-pattern result"
+    combo = picks[0]
+    assert "MHz" in combo.itemText(0), combo.itemText(0)
+    # it must OPEN on the pattern the rest of the dialog describes
+    assert combo.currentIndex() == 2, combo.currentIndex()
+    # and switching must not raise (the plot is built lazily on demand)
+    combo.setCurrentIndex(4)
+    combo.setCurrentIndex(0)
+    dlg.close()
+    return "{0} frequencies, opens on the best match".format(len(ffs))
+
+
 def _dialogs_construct():
     """Every results dialog must import + construct under the GUI (not exec).
 
@@ -2170,6 +2213,8 @@ def main():
     check("shipped examples open with VISIBLE geometry", _examples_are_visible)
     check("3-D result overlay is coloured by its field, not flat grey",
           _pattern_overlay_coloured)
+    check("pattern frequency picker (multi-frequency sweep)",
+          _pattern_frequency_picker)
     check("results dialogs construct", _dialogs_construct)
     check("About + Legal notice dialogs (intended use / liability / brand)",
           _about_and_legal_dialogs)

@@ -569,8 +569,14 @@ def write_nec(analysis, solver, path):
     return path, (f1, f2, npts), z0
 
 
-def write_nec_farfield(analysis, solver, path, f_hz):
-    """Write a single-frequency deck with an RP card (radiation pattern pass).
+def write_nec_farfield(analysis, solver, path, f_hz, npts=1, f2_hz=None):
+    """Write a deck with an RP card (radiation pattern pass).
+
+    ``npts`` > 1 sweeps ``f_hz`` .. ``f2_hz`` and NEC2 then emits one pattern
+    per frequency FROM THE SAME RUN — measured 2026-08-06: 201 points gave 201
+    pattern blocks in 7.18 s. Patterns across a whole sweep therefore cost one
+    run, not N. ``npts=1`` emits the byte-identical single-frequency deck every
+    existing caller and frozen gate depends on.
 
     Pattern grid: theta 0..180 deg step 2, phi cuts at 0 and 90 deg — matching the
     openEMS backend's far-field sampling so results are directly comparable.
@@ -599,7 +605,13 @@ def write_nec_farfield(analysis, solver, path, f_hz):
         lines.append(gn_card)
     lines.extend(_tl_cards(analysis, wires))
     lines.extend(_ex_cards(wires, feeds, ground_active))
-    lines.append("FR 0,1,0,0,{0:.6f},0.".format(f_hz / 1e6))
+    if npts > 1 and f2_hz and f2_hz > f_hz:
+        # linear sweep: NEC2 runs the RP card at every step of the FR card
+        df_mhz = (float(f2_hz) - float(f_hz)) / 1e6 / (npts - 1)
+        lines.append("FR 0,{0:d},0,0,{1:.6f},{2:.6f}".format(
+            int(npts), f_hz / 1e6, df_mhz))
+    else:
+        lines.append("FR 0,1,0,0,{0:.6f},0.".format(f_hz / 1e6))
     # Free space: full sphere (theta 0-180 x phi 0-355, 5 deg) for 3-D balloons;
     # the phi=0/90 columns feed the 2-D cuts. Over ground the lower hemisphere is
     # below the earth, so sample only the upper hemisphere (theta 0-90).

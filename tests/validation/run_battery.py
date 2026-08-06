@@ -48,6 +48,7 @@ FAST = {
     "p2001": "itu_maps:P2001.npz",
     "p452": "itu_maps:P452.npz",
     "pattern_vtu": None,
+    "pattern_sweep": None,
     "propagation": None,
     "small_antenna": None,
     "solver_progress": None,

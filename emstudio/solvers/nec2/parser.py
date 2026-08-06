@@ -245,6 +245,74 @@ def parse_radiation_complex(path, freq_hz):
             "e_phi": e_ph}
 
 
+def parse_radiation_patterns_all(path):
+    """EVERY radiation-pattern block in the file, one FarFieldResult each.
+
+    A single NEC2 run with a multi-frequency ``FR`` card and an ``RP`` card
+    emits one pattern PER FREQUENCY — measured 2026-08-06: 201 sweep points
+    produced 201 pattern blocks in 7.18 s, one process. So per-frequency
+    patterns cost one run, not N runs.
+
+    :func:`parse_radiation_patterns` cannot be used for that file: it pours
+    every sample it finds into ONE theta/phi grid, so a multi-frequency output
+    would silently overwrite each frequency with the next and return a single
+    plausible-looking pattern that belongs to no frequency at all. This splits
+    on the frequency marker instead.
+
+    Returns a list of ``FarFieldResult`` ordered by frequency (empty if the
+    file holds no pattern blocks — an ``RP``-less deck is not an error here).
+    """
+    from emstudio.post.farfield import FarFieldResult
+
+    import numpy as np
+
+    blocks = []          # [[freq_hz, samples], ...]
+    cur_f = None
+    samples = None
+    in_table = False
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            m = _FREQ_RE.search(line)
+            if m:
+                # NEC2 prints the frequency header BEFORE that frequency's
+                # pattern block, so this always precedes its own samples.
+                cur_f = float(m.group(1)) * 1e6
+                in_table = False
+                continue
+            if "RADIATION PATTERNS" in line:
+                samples = []
+                blocks.append([cur_f, samples])
+                in_table = True
+                continue
+            if in_table:
+                nums = _FLOAT_RE.findall(line)
+                if len(nums) >= 5:
+                    try:
+                        th, ph, _v, _h, tot = (float(n) for n in nums[:5])
+                    except ValueError:
+                        continue
+                    if -0.01 <= th <= 180.01 and -360.0 <= ph <= 360.0:
+                        samples.append((th, ph, tot))
+                elif samples and line.strip() == "":
+                    in_table = False
+
+    out = []
+    for freq_hz, samp in blocks:
+        if not samp or freq_hz is None:
+            continue
+        thetas = sorted(set(s[0] for s in samp))
+        phis = sorted(set(s[1] for s in samp))
+        gain = np.full((len(thetas), len(phis)), -999.99)
+        t_idx = {v: i for i, v in enumerate(thetas)}
+        p_idx = {v: i for i, v in enumerate(phis)}
+        for th, ph, tot in samp:
+            gain[t_idx[th], p_idx[ph]] = tot
+        out.append(FarFieldResult(freq_hz, thetas, phis, gain,
+                                  meta={"backend": "nec2c"}))
+    out.sort(key=lambda ff: ff.freq)
+    return out
+
+
 def parse_radiation_patterns(path, freq_hz):
     """Parse the RADIATION PATTERNS table into a FarFieldResult.
 

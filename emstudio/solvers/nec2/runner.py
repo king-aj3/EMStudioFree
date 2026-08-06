@@ -86,17 +86,42 @@ def run(analysis, solver, workdir=None, line_callback=None):
     # second pass: radiation pattern at the best-match frequency (cheap for MoM)
     result.farfield = None
     progress.report(line_callback, 0.90, "Radiation pattern")
+    result.farfields = []
     try:
         f_ff, _ = result.min_s11()
+        # How many patterns the user asked for. 0 = one at the best match,
+        # which is what every document produced before this existed.
+        n_pat = int(getattr(solver, "PatternFrequencies", 0) or 0)
+        f1, f2 = (float(sweep[0]), float(sweep[1])) if sweep else (f_ff, f_ff)
+        multi = n_pat > 1 and f2 > f1
         ff_deck = os.path.join(workdir, "case_ff.nec")
         ff_out = os.path.join(workdir, "case_ff.out")
-        writer.write_nec_farfield(analysis, solver, ff_deck, f_ff)
+        if multi:
+            # ONE extra run gives a pattern at every step of the FR card.
+            writer.write_nec_farfield(analysis, solver, ff_deck, f1,
+                                      npts=n_pat, f2_hz=f2)
+        else:
+            writer.write_nec_farfield(analysis, solver, ff_deck, f_ff)
         SolverJob(
             nec2_argv(info.path, ff_deck, ff_out),
             cwd=workdir,
             line_callback=line_callback,
         ).run_blocking(timeout=600)
-        result.farfield = parser.parse_radiation_patterns(ff_out, f_ff)
+        if multi:
+            # parse_radiation_patterns() would pour every frequency into ONE
+            # grid and silently return a pattern belonging to no frequency.
+            result.farfields = parser.parse_radiation_patterns_all(ff_out)
+            if not result.farfields:
+                raise parser.NecParseError(
+                    "pattern sweep produced no radiation-pattern blocks")
+            # .farfield stays the SINGLE best-match pattern so that every
+            # existing caller — the 2-D cuts, the 3-D balloon, the PDF report,
+            # gui_smoke — is untouched by this feature.
+            result.farfield = min(result.farfields,
+                                  key=lambda ff: abs(ff.freq - f_ff))
+        else:
+            result.farfield = parser.parse_radiation_patterns(ff_out, f_ff)
+            result.farfields = [result.farfield]
         result.farfield.save_csv(os.path.join(workdir, "farfield_port_1.csv"))
         # the same single-frequency output carries the current distribution
         result.currents = parser.parse_currents(ff_out, f_ff)

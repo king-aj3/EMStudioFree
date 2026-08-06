@@ -40,9 +40,17 @@ class SweepResultsDialog(QtWidgets.QDialog):
         tabs.addTab(self._plot_z(), "Impedance")
         farfield = getattr(result, "farfield", None)
         if farfield is not None:
-            tabs.addTab(self._plot_pattern(farfield), "Pattern")
+            # A sweep can carry a pattern PER FREQUENCY (the solver's
+            # PatternFrequencies). Wrap each pattern tab in a picker so the
+            # user can scroll the band; with a single pattern the picker is
+            # not built at all and the tab is exactly what it always was.
+            self._farfields = list(getattr(result, "farfields", None)
+                                   or [farfield])
+            self._farfields.sort(key=lambda ff: ff.freq)
+            tabs.addTab(self._pattern_tab(self._plot_pattern), "Pattern")
             if farfield.phi.size > 4:  # full-sphere data -> 3-D balloon
-                tabs.addTab(self._plot_pattern3d(farfield), "Pattern 3D")
+                tabs.addTab(self._pattern_tab(self._plot_pattern3d),
+                            "Pattern 3D")
         currents = getattr(result, "currents", None)
         if currents is not None:
             tabs.addTab(self._plot_currents(currents), "Currents")
@@ -137,6 +145,50 @@ class SweepResultsDialog(QtWidgets.QDialog):
         ax.set_box_aspect((1, 1, 1))
         for a in (ax.xaxis, ax.yaxis, ax.zaxis):
             a.set_ticklabels([])
+        return holder
+
+    def _pattern_tab(self, plot_fn):
+        """One pattern plot, with a frequency picker when there is a choice.
+
+        The picker rebuilds the plot rather than caching every figure: a
+        full-sphere balloon at 201 frequencies is a lot of matplotlib to hold
+        for a control the user may never touch, and redrawing one is fast.
+        """
+        current = self.result.farfield
+        if len(self._farfields) < 2:
+            return plot_fn(current)              # nothing to choose: unchanged
+
+        holder = QtWidgets.QWidget(self)
+        box = QtWidgets.QVBoxLayout(holder)
+        box.setContentsMargins(0, 0, 0, 0)
+
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Frequency:"))
+        combo = QtWidgets.QComboBox(holder)
+        for ff in self._farfields:
+            combo.addItem("{0:.4g} MHz".format(ff.freq / 1e6))
+        # start on the pattern the rest of the dialog is describing
+        best = min(range(len(self._farfields)),
+                   key=lambda i: abs(self._farfields[i].freq - current.freq))
+        combo.setCurrentIndex(best)
+        row.addWidget(combo)
+        row.addWidget(QtWidgets.QLabel(
+            "({0} solved frequencies)".format(len(self._farfields))))
+        row.addStretch(1)
+        box.addLayout(row)
+
+        stack = QtWidgets.QStackedWidget(holder)
+        box.addWidget(stack)
+        built = {}
+
+        def show(idx):
+            if idx not in built:
+                w = plot_fn(self._farfields[idx])
+                built[idx] = stack.addWidget(w)
+            stack.setCurrentIndex(built[idx])
+
+        combo.currentIndexChanged.connect(show)
+        show(best)
         return holder
 
     def _plot_currents(self, cur):

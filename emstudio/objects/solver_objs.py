@@ -126,6 +126,30 @@ class SolverNEC2(_SolverBase):
                 "Wire segments per wavelength at the highest sweep frequency (NEC guideline: >= 10)",
             )
             obj.SegmentsPerWavelength = 40
+        # How many frequencies get a RADIATION PATTERN.
+        #
+        # 0 (default) = one pattern, at the best-match frequency — exactly what
+        # every existing document produced, so nothing changes unless asked.
+        # N > 1 = N patterns evenly spanning the sweep band, which you can then
+        # scroll through in the results dialog.
+        #
+        # This is CHEAP and the number is measured: NEC2 runs the RP card at
+        # every step of the FR card, so N patterns cost ONE extra run, not N.
+        # 201 points took 7.18 s (2026-08-06). What it does cost is OUTPUT:
+        # ~0.33 MB per frequency, 65 MB for 201 — which is why this is a count
+        # to be chosen rather than "always all of them".
+        if "PatternFrequencies" not in props:
+            obj.addProperty(
+                "App::PropertyInteger",
+                "PatternFrequencies",
+                _GROUP,
+                "How many radiation patterns to compute across the sweep. "
+                "0 = one, at the best-match frequency (default). Set e.g. 11 "
+                "to scroll the pattern across the band in the results dialog. "
+                "Costs one extra solver run regardless of the count, but about "
+                "0.33 MB of output per frequency.",
+            )
+            obj.PatternFrequencies = 0
         if "GroundType" not in props:
             obj.addProperty(
                 "App::PropertyEnumeration",

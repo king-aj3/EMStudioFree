@@ -3,6 +3,47 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.90.0] — 2026-08-06 — a pattern at every frequency you swept
+
+A solve produced exactly ONE radiation pattern, at the best-match frequency,
+so there was nothing to scroll through. The cost of changing that was
+mis-estimated at first as "one extra deck run per frequency" — wrong, and the
+measurement is what made this worth building.
+
+### Added
+* **`SolverNEC2.PatternFrequencies`** — how many patterns to compute across the
+  sweep. **0 (default) = one at the best match**, exactly as before, so every
+  existing document is unchanged. Set 11 and the results dialog grows a
+  **frequency picker** on both the Pattern and Pattern 3D tabs.
+* **`result.farfields`** — the per-frequency set. `result.farfield` still holds
+  the single best-match pattern, so the 2-D cuts, the 3-D balloon, the PDF
+  report and gui_smoke are all untouched.
+* `parse_radiation_patterns_all()` — splits a multi-frequency output on the
+  frequency marker.
+
+### Measured
+NEC2 runs the `RP` card at **every step of the `FR` card**, so N patterns cost
+**one run, not N**: 201 points produced 201 pattern blocks in **7.18 s**. On the
+shipped dipole, `PatternFrequencies = 11` took 1.01 s against 0.52 s for the
+default and gave 11 patterns from 200–400 MHz with peak gain rising
+1.92 → 2.50 dBi — a fixed-length dipole growing more directive with frequency,
+which is physics rather than an artifact.
+
+The real cost is **output**: ~0.33 MB per frequency, 65.4 MB at 201 points.
+That is why this is a count the user chooses rather than "always all of them".
+
+### The trap this had to avoid
+`parse_radiation_patterns()` pours every sample it finds into ONE theta/phi
+grid. Run it on a multi-frequency file and each frequency silently overwrites
+the last, returning a perfectly plausible pattern that belongs to no frequency
+at all — no error, no warning. The gate pins that difference explicitly.
+
+### Testing
+`tests/validation/pattern_sweep.py` — 21 checks, **7/7 mutations caught**, plus
+a gui_smoke check that builds the picker under a real Qt and asserts it opens
+on the best-match frequency. One mutation exposed a substring check in the gate
+that a commented-out constructor still satisfied.
+
 ## [0.89.0] — 2026-08-06 — the progress bar tells you where you are
 
 The determinate bar with ETA has existed since v0.88.0. It was wired to exactly
