@@ -551,11 +551,166 @@ def _pattern_frequency_picker():
     assert "MHz" in combo.itemText(0), combo.itemText(0)
     # it must OPEN on the pattern the rest of the dialog describes
     assert combo.currentIndex() == 2, combo.currentIndex()
+    # 8 phi values -> the 3-D balloon tab exists too, so there are TWO pickers.
+    assert len(picks) == 2, "expected a picker on both pattern tabs, got {0}".format(
+        len(picks))
+
     # and switching must not raise (the plot is built lazily on demand)
     combo.setCurrentIndex(4)
+    # THE COUPLING: every picker, and the far field that "Show in 3D View"
+    # exports, must follow. _show_in_3d read result.farfield — pinned to the
+    # best match — so the viewport balloon silently disagreed with the tab.
+    assert dlg._selected_farfield() is ffs[4], "3-D export did not follow the picker"
+    assert all(c.currentIndex() == 4 for c in picks), \
+        "pickers out of sync: {0}".format([c.currentIndex() for c in picks])
+    picks[1].setCurrentIndex(1)               # drive it from the OTHER tab
+    assert dlg._selected_farfield() is ffs[1]
+    assert combo.currentIndex() == 1, combo.currentIndex()
     combo.setCurrentIndex(0)
     dlg.close()
-    return "{0} frequencies, opens on the best match".format(len(ffs))
+    return "{0} frequencies, both pickers + 3-D export in sync".format(len(ffs))
+
+
+def _vswr_offscale_is_visible():
+    """A VSWR curve above the linear view must still be DRAWN.
+
+    _plot_vswr clamped the axes to 1..10 unconditionally. A real 300 mm helix
+    swept 10-100 MHz has a minimum VSWR of 411, so all 51 points sat off the
+    top and the tab rendered an empty grid — the data was present and correct
+    the whole time. Asserting on the axes rather than on the source, because
+    the bug was entirely in the view.
+    """
+    import numpy as np
+    from PySide import QtGui as QtWidgets  # noqa: N813,F401
+
+    from emstudio.post.sparams import SweepResult
+    from emstudio.ui.results_dialog import VSWR_VIEW_TOP, SweepResultsDialog
+
+    freq = np.linspace(10e6, 100e6, 51)
+
+    def axes_of(result):
+        # SweepResult's second positional is Zin, NOT S11 — these fixtures are
+        # impedances, which is also how the real defect presented (R ~ 0.12 ohm
+        # against a 50 ohm reference).
+        dlg = SweepResultsDialog(result)
+        return dlg._plot_vswr()._canvas.figure.axes[0], dlg
+
+    # (a) the measured helix: R ~ 0.12 ohm across the band -> VSWR ~ 400
+    bad = SweepResult(freq, np.full(freq.shape, 0.12 + 0j), z0=50.0,
+                      meta={"backend": "nec2c"})
+    v_min = float(bad.vswr().min())
+    assert v_min > VSWR_VIEW_TOP, v_min
+    ax, dlg = axes_of(bad)
+    lo, hi = ax.get_ylim()
+    assert hi >= v_min, "off-scale curve still clipped: ylim {0}..{1} vs min VSWR {2:.0f}".format(
+        lo, hi, v_min)
+    assert ax.get_yscale() == "log", ax.get_yscale()
+    ydata = ax.get_lines()[0].get_ydata()
+    assert len(ydata) == 51 and np.isfinite(ydata).all(), len(ydata)
+    assert max(ydata) > VSWR_VIEW_TOP, "the real values were clipped away"
+    dlg.close()
+
+    # (b) a matched antenna keeps the familiar linear 1..10 view
+    zin = np.full(freq.shape, 150.0 + 0j)     # VSWR 3
+    zin[25] = 55.0 + 0j                       # VSWR 1.1 at the match
+    good = SweepResult(freq, zin, z0=50.0, meta={"backend": "nec2c"})
+    assert float(good.vswr().min()) < VSWR_VIEW_TOP
+    ax, dlg = axes_of(good)
+    assert ax.get_yscale() == "linear", ax.get_yscale()
+    assert ax.get_ylim() == (1.0, VSWR_VIEW_TOP), ax.get_ylim()
+    dlg.close()
+
+    # (c) a ONE-POINT sweep must draw a visible marker, not an invisible line
+    one = SweepResult(np.array([50e6]), np.array([75.0 + 0j]), z0=50.0,
+                      meta={"backend": "nec2c"})
+    ax, dlg = axes_of(one)
+    assert ax.get_lines()[0].get_marker() not in ("", "None"), \
+        "single-point sweep drawn with no marker — invisible"
+    dlg.close()
+    return "off-scale min {0:.0f} on a log axis; matched case unchanged".format(v_min)
+
+
+def _pattern_frequencies_dialog():
+    """The Pattern Frequencies dialog: recommends, edits, and stores exactly
+    the band that reproduces the step it showed."""
+    import FreeCAD
+
+    from emstudio.objects import query
+    from emstudio.solvers.nec2 import pattern_band
+    from emstudio.templates import dipole
+    from emstudio.ui.pattern_freq_dialog import PatternFrequenciesDialog
+
+    doc = FreeCAD.newDocument("gui_pattern_freqs")
+    try:
+        ana = dipole.makeDipole(doc, f0_hz=300e6)
+        solver = [s for s in query.get_solvers(ana)
+                  if query.em_type(s) == "EMStudio::SolverNEC2"][0]
+        f1, f2, npts = 200e6, 400e6, int(ana.FrequencyPoints)
+        ana.FrequencyStart = "200 MHz"
+        ana.FrequencyStop = "400 MHz"
+        doc.recompute()
+
+        dlg = PatternFrequenciesDialog(ana, solver)
+        # opens OFF (PatternFrequencies defaults to 0) and pre-filled with the
+        # sweep band, so pressing OK unchanged cannot alter an existing run
+        assert not dlg.enable.isChecked()
+        assert dlg.use_sweep.isChecked()
+        assert abs(dlg.start.value() - 200.0) < 1e-6, dlg.start.value()
+        assert abs(dlg.stop.value() - 400.0) < 1e-6, dlg.stop.value()
+        assert dlg.apply_to_solver() and solver.PatternFrequencies == 0
+
+        # turn it on: the recommended step must land on sweep sample points
+        dlg.enable.setChecked(True)
+        sweep_step = pattern_band.sweep_step_hz(f1, f2, npts)
+        rec = pattern_band.recommend(f1, f2, sweep_step)
+        assert abs(dlg.step.value() - rec["step_hz"] / 1e6) < 1e-9, dlg.step.value()
+        dlg.apply_to_solver()
+        count = int(solver.PatternFrequencies)
+        assert count == rec["count"], (count, rec["count"])
+        # the whole sweep -> band stays 0/0 ("follow the sweep")
+        assert pattern_band.to_hz(solver.PatternFreqStart) == 0.0
+        assert pattern_band.to_hz(solver.PatternFreqStop) == 0.0
+
+        # a hand-typed step that does NOT divide the band must still round-trip:
+        # whatever is stored has to reproduce the step the dialog displayed.
+        dlg.step.setValue(30.0)                       # 30 MHz over 200..400
+        n, b1, b2 = dlg.resolved()
+        assert n == 7 and abs(b2 - 380e6) < 1.0, (n, b2)
+        dlg.apply_to_solver()
+        stored = pattern_band.resolve_band(solver, f1, f2)
+        got = pattern_band.step_hz(stored[0], stored[1],
+                                   int(solver.PatternFrequencies))
+        assert abs(got - 30e6) < 1.0, "stored band solves at {0:.4g} MHz, not 30".format(
+            got / 1e6)
+
+        # narrowing the band, then handing it back, must clear the override
+        dlg.use_sweep.setChecked(False)
+        dlg.start.setValue(280.0)
+        dlg.stop.setValue(320.0)
+        dlg._apply_recommended()
+        # "Use recommended" must recommend against the band ON SCREEN. Asserting
+        # only that a band got stored let a mutation through that recomputed
+        # from the full sweep — it still stored a band, just the wrong step.
+        narrow = pattern_band.recommend(280e6, 320e6, sweep_step)
+        assert abs(dlg.step.value() - narrow["step_hz"] / 1e6) < 1e-9, \
+            "recommended {0} MHz for 280-320, expected {1} MHz".format(
+                dlg.step.value(), narrow["step_hz"] / 1e6)
+        # and it must still be a whole number of SWEEP steps, not band steps
+        assert narrow["on_sweep_points"], narrow
+        ratio = narrow["step_hz"] / sweep_step
+        assert abs(ratio - round(ratio)) < 1e-9, ratio
+        dlg.apply_to_solver()
+        assert pattern_band.to_hz(solver.PatternFreqStart) > 0.0
+        dlg.use_sweep.setChecked(True)
+        dlg._apply_recommended()
+        dlg.apply_to_solver()
+        assert pattern_band.to_hz(solver.PatternFreqStart) == 0.0, \
+            "a narrowed band survived being handed back to the sweep"
+        dlg.close()
+        return "recommends {0} patterns; hand-typed step round-trips".format(
+            rec["count"])
+    finally:
+        FreeCAD.closeDocument(doc.Name)
 
 
 def _dialogs_construct():
@@ -2215,6 +2370,10 @@ def main():
           _pattern_overlay_coloured)
     check("pattern frequency picker (multi-frequency sweep)",
           _pattern_frequency_picker)
+    check("VSWR plot shows off-scale data instead of an empty grid",
+          _vswr_offscale_is_visible)
+    check("Pattern Frequencies dialog (band + recommended step + round-trip)",
+          _pattern_frequencies_dialog)
     check("results dialogs construct", _dialogs_construct)
     check("About + Legal notice dialogs (intended use / liability / brand)",
           _about_and_legal_dialogs)

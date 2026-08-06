@@ -343,6 +343,51 @@ Every results window offers two levels of 3-D:
   drives geometry and overlay together — there is no separate pattern viewer to
   keep in sync.
 
+### Scrolling the pattern across the band
+
+By default a solve computes **one** radiation pattern, at the best-match
+frequency. To get a pattern you can scroll, run **EMStudio ▸ Analysis ▸ Pattern
+Frequencies…** *before* solving (NEC2 only).
+
+The dialog opens on the analysis sweep band and a recommended step. Both are
+editable:
+
+- **Band** — untick *Use the analysis sweep band* to compute patterns over only
+  part of the swept range. The interesting patterns usually cluster around
+  resonance, and each one costs output.
+- **Step** — the recommendation is a whole number of analysis sweep steps, so
+  every pattern lands on a frequency the S11 curve was actually sampled at. Type
+  your own and the dialog shows the resulting count, the output size, and where
+  the last pattern actually falls if your step does not divide the band evenly.
+
+N patterns cost **one** extra solver run, not N — NEC2 evaluates the pattern at
+every step of its frequency card (measured: 201 patterns in 7.18 s). What they
+cost is disk: about 0.33 MB each.
+
+Both the **Pattern** and **Pattern 3D** tabs then grow a **Frequency** picker,
+and **Show in 3D View** exports whichever frequency the picker is on — the two
+tabs and the viewport always agree. The wire-currents overlay is labelled with
+its own frequency, because currents are still solved only at the best match.
+
+### When the VSWR plot looks empty
+
+It is not empty — read the line under the tabs. The VSWR tab uses the familiar
+linear 1–10 scale while the curve fits in it, and switches to a **log scale**
+when nothing in the band comes close to a match, annotating the minimum. An
+electrically small antenna with a fraction of an ohm of feed resistance can sit
+at a VSWR of several hundred across the whole sweep; that is a real answer, and
+it means the antenna needs a matching network (see the **System Matching
+Designer**), not that the solve failed.
+
+### The thin-wire warning
+
+NEC-2 models a conductor as a centre line plus a radius, and its kernel is
+derived assuming a segment is long against that radius — roughly 8 radii or
+more. It returns a number either way and never mentions the limit. If a deck
+falls under it, EMStudio says so beneath the result plots. Fixes, in order of
+preference: a thinner conductor, a coarser wire path (fewer, longer chords), or
+a solver that meshes the volume (Elmer 3-D, Palace).
+
 The **Element Designer** and the **Array Designer** (Pro) carry the same button,
 labelled **Show pattern in 3-D view**. It stays greyed out until a **Verify** has
 actually produced a far field: a predicted array factor is not a measured

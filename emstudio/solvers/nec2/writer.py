@@ -36,6 +36,19 @@ MM_TO_M = 1e-3
 #: input resistance on the analytic loop benchmark.
 CHORD_DEFLECTION_FRAC = 0.25
 
+#: NEC-2's thin-wire kernel is derived assuming a segment is LONG against the
+#: conductor radius; the Burke & Poggio guideline is segment length >= ~8 radii
+#: for the standard kernel. Below that the kernel is being used outside its
+#: derivation, and NEC has no way to say so — it returns a number either way.
+#:
+#: This is a REPORTING threshold and a cap on gratuitous over-segmentation, NOT
+#: a claim that results beneath it are wrong. Measured on a real 6 m helix at
+#: d/a = 7.9 / 2.6 / 1.6 / 0.9 the feed resistance moved 0.1246 -> 0.1239 ohm
+#: (0.6 %), so this model was insensitive to it. Another might not be, and the
+#: point of the guard is that the user is TOLD which side of the line they are
+#: on rather than having to know that NEC has such a line at all.
+THIN_WIRE_MIN_SEG_RADII = 8.0
+
 
 class WireModelError(ValueError):
     """The analysis cannot be expressed as a NEC2 wire model."""
@@ -181,12 +194,45 @@ def _edge_chords(edge, radius_m, lam_min_m):
     return out
 
 
+def thin_wire_report(wires):
+    """Worst segment-length-to-radius ratio in a built wire model.
+
+    Returns ``{"ratio": float, "limit": float, "ok": bool, "segments": int}``,
+    or None when nothing has a radius to measure against.
+
+    Derived from the wire list rather than accumulated while building it, so it
+    cannot drift out of step with the deck that actually gets written — the
+    ratio it reports is the one the GW cards encode.
+    """
+    worst = None
+    total = 0
+    for w in wires:
+        total += int(w["nseg"])
+        radius = float(w.get("radius") or 0.0)
+        if radius <= 0.0 or not w["nseg"]:
+            continue
+        seg_len = math.dist(w["p1"], w["p2"]) / int(w["nseg"])
+        ratio = seg_len / radius
+        if worst is None or ratio < worst:
+            worst = ratio
+    if worst is None:
+        return None
+    return {"ratio": worst, "limit": THIN_WIRE_MIN_SEG_RADII,
+            "ok": worst >= THIN_WIRE_MIN_SEG_RADII, "segments": total}
+
+
 def _edge_key(link_obj, subname):
     return (link_obj.Name, subname)
 
 
-def _iter_material_edges(analysis):
-    """Yield (edge_shape, radius_m, key) for every wire edge of every PEC material."""
+def _iter_material_edges(analysis, with_polyline_flag=False):
+    """Yield (edge_shape, radius_m, key) for every wire edge of every PEC material.
+
+    With ``with_polyline_flag`` a fourth element is yielded: True when the edge
+    is one of SEVERAL contributed by the same object, i.e. a POLYLINE link in a
+    chain rather than a standalone wire. That distinction decides the segment
+    floor — see :func:`build_wire_model_multi`.
+    """
     for mat in query.get_materials(analysis):
         if not str(mat.Category).startswith("Metal"):
             continue
@@ -195,10 +241,16 @@ def _iter_material_edges(analysis):
             if shape is None:
                 continue
             if sub == "":  # whole object: take all its edges
-                for i, edge in enumerate(shape.Edges):
-                    yield edge, radius_m, _edge_key(link_obj, "Edge{0}".format(i + 1))
+                edges = shape.Edges
+                poly = len(edges) > 1
+                for i, edge in enumerate(edges):
+                    key = _edge_key(link_obj, "Edge{0}".format(i + 1))
+                    yield ((edge, radius_m, key, poly) if with_polyline_flag
+                           else (edge, radius_m, key))
             elif sub.startswith("Edge"):
-                yield shape, radius_m, _edge_key(link_obj, sub)
+                yield ((shape, radius_m, _edge_key(link_obj, sub), False)
+                       if with_polyline_flag
+                       else (shape, radius_m, _edge_key(link_obj, sub)))
             # faces/solids are ignored by the wire backend
 
 
@@ -417,7 +469,8 @@ def build_wire_model_multi(analysis, solver):
     wires = []
     seen_keys = set()
     key_to_index = {}
-    for edge, radius_m, key in _iter_material_edges(analysis):
+    for edge, radius_m, key, is_polyline in _iter_material_edges(
+            analysis, with_polyline_flag=True):
         if key in seen_keys and len(ports) > 1:
             raise WireModelError(
                 "wire edge {0} is referenced more than once — the multi-port "
@@ -433,7 +486,23 @@ def build_wire_model_multi(analysis, solver):
             v2 = edge.Vertexes[-1].Point
             pieces = [((v1.x * MM_TO_M, v1.y * MM_TO_M, v1.z * MM_TO_M),
                        (v2.x * MM_TO_M, v2.y * MM_TO_M, v2.z * MM_TO_M))]
-            min_seg = 3
+            # A LONE straight wire keeps the 3-segment floor: it is a whole
+            # radiator (a dipole arm, a monopole) and needs a centre segment to
+            # be fed at all.
+            #
+            # A straight edge that is one LINK OF A POLYLINE is a different
+            # object entirely — it is a chord, exactly like the ones the curved
+            # branch below produces, and the 3-segment floor is as wrong here as
+            # it is there. It reached this branch only because `Antenna from
+            # Selection` hands NEC2 a `Part.makePolygon`, so the curve arrives
+            # ALREADY discretized and `_is_straight` is true of every link.
+            #
+            # Measured on the 300 mm helix that found this: 80 chords x the
+            # floor of 3 = 240 segments of 25 mm on a 9.49 mm radius wire,
+            # d/a = 2.63 — a third of the thin-wire guideline, produced by a
+            # floor that was protecting nothing. At min_seg 1 the same model is
+            # 80 segments and d/a = 7.90.
+            min_seg = 1 if is_polyline else 3
         else:
             # A curve becomes chords. Each chord IS a straight wire, so the
             # 3-segment floor that gives a lone straight wire a centre segment
@@ -461,6 +530,15 @@ def build_wire_model_multi(analysis, solver):
                 continue
             nseg = max(min_seg,
                        int(math.ceil(length / lam_min * seg_per_wl)))
+            # Thin-wire cap. Splitting a piece finer than THIN_WIRE_MIN_SEG_RADII
+            # buys nothing NEC-2 can use — past that point extra segments only
+            # push the kernel further outside its own derivation — so refuse to
+            # over-segment. The floor still wins: a fed wire keeps its centre
+            # segment even if that means a short segment, because a model that
+            # cannot be fed is worse than one the kernel dislikes.
+            if radius_m > 0.0:
+                n_thin = max(1, int(length / (THIN_WIRE_MIN_SEG_RADII * radius_m)))
+                nseg = max(min_seg, min(nseg, n_thin))
             fed = (key in feed_keys) and i == fed_piece
             if needs_center and i == fed_piece and nseg % 2 == 0:
                 nseg += 1  # odd count -> a true center segment (source / TL end)
@@ -524,14 +602,22 @@ def _ex_cards(wires, feeds, ground_active):
     return cards
 
 
-def write_nec(analysis, solver, path):
+def write_nec(analysis, solver, path, report=None):
     """Write the .nec deck. Returns (path, sweep, z0).
 
     Emits one EX card per excited port (multi-excitation, §7 S4); a
     single-port unity-drive analysis produces a byte-identical historic deck.
     z0 is the FIRST excited port's reference impedance (multi-port sweeps are
-    post-processed per port via ``parser.parse_port_impedances``)."""
+    post-processed per port via ``parser.parse_port_impedances``).
+
+    Pass a dict as ``report`` to receive the thin-wire diagnostic for the deck
+    just written (key ``thin_wire``). An out-parameter rather than a fourth
+    return value so that every existing three-way unpack keeps working, and
+    rather than a rebuild in the caller so the numbers reported are provably
+    the ones in the GW cards above."""
     wires, feeds, (f1, f2, npts) = build_wire_model_multi(analysis, solver)
+    if report is not None:
+        report["thin_wire"] = thin_wire_report(wires)
     z0 = float(feeds[0]["port"].Impedance.getValueAs("Ohm"))
 
     f1_mhz = f1 / 1e6

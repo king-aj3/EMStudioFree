@@ -20,6 +20,20 @@ from matplotlib.figure import Figure  # noqa: E402
 
 import numpy as np  # noqa: E402
 
+#: Top of the familiar linear VSWR view. A curve that fits under this is drawn
+#: exactly as it always was; one that does not gets a log axis instead of being
+#: silently clipped off the top of the axes.
+#:
+#: That silent clip was a real defect, found on a real model: a 300 mm helix
+#: swept 10-100 MHz has a minimum VSWR of 411, so every one of its 51 points sat
+#: ~40x above the ceiling and the tab drew an empty grid. The data was present
+#: and correct the whole time and the plot said "no data".
+VSWR_VIEW_TOP = 10.0
+
+#: The usual acceptance line. Drawn only when it is inside the view — a 2:1
+#: marker three decades below the data teaches nothing.
+VSWR_ACCEPT = 2.0
+
 
 class SweepResultsDialog(QtWidgets.QDialog):
     """Tabbed plots for a one-port SweepResult."""
@@ -47,6 +61,14 @@ class SweepResultsDialog(QtWidgets.QDialog):
             self._farfields = list(getattr(result, "farfields", None)
                                    or [farfield])
             self._farfields.sort(key=lambda ff: ff.freq)
+            # ONE selection shared by every pattern view and by "Show in 3D
+            # View". Two tabs each owning their own combo would let the 2-D cut,
+            # the balloon and the FreeCAD overlay disagree about which frequency
+            # is on screen, and nothing on any of them says which is which.
+            self._ff_index = min(
+                range(len(self._farfields)),
+                key=lambda i: abs(self._farfields[i].freq - farfield.freq))
+            self._pattern_views = []
             tabs.addTab(self._pattern_tab(self._plot_pattern), "Pattern")
             if farfield.phi.size > 4:  # full-sphere data -> 3-D balloon
                 tabs.addTab(self._pattern_tab(self._plot_pattern3d),
@@ -60,12 +82,32 @@ class SweepResultsDialog(QtWidgets.QDialog):
 
         # summary + export row
         f_min, s11_min = result.min_s11()
-        summary = QtWidgets.QLabel(
-            "Best match: {0:.2f} dB at {1:.3f} MHz    |    VSWR min: {2:.2f}".format(
-                s11_min, f_min / 1e6, float(result.vswr().min())
-            )
+        text = "Best match: {0:.2f} dB at {1:.3f} MHz    |    VSWR min: {2:.2f}".format(
+            s11_min, f_min / 1e6, float(result.vswr().min())
         )
+        # Say it in words as well as on the axes. A user who reads "VSWR min
+        # 411" understands an empty-looking 1..10 plot; one who does not read
+        # the number concludes the run produced nothing.
+        if float(result.vswr().min()) >= VSWR_VIEW_TOP:
+            text += "  —  never matched in this band (VSWR tab is on a log scale)"
+        summary = QtWidgets.QLabel(text)
+        summary.setWordWrap(True)
         layout.addWidget(summary)
+
+        # NEC2 has a validity limit its own output never mentions. If the deck
+        # is under it, say so HERE — beside the numbers it qualifies — rather
+        # than leaving the user to know that NEC has such a limit at all.
+        thin = result.meta.get("thin_wire")
+        if thin and not thin.get("ok", True):
+            warn = QtWidgets.QLabel(
+                "⚠ Thin-wire check: shortest segment is {0:.2g} wire radii "
+                "(NEC-2's kernel is derived for ≳ {1:.0f}). The impedance "
+                "above is outside the kernel's stated range — treat it as "
+                "indicative and re-check with a thinner conductor or a coarser "
+                "wire path.".format(thin["ratio"], thin["limit"]))
+            warn.setWordWrap(True)
+            warn.setStyleSheet("color: #b06000;")
+            layout.addWidget(warn)
 
         buttons = QtWidgets.QHBoxLayout()
         export_btn = QtWidgets.QPushButton("Export Touchstone (.s1p)…")
@@ -156,7 +198,23 @@ class SweepResultsDialog(QtWidgets.QDialog):
         """
         current = self.result.farfield
         if len(self._farfields) < 2:
-            return plot_fn(current)              # nothing to choose: unchanged
+            # Nothing to choose — the plot is exactly what it always was. But
+            # SAY WHY there is no picker: a user who asked for a swept pattern
+            # and got one tab with no control cannot tell "the feature is off"
+            # from "the feature is missing", and the switch is a solver
+            # property they have no reason to have found.
+            holder = QtWidgets.QWidget(self)
+            box = QtWidgets.QVBoxLayout(holder)
+            box.setContentsMargins(0, 0, 0, 0)
+            box.addWidget(plot_fn(current))
+            hint = QtWidgets.QLabel(
+                "One pattern only, at the best-match frequency. For a pattern "
+                "you can scroll across the band, run "
+                "EMStudio ▸ Analysis ▸ Pattern Frequencies… before solving.")
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color: #666666;")
+            box.addWidget(hint)
+            return holder
 
         holder = QtWidgets.QWidget(self)
         box = QtWidgets.QVBoxLayout(holder)
@@ -167,13 +225,11 @@ class SweepResultsDialog(QtWidgets.QDialog):
         combo = QtWidgets.QComboBox(holder)
         for ff in self._farfields:
             combo.addItem("{0:.4g} MHz".format(ff.freq / 1e6))
-        # start on the pattern the rest of the dialog is describing
-        best = min(range(len(self._farfields)),
-                   key=lambda i: abs(self._farfields[i].freq - current.freq))
-        combo.setCurrentIndex(best)
+        combo.setCurrentIndex(self._ff_index)
         row.addWidget(combo)
         row.addWidget(QtWidgets.QLabel(
-            "({0} solved frequencies)".format(len(self._farfields))))
+            "({0} solved frequencies — 'Show in 3D View' uses this one)".format(
+                len(self._farfields))))
         row.addStretch(1)
         box.addLayout(row)
 
@@ -187,9 +243,30 @@ class SweepResultsDialog(QtWidgets.QDialog):
                 built[idx] = stack.addWidget(w)
             stack.setCurrentIndex(built[idx])
 
-        combo.currentIndexChanged.connect(show)
-        show(best)
+        combo.currentIndexChanged.connect(self._select_frequency)
+        self._pattern_views.append((combo, show))
+        show(self._ff_index)
         return holder
+
+    def _select_frequency(self, idx):
+        """Point every pattern view — and the 3-D export — at one frequency."""
+        if not (0 <= idx < len(self._farfields)):
+            return
+        self._ff_index = idx
+        for combo, show in self._pattern_views:
+            if combo.currentIndex() != idx:
+                # Without the block this re-enters through currentIndexChanged.
+                combo.blockSignals(True)
+                combo.setCurrentIndex(idx)
+                combo.blockSignals(False)
+            show(idx)
+
+    def _selected_farfield(self):
+        """The far field the user is looking at, or the only one there is."""
+        ffs = getattr(self, "_farfields", None)
+        if not ffs:
+            return getattr(self.result, "farfield", None)
+        return ffs[min(max(self._ff_index, 0), len(ffs) - 1)]
 
     def _plot_currents(self, cur):
         fig, canvas = self._canvas()
@@ -230,11 +307,39 @@ class SweepResultsDialog(QtWidgets.QDialog):
     def _plot_vswr(self):
         fig, canvas = self._canvas()
         ax = fig.add_subplot(111)
-        ax.plot(self.result.freq / 1e6, np.clip(self.result.vswr(), 1, 20), "-", linewidth=2)
+        f_mhz = self.result.freq / 1e6
+        v = self.result.vswr()
+        v_min = float(v.min())
+        i_min = int(np.argmin(v))
+        # A single-point sweep draws NOTHING with a bare line style — there is
+        # no second vertex to draw a line to. Markers make one point visible.
+        style = "-" if v.size > 1 else "o"
+
+        if v_min < VSWR_VIEW_TOP:
+            # The familiar view, unchanged: linear 1..10 with the acceptance
+            # line. This is every matched antenna, which is nearly all of them.
+            ax.plot(f_mhz, np.clip(v, 1, 20), style, linewidth=2)
+            ax.set_ylim(1, VSWR_VIEW_TOP)
+            ax.axhline(VSWR_ACCEPT, linestyle="--", linewidth=1, color="#999999")
+            ax.annotate("{0:g}:1".format(VSWR_ACCEPT), (f_mhz[0], VSWR_ACCEPT),
+                        textcoords="offset points", xytext=(2, 3),
+                        fontsize=8, color="#777777")
+        else:
+            # Nothing in the band fits the linear view. Clipping to it is what
+            # produced an empty plot on a run that had 51 perfectly good points,
+            # so show the real numbers on a log axis and label the best one.
+            ax.semilogy(f_mhz, v, style, linewidth=2)
+            ax.plot([f_mhz[i_min]], [v_min], "o", color="#c8553d", markersize=6)
+            ax.annotate(
+                "min {0:.4g}:1 at {1:.4g} MHz".format(v_min, f_mhz[i_min]),
+                (f_mhz[i_min], v_min), textcoords="offset points",
+                xytext=(6, 8), fontsize=9, color="#c8553d")
+            ax.set_title(
+                "Never below {0:g}:1 in this band — log scale".format(
+                    VSWR_VIEW_TOP), fontsize=9)
         ax.set_xlabel("Frequency (MHz)")
         ax.set_ylabel("VSWR (ref {0:g} Ω)".format(self.result.z0))
-        ax.set_ylim(1, 10)
-        ax.grid(True)
+        ax.grid(True, which="both", alpha=0.4)
         return canvas
 
     def _plot_z(self):
@@ -295,8 +400,14 @@ class SweepResultsDialog(QtWidgets.QDialog):
             workdir = tempfile.mkdtemp(prefix="emstudio_vis_")
         doc = FreeCAD.ActiveDocument or FreeCAD.newDocument()
         created = []
+        ff = None          # the post-try check reads this; keep it bound
         try:
-            ff = getattr(self.result, "farfield", None)
+            # The pattern the user is LOOKING AT, not the best-match one. This
+            # read self.result.farfield, which is pinned to the resonance, so
+            # scrolling the picker to 40 MHz and pressing "Show in 3D View"
+            # silently added a balloon for a different frequency — with the
+            # right frequency in its own label, so nothing looked wrong.
+            ff = self._selected_farfield()
             # theta MATTERS TOO. This gate only ever checked phi, so a
             # single-theta cut sailed through and write_pattern_vtu produced a
             # VTU with points and no cells: an overlay that appears in the tree
@@ -341,7 +452,13 @@ class SweepResultsDialog(QtWidgets.QDialog):
             cur = getattr(self.result, "currents", None)
             if cur is not None:
                 p = vtk_out.write_currents_vtu(cur, os.path.join(workdir, "currents.vtu"))
-                created.append(vtk_out.show_in_freecad(p, "Wire currents", doc).Label)
+                # NAME the frequency. Currents are solved at the best match
+                # only, so once the balloon can be at a different frequency an
+                # unlabelled "Wire currents" sitting beside it reads as though
+                # the two belong to the same point in the sweep.
+                created.append(vtk_out.show_in_freecad(
+                    p, "Wire currents @ {0:.3f} GHz".format(
+                        float(cur.get("freq", 0.0)) / 1e9), doc).Label)
             nf = getattr(self.result, "nearfield", None)
             if nf is not None:
                 p = vtk_out.write_field_plane_vtu(nf, os.path.join(workdir, "nearfield.vtu"))

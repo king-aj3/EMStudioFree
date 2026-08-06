@@ -25,6 +25,7 @@ CMD_SOLVER_NEC2 = "EMStudio_SolverNEC2"
 CMD_SOLVER_OPENEMS = "EMStudio_SolverOpenEMS"
 CMD_SOLVER_ELMER = "EMStudio_SolverElmer"
 CMD_SOLVER_PALACE = "EMStudio_SolverPalace"
+CMD_PATTERN_FREQS = "EMStudio_PatternFrequencies"
 CMD_RUN = "EMStudio_RunSolver"
 CMD_SHOW_RESULTS = "EMStudio_ShowResults"
 CMD_TPL_DIPOLE = "EMStudio_TemplateDipole"
@@ -65,6 +66,7 @@ ALL_COMMANDS = [
     CMD_SOLVER_OPENEMS,
     CMD_SOLVER_ELMER,
     CMD_SOLVER_PALACE,
+    CMD_PATTERN_FREQS,
     CMD_RUN,
     CMD_SHOW_RESULTS,
     "Separator",
@@ -108,7 +110,7 @@ COMMAND_GROUPS = [
         CMD_ANTENNA_FROM_SEL, "Separator",
         CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_COIL, "Separator",
         CMD_SOLVER_NEC2, CMD_SOLVER_OPENEMS, CMD_SOLVER_ELMER, CMD_SOLVER_PALACE,
-        "Separator", CMD_RUN, CMD_SHOW_RESULTS, CMD_SWEEP_GAP,
+        "Separator", CMD_PATTERN_FREQS, CMD_RUN, CMD_SHOW_RESULTS, CMD_SWEEP_GAP,
     ]),
     ("Templates", [
         # antennas
@@ -525,6 +527,65 @@ def _open_results_for(result):
     from emstudio.ui.results_dialog import SweepResultsDialog
 
     SweepResultsDialog(result, parent=FreeCADGui.getMainWindow()).exec()
+
+
+class _PatternFrequencies:
+    """Choose the band and spacing of the NEC2 radiation-pattern pass.
+
+    Lives beside Run Solver because it is a pre-run decision, and it is a
+    COMMAND rather than three properties in the editor because that is where
+    it was: the switch existed from v0.90.0 and a user who wanted a swept
+    pattern could not find it, which is a discoverability bug, not a docs one.
+    """
+
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_pattern_freq.svg"),
+            "MenuText": "Pattern Frequencies…",
+            "ToolTip": ("Compute a radiation pattern at several frequencies so "
+                        "the results dialog can scroll the band (NEC2). One "
+                        "extra solver run whatever the count."),
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from PySide import QtWidgets
+
+        from emstudio.objects import query
+        from emstudio.ui.pattern_freq_dialog import PatternFrequenciesDialog
+
+        ana = _active_analysis()
+        if ana is None:
+            _warn("No EM Analysis in this document yet.")
+            return
+        nec2_solvers = [s for s in query.get_solvers(ana)
+                        if query.em_type(s) == "EMStudio::SolverNEC2"]
+        # Selected solver wins, exactly as Run Solver does.
+        for sel in FreeCADGui.Selection.getSelection():
+            if query.em_type(sel) == "EMStudio::SolverNEC2":
+                nec2_solvers = [sel]
+                break
+        if not nec2_solvers:
+            _warn("Per-frequency radiation patterns are a NEC2 feature — add a "
+                  "NEC2 solver to this analysis first.")
+            return
+        if len(nec2_solvers) > 1:
+            _warn("Multiple NEC2 solvers present — select the one to set up.")
+            return
+
+        dlg = PatternFrequenciesDialog(ana, nec2_solvers[0],
+                                       parent=FreeCADGui.getMainWindow())
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        summary = dlg.apply_to_solver()
+        FreeCAD.ActiveDocument.recompute()
+        FreeCAD.Console.PrintMessage(
+            "EMStudio: pattern frequencies — {0}\n".format(summary))
+        QtWidgets.QMessageBox.information(
+            FreeCADGui.getMainWindow(), "EMStudio — Pattern Frequencies",
+            "{0}\n\nRun Solver to compute them.".format(summary))
 
 
 class _RunSolver:
@@ -1367,6 +1428,7 @@ def register():
     FreeCADGui.addCommand(CMD_SOLVER_OPENEMS, _AddSolverOpenEMS())
     FreeCADGui.addCommand(CMD_SOLVER_ELMER, _AddSolverElmer())
     FreeCADGui.addCommand(CMD_SOLVER_PALACE, _AddSolverPalace())
+    FreeCADGui.addCommand(CMD_PATTERN_FREQS, _PatternFrequencies())
     FreeCADGui.addCommand(CMD_RUN, _RunSolver())
     FreeCADGui.addCommand(CMD_TPL_DIPOLE, _TemplateDipole())
     FreeCADGui.addCommand(CMD_TPL_MONOPOLE, _TemplateMonopole())

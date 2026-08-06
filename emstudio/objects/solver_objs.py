@@ -150,6 +150,29 @@ class SolverNEC2(_SolverBase):
                 "0.33 MB of output per frequency.",
             )
             obj.PatternFrequencies = 0
+        # The BAND the patterns span. Both default to 0 = "follow the analysis
+        # sweep", which is what PatternFrequencies did on its own and keeps
+        # every existing document byte-identical. Setting them lets the pattern
+        # pass cover a NARROWER band than the S11 sweep — the usual want, since
+        # patterns cost ~0.33 MB each and the interesting ones cluster around
+        # resonance, not across a decade of mismatch.
+        #
+        # A stop BELOW the start, or a zero span, falls back to the sweep
+        # rather than erroring: these are two numbers in a property editor and
+        # a half-entered pair must not break a solve.
+        for _name, _doc in (
+                ("PatternFreqStart",
+                 "First frequency of the radiation-pattern pass. 0 = start "
+                 "where the analysis sweep starts (default). Only used when "
+                 "PatternFrequencies is 2 or more."),
+                ("PatternFreqStop",
+                 "Last frequency of the radiation-pattern pass. 0 = stop where "
+                 "the analysis sweep stops (default). Only used when "
+                 "PatternFrequencies is 2 or more."),
+        ):
+            if _name not in props:
+                obj.addProperty("App::PropertyFrequency", _name, _GROUP, _doc)
+                setattr(obj, _name, 0.0)
         if "GroundType" not in props:
             obj.addProperty(
                 "App::PropertyEnumeration",

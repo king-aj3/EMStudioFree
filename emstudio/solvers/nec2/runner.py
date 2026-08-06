@@ -10,7 +10,7 @@ from emstudio.solvers import progress
 from emstudio.solvers.base import (SolverError, SolverJob, make_workdir,
                                    nec2_argv)
 
-from . import parser, writer
+from . import parser, pattern_band, writer
 
 #: The marker that means "one sweep point is done", in NEC2's OUTPUT FILE.
 #:
@@ -46,7 +46,8 @@ def run(analysis, solver, workdir=None, line_callback=None):
     deck = os.path.join(workdir, "case.nec")
     outfile = os.path.join(workdir, "case.out")
 
-    _, sweep, z0 = writer.write_nec(analysis, solver, deck)
+    deck_report = {}
+    _, sweep, z0 = writer.write_nec(analysis, solver, deck, report=deck_report)
 
     # A determinate bar, polled from NEC2's OUTPUT FILE — not from the line
     # callback, which can never work here: nec2++ writes ZERO bytes to stdout
@@ -80,6 +81,8 @@ def run(analysis, solver, workdir=None, line_callback=None):
     result.meta.update(
         {"workdir": workdir, "duration_s": job.duration_s, "analysis": analysis.Label}
     )
+    if deck_report.get("thin_wire"):
+        result.meta["thin_wire"] = deck_report["thin_wire"]
     result.save_csv(os.path.join(workdir, "port_1.csv"))
     result.write_touchstone(os.path.join(workdir, "port_1.s1p"))
 
@@ -93,6 +96,9 @@ def run(analysis, solver, workdir=None, line_callback=None):
         # which is what every document produced before this existed.
         n_pat = int(getattr(solver, "PatternFrequencies", 0) or 0)
         f1, f2 = (float(sweep[0]), float(sweep[1])) if sweep else (f_ff, f_ff)
+        # PatternFreqStart/Stop narrow the pattern pass to part of the sweep;
+        # both 0 (the default, and every pre-0.91 document) keeps the sweep.
+        f1, f2 = pattern_band.resolve_band(solver, f1, f2)
         multi = n_pat > 1 and f2 > f1
         ff_deck = os.path.join(workdir, "case_ff.nec")
         ff_out = os.path.join(workdir, "case_ff.out")

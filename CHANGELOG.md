@@ -3,6 +3,84 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.91.0] — 2026-08-06 — the picker you can find, and a plot that draws its data
+
+Everything here came from one user session on a real model — a 300 mm solid
+helix swept 10–100 MHz. Two of the four defects were **invisible failures**:
+correct data that the UI declined to show.
+
+### Fixed
+* **The VSWR tab drew nothing when nothing matched.** `_plot_vswr` clamped the
+  axes to `ylim(1, 10)` unconditionally. The helix's minimum VSWR is **411**, so
+  all 51 points sat ~40× above the ceiling and the tab rendered an empty grid on
+  a run whose data was present and correct throughout. It now keeps the familiar
+  linear 1–10 view (with the 2:1 acceptance line) when the curve fits, and
+  switches to a **log axis with the minimum annotated** when it does not. A
+  one-point sweep now gets a marker — with a bare line style it drew nothing at
+  all, for want of a second vertex.
+* **"Show in 3D View" ignored the frequency picker.** It read
+  `result.farfield`, which is pinned to the best match, so scrolling to another
+  frequency and pressing the button added a balloon for a *different* frequency
+  — carrying the right frequency in its own label, so nothing looked wrong. Both
+  pattern tabs and the 3-D export now share **one** selection. The wire-currents
+  overlay is labelled with its own frequency, since currents are still solved
+  only at resonance.
+* **Polyline wires were segmented past NEC-2's thin-wire limit.** `Antenna from
+  Selection` builds its wire with `Part.makePolygon`, so a curve arrives as N
+  *straight* edges and every one of them took the 3-segment floor meant for a
+  lone straight radiator — the `min_seg = 1` branch written to protect the
+  segment-length-to-radius ratio only ever fired for genuinely curved edges.
+  Measured on the helix: 240 segments of 25 mm on a 9.49 mm radius, **d/a =
+  2.63** against Burke & Poggio's ≳ 8. A polyline link is now treated as the
+  chord it is, and segment counts are capped at `THIN_WIRE_MIN_SEG_RADII`. The
+  same model is now 80 segments at **d/a = 7.90**.
+* **A single-pattern result now says why there is no picker**, and names the
+  command that turns it on.
+
+### Added
+* **Pattern Frequencies… (Analysis group)** — the dialog this needed from the
+  start. `PatternFrequencies` shipped in 0.90.0 as a solver property with no UI,
+  and a user who wanted a swept pattern could not find it. The dialog offers the
+  analysis sweep as the band, lets both ends be edited, **recommends a step**,
+  and lets that be edited too.
+* **`SolverNEC2.PatternFreqStart` / `PatternFreqStop`** — the pattern band. Both
+  default to 0 = *follow the analysis sweep*, so every pre-0.91 document is
+  unchanged. Inverted or half-entered pairs fall back to the sweep rather than
+  erroring; two numbers in a property editor are half-finished most of the time
+  they are read.
+* **`emstudio/solvers/nec2/pattern_band.py`** — Qt-free and FreeCAD-free, shared
+  by the runner, the dialog and the gate.
+* **`writer.thin_wire_report()`** and a thin-wire warning under the results
+  plots. NEC-2 returns a number whether or not its kernel applies, and says
+  nothing either way; the run now tells you which side of the line it is on.
+
+### Measured
+The recommender prefers a step that is an **integer multiple of the sweep step**
+so every pattern frequency coincides with a point the S11 curve was actually
+sampled at — otherwise the picker shows a pattern at 63.4 MHz while the nearest
+S11 datum is 62.2, a mismatch nothing on screen reveals. On 10–100 MHz / 51
+points that gives **11 patterns, 9 MHz apart, landing exactly on 100 MHz**.
+
+The helix's ~0.12 Ω feed resistance was checked for numerical origin and is
+**converged physics, not an artifact**: across d/a = 7.9 / 2.6 / 1.6 / 0.9 it
+moved 0.1246 → 0.1239 Ω, and the extended thin-wire kernel (`EK`) shifted it by
+0.1 %. The current distribution shows two phase reversals along a 1.35 λ wire —
+three counter-phased lobes on a 0.045 λ-tall helix, which is why the radiation
+resistance collapses.
+
+### Testing
+`tests/validation/pattern_sweep.py` grew from 21 to 54 checks, including a live
+72-chord polyline deck that asserts the thin-wire guideline is met and that the
+`EX` card still names a segment that exists — lowering a fed wire's count can
+otherwise point the source past the end of it, and nec2++ then writes an output
+file with zero frequency blocks and exits 0. **11/11 FAST-tier and 5/5 GUI-tier
+mutations caught**; gui_smoke gained three checks (picker/3-D coupling, the VSWR
+autoscale, and the new dialog's round-trip). One GUI mutation survived the first
+round, and the reason was a real bug, not a weak check: `recommend()` derived
+its grid from the band it was handed, so narrowing the pattern band silently
+broke the lands-on-sweep-points guarantee. It now takes the sweep step as an
+explicit argument.
+
 ## [0.90.0] — 2026-08-06 — a pattern at every frequency you swept
 
 A solve produced exactly ONE radiation pattern, at the best-match frequency,
