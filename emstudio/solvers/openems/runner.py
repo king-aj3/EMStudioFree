@@ -12,6 +12,7 @@ import os
 
 from emstudio.post.sparams import SweepResult
 from emstudio.setup import solvers as solver_setup
+from emstudio.solvers import progress
 from emstudio.solvers.base import SolverError, SolverJob, make_workdir
 
 from . import writer
@@ -40,8 +41,30 @@ def run(analysis, solver, workdir=None, line_callback=None):
     workdir = make_workdir("emstudio_openems_", base=workdir)
     deck, z0, port_nr = writer.write_deck(analysis, solver, workdir)
 
-    job = SolverJob([python, deck], cwd=workdir, line_callback=line_callback)
+    # A determinate bar from openEMS's own timestep counter. The TOTAL is
+    # learned from a line the GENERATED DECK prints ("EMStudio: starting
+    # openEMS run (NrTS=..., ...)"), so the runner never duplicates the
+    # writer's `max(1000, int(solver.MaxTimesteps))` and the two cannot drift.
+    #
+    # UNVERIFIED AGAINST A LIVE RUN: openEMS is not installed on the box this
+    # was written on, so the step pattern is matched loosely against openEMS's
+    # documented progress line ("... Timestep   600 || Speed: ..."). That is
+    # deliberately a no-risk bet — if the wording does not match, nothing is
+    # reported and the dialog behaves exactly as it does today. Confirm on a
+    # machine with openEMS and tighten it there.
+    #
+    # FDTD gets 0..90 %; the far-field / near-field post-processing the deck
+    # does afterwards is the last 10 %.
+    cb = progress.StreamProgress(
+        line_callback,
+        step_pattern=r"Timestep\s+(\d+)",
+        total_pattern=r"NrTS\s*=\s*(\d+)",
+        note="Running FDTD", base=0.0, span=0.90)
+    job = SolverJob([python, deck], cwd=workdir,
+                    line_callback=cb if line_callback is not None
+                    else line_callback)
     job.run_blocking(timeout=4 * 3600)
+    progress.report(line_callback, 0.90, "Reading results")
 
     csv_path = os.path.join(workdir, "port_{0}.csv".format(port_nr))
     if not os.path.isfile(csv_path):
@@ -80,4 +103,5 @@ def run(analysis, solver, workdir=None, line_callback=None):
     nf_path = os.path.join(workdir, "nearfield.npz")
     if os.path.isfile(nf_path):
         result.nearfield = dict(np.load(nf_path, allow_pickle=False))
+    progress.report(line_callback, 1.0, "Done")
     return result

@@ -19,6 +19,7 @@ import os
 
 from emstudio.meshing import gmsh_box, gmsh_brep, gmsh_coax
 from emstudio.setup import solvers as solver_setup
+from emstudio.solvers import progress
 from emstudio.solvers.base import SolverError, SolverJob, make_workdir
 
 from . import parser, writer
@@ -121,9 +122,15 @@ def _solve_eigenmodes(msh, workdir, t0, n_modes, order, eps_r, mu_r, loss_tan,
         mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
     cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
 
+    # PHASE progress only. Palace is one long invocation and is not installed
+    # on the machine this was written on, so any regex against its output
+    # would be a guess; phase boundaries need no parsing and cannot be wrong.
+    # Tighten to a real fraction on a box that has Palace.
+    progress.report(line_callback, 0.05, "Solving (Palace)")
     job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
                     cwd=workdir, line_callback=line_callback)
     job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
+    progress.report(line_callback, 0.90, "Reading results")
 
     eig_csv = os.path.join(workdir, "postpro", "eig.csv")
     if not os.path.isfile(eig_csv):
@@ -169,9 +176,15 @@ def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=
         mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
     cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
 
+    # PHASE progress only. Palace is one long invocation and is not installed
+    # on the machine this was written on, so any regex against its output
+    # would be a guess; phase boundaries need no parsing and cannot be wrong.
+    # Tighten to a real fraction on a box that has Palace.
+    progress.report(line_callback, 0.05, "Solving (Palace)")
     job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
                     cwd=workdir, line_callback=line_callback)
     job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
+    progress.report(line_callback, 0.90, "Reading results")
 
     port_s = os.path.join(workdir, "postpro", "port-S.csv")
     if not os.path.isfile(port_s):
@@ -234,9 +247,15 @@ def run_waveguide_brep(brep_path, axis, bbox_mm, f1_ghz=8.0, f2_ghz=12.0,
         mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
     cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
 
+    # PHASE progress only. Palace is one long invocation and is not installed
+    # on the machine this was written on, so any regex against its output
+    # would be a guess; phase boundaries need no parsing and cannot be wrong.
+    # Tighten to a real fraction on a box that has Palace.
+    progress.report(line_callback, 0.05, "Solving (Palace)")
     job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
                     cwd=workdir, line_callback=line_callback)
     job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
+    progress.report(line_callback, 0.90, "Reading results")
 
     port_s = os.path.join(workdir, "postpro", "port-S.csv")
     if not os.path.isfile(port_s):
@@ -293,9 +312,15 @@ def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=
         mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
     cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
 
+    # PHASE progress only. Palace is one long invocation and is not installed
+    # on the machine this was written on, so any regex against its output
+    # would be a guess; phase boundaries need no parsing and cannot be wrong.
+    # Tighten to a real fraction on a box that has Palace.
+    progress.report(line_callback, 0.05, "Solving (Palace)")
     job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
                     cwd=workdir, line_callback=line_callback)
     job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
+    progress.report(line_callback, 0.90, "Reading results")
 
     port_s = os.path.join(workdir, "postpro", "port-S.csv")
     if not os.path.isfile(port_s):

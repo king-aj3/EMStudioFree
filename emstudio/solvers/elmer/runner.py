@@ -23,9 +23,11 @@ from __future__ import annotations
 import math
 import os
 import shutil
+import threading
 
 from emstudio.meshing import gmsh_axi
 from emstudio.setup import solvers as solver_setup
+from emstudio.solvers import progress
 from emstudio.solvers.base import SolverError, SolverJob, make_workdir
 
 from . import parser, writer
@@ -307,10 +309,29 @@ def run_model(model, freqs, workdir=None, line_callback=None,
                 cases.append((freqs[0], "couple_" + b["name"], {b["name"]: 1.0}))
 
     # --- solve -------------------------------------------------------------
+    # A determinate progress bar, driven by the case count WE chose rather
+    # than by parsing ElmerSolver's output. That is deliberate: the number is
+    # exact, it cannot break when Elmer changes its wording, and it is the
+    # only thing that works when cases run CONCURRENTLY — the thread pool
+    # below completes them out of order, so progress has to count completions
+    # under a lock, not assume a sequence. Meshing is already done by this
+    # point, so it keeps the first 5 % and solving takes the rest.
+    total_cases = len(cases)
+    _done = [0]
+    _plock = threading.Lock()
+    progress.report(line_callback, 0.05,
+                    "Solving {0} case(s)".format(total_cases))
+
     def _one(args):
         f, tag, exc = args
-        return _run_case(elmersolver, model, f, tag, exc, workdir, mesh_dir,
-                         body_ids, boundary_ids, line_callback)
+        res = _run_case(elmersolver, model, f, tag, exc, workdir, mesh_dir,
+                        body_ids, boundary_ids, line_callback)
+        with _plock:
+            _done[0] += 1
+            n = _done[0]
+        progress.report(line_callback, 0.05 + 0.95 * n / float(total_cases),
+                        "Solved {0} of {1} case(s)".format(n, total_cases))
+        return res
 
     results = []
     if parallel and len(cases) > 1:

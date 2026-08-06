@@ -21,6 +21,7 @@ import re
 import time
 
 from emstudio.meshing import gmsh_3d
+from emstudio.solvers import progress
 from emstudio.solvers.base import SolverError, SolverJob, make_workdir
 
 from . import writer3d
@@ -166,15 +167,31 @@ def run_model3d(model, workdir=None, line_callback=None):
     elmersolver = _resolve_elmersolver()
     elmergrid = find_elmergrid()
 
+    # PHASE-based progress. A 3-D magnetostatic run is ONE long case, so there
+    # is no case count to divide by as there is in the axisymmetric sweep, and
+    # neither gmsh nor ElmerSolver emits a fraction we can trust across
+    # versions. What IS reliable is which stage we are in.
+    #
+    # The WEIGHTS ARE MEASURED, not guessed. On the analytic ring (0.002 m
+    # elements, 55 s total): gmsh 7.1 s (13 %), ElmerGrid 1.2 s (2 %),
+    # ElmerSolver 46.7 s (85 %). A first cut gave meshing 43 % of the bar for
+    # 13 % of the wall time, which would race to 45 % in seven seconds and then
+    # crawl — a worse ETA than no bar at all. The split IS model-dependent
+    # (a very fine mesh shifts weight toward gmsh), so these are a calibrated
+    # default rather than a law; the point is that they match a real run
+    # instead of contradicting one.
+    progress.report(line_callback, 0.02, "Meshing (gmsh)")
     msh = gmsh_3d.mesh_3d(
         model["bodies"], workdir, air=model["air"], lc_air=model["lc_air"],
         size_fields=model.get("size_fields"),
         embed_lines=model.get("embed_lines"), line_callback=line_callback)
+    progress.report(line_callback, 0.15, "Converting mesh (ElmerGrid)")
     SolverJob([elmergrid, "14", "2", os.path.basename(msh), "-autoclean",
                "-out", "mesh"],
               cwd=workdir, env=elmer_env(elmergrid),
               line_callback=line_callback).run_blocking(
                   timeout=_MESH_TIMEOUT_S)
+    progress.report(line_callback, 0.20, "Solving (ElmerSolver)")
     names_file = os.path.join(workdir, "mesh", "mesh.names")
     if not os.path.isfile(names_file):
         raise SolverError("ElmerGrid produced no mesh at {0}".format(workdir))
@@ -226,6 +243,7 @@ def run_model3d(model, workdir=None, line_callback=None):
             vtu = cand
             break
 
+    progress.report(line_callback, 0.95, "Reading results")
     scalars = parse_scalars(log_path)
     return {
         "norms": parse_norms(log_path),
@@ -239,3 +257,4 @@ def run_model3d(model, workdir=None, line_callback=None):
         "j_avg": scalars["j_avg"],
         "open_coil_current": scalars["open_coil_current"],
     }
+

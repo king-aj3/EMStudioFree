@@ -78,26 +78,51 @@ class _Reporter:
             pass
 
 
-def _eta_text(state, done, total):
-    """'42% — about 1 min 20 s left', or just the percent when it is too early.
+def _clock(seconds):
+    """A duration a human reads at a glance: '45 s', '3 min 07 s', '1 h 12 m'."""
+    seconds = max(0.0, float(seconds))
+    if seconds < 60:
+        return "{0:.0f} s".format(seconds)
+    if seconds < 3600:
+        return "{0:.0f} min {1:02.0f} s".format(seconds // 60, seconds % 60)
+    return "{0:.0f} h {1:02.0f} m".format(seconds // 3600, (seconds % 3600) // 60)
 
-    Deliberately coarse: a countdown that jitters every 200 ms reads as broken.
+
+def _eta_text(state, done, total):
+    """The four numbers AJ asked for: done, to go, elapsed, and the ETA.
+
+    ``42% done  ·  58% to go  ·  elapsed 1 min 20 s  ·  about 2 min left``
+
+    Elapsed is shown from the FIRST report — it is a measured fact and always
+    honest. The ETA is not: it extrapolates, so it is withheld until there is
+    enough evidence to be worth reading (3 s and 5 % done). An estimate
+    offered at 1 % is off by whatever the first mesh happened to cost, and a
+    number that swings from "8 hours" to "20 s" teaches the user to ignore
+    the field. Better to show three true numbers and add the fourth when it
+    means something.
+
+    The ETA is also deliberately COARSE — rounded to 5 s, then whole minutes.
+    A countdown re-rendered every 200 ms that ticks 97, 94, 96, 91 reads as
+    broken even when it is perfectly accurate.
     """
-    pct = 0 if total <= 0 else max(0.0, min(1.0, done / total))
-    txt = "{0:.0f}%".format(pct * 100.0)
+    pct = 0.0 if total <= 0 else max(0.0, min(1.0, done / total))
     elapsed = time.time() - state.t_start
-    # Under 3 s of evidence, or under 5% done, any estimate is a guess.
+    parts = ["{0:.0f}% done".format(pct * 100.0),
+             "{0:.0f}% to go".format((1.0 - pct) * 100.0),
+             "elapsed " + _clock(elapsed)]
     if elapsed < 3.0 or pct < 0.05 or pct >= 1.0:
-        return txt
+        return "  ·  ".join(parts)
     remain = elapsed * (1.0 - pct) / pct
     if remain < 10:
-        return txt + " — a few seconds left"
-    if remain < 90:
-        return txt + " — about {0:.0f} s left".format(remain / 5.0 * 5.0)
-    mins = remain / 60.0
-    if mins < 60:
-        return txt + " — about {0:.0f} min left".format(mins)
-    return txt + " — over an hour left"
+        eta = "a few seconds left"
+    elif remain < 90:
+        eta = "about {0:.0f} s left".format(round(remain / 5.0) * 5.0)
+    elif remain < 3600:
+        eta = "about {0:.0f} min left".format(remain / 60.0)
+    else:
+        eta = "about " + _clock(remain) + " left"
+    parts.append(eta)
+    return "  ·  ".join(parts)
 
 
 def _apply_progress(dlg, state, label):

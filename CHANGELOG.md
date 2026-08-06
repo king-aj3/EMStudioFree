@@ -3,6 +3,70 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.89.0] — 2026-08-06 — the progress bar tells you where you are
+
+The determinate bar with ETA has existed since v0.88.0. It was wired to exactly
+ONE caller and **none of the four solver runners**, so every real solve still
+showed the indeterminate bar that says nothing except "not hung". Nothing
+failed; the feature was simply never connected, and no test could tell.
+
+### Added
+* **Every solver now reports real progress**, and the dialog states all four
+  things: **percent done, percent to go, elapsed time, and an ETA** —
+  `42% done · 58% to go · elapsed 30 s · about 40 s left`. The ETA is withheld
+  until there is evidence for it (3 s and 5 % done) because an extrapolation
+  from 1 % swings wildly and teaches users to ignore the field; elapsed is a
+  measured fact and is always shown.
+* `emstudio/solvers/progress.py` — one shared reporter. Everything is callable
+  and forwards lines unchanged, so it drops into any `line_callback` slot
+  invisibly, and every path is best-effort: a callback without `.progress`, an
+  unrecognised dialect, or a missing denominator leaves the bar exactly as it
+  was. **Progress reporting can never fail a solve.**
+
+### How each backend is driven, and why they differ
+* **NEC2 — polled from its OUTPUT FILE.** Measured: nec2++ writes **0 bytes to
+  stdout and stderr**; everything goes to the `-o` file, so a line callback can
+  never see progress. That file IS written incrementally (marker counts climbed
+  9, 19, 30, 41 … during a 4.9 s run), so it is polled instead. NEC2 needs it —
+  cost is ~cubic in segment count: a dipole takes 0.25 s, 6 wires × 151
+  segments took **104.75 s**. A real Yagi reported 18.8 → 39.4 → 59.1 → 78.4 →
+  90 (pattern) → 100 %.
+* **Elmer sweep — counts the cases WE orchestrate**, under a lock, because the
+  thread pool completes them out of order. No parsing, so no upstream wording
+  can break it. Measured on 4 concurrent cases: 5 → 28.75 → 52.5 → 76.25 →
+  100 %, with all 2 461 log lines still forwarded.
+* **Elmer 3-D — phase weights, MEASURED not guessed.** On the analytic ring:
+  gmsh 7.1 s (13 %), ElmerGrid 1.2 s (2 %), ElmerSolver 46.7 s (**85 %**). A
+  first cut gave meshing 43 % of the bar for 13 % of the time, which raced to
+  45 % then crawled — a worse ETA than none.
+* **openEMS — its own timestep counter**, with the total LEARNED from a line
+  our generated deck already prints (`NrTS=`), so the runner never duplicates
+  the writer's `max(1000, int(solver.MaxTimesteps))`. Not verifiable on the box
+  this was written on; if the wording does not match, nothing is reported and
+  behaviour is exactly as today.
+* **Palace — phase boundaries only.** Not installed here, so any regex against
+  its output would be a guess.
+
+### Fixed
+* **A gate's verdict could depend on which SHELL launched the battery.** Gates
+  print arrows and `±`; a child inheriting a cp1252 console dies with
+  `'charmap' codec can't encode character '→'`, which reads exactly like a
+  physics failure. Measured: `element_designer` PASSED from PowerShell and
+  FAILED from Git Bash **at the same commit**. `run_battery` now forces UTF-8
+  on the child, and smoke pins it.
+* The file watcher lost the final marker at EOF (a 201-point sweep stopped
+  reporting at 200) — the carry-over held back to survive a split read was
+  never flushed. Caught by the gate asserting the fraction reaches exactly 1.0.
+
+### Testing
+`tests/validation/solver_progress.py` — 30 checks, **7/7 mutations caught**.
+Two mutations exposed real weaknesses in the gate itself: a wiring check that
+grepped for `progress.report` anywhere still passed with the in-loop call
+deleted, and a NEC2 marker mutated to count the `--------- FREQUENCY --------`
+banner survived because doubling the count merely clamps the bar at 1.0 early —
+still monotonic, still "reaches 100 %". The marker is now a named constant the
+gate tests behaviourally rather than a copy that could drift.
+
 ## [0.88.1] — 2026-08-05 — the real cause: a PartDesign Origin is 2e100 mm across
 
 v0.88.0 blamed a feedback loop between successive overlays. **That was wrong.**

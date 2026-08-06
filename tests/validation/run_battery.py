@@ -50,6 +50,7 @@ FAST = {
     "pattern_vtu": None,
     "propagation": None,
     "small_antenna": None,
+    "solver_progress": None,
     "thermal": None,
     "ui_attr_collisions": None,
 }
@@ -146,9 +147,18 @@ def _requirement_missing(req):
 def _run_gate(name, timeout_s):
     path = os.path.join(_HERE, name + ".py")
     t0 = time.time()
+    # Force UTF-8 on the child's stdout. Without it a gate's exit code depends
+    # on WHICH SHELL launched the battery: gates print arrows and "±", and on
+    # Windows a child inheriting a cp1252 console dies with
+    # "'charmap' codec can't encode character '→'" — a UnicodeEncodeError
+    # that reads exactly like a physics failure. Measured 2026-08-05:
+    # element_designer passed from PowerShell and failed from Git Bash, at the
+    # SAME commit. A gate must report on the code, not on the terminal.
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
     try:
         proc = subprocess.run([sys.executable, path], cwd=_ROOT,
-                              capture_output=True, text=True,
+                              capture_output=True, text=True, env=env,
+                              encoding="utf-8", errors="replace",
                               timeout=timeout_s)
         rc, out = proc.returncode, (proc.stdout or "") + (proc.stderr or "")
     except subprocess.TimeoutExpired:

@@ -160,6 +160,21 @@ def _elmer_env_fortran_compiler():
     return "wired to the shipped stripped_gfortran"
 
 
+def _battery_forces_utf8():
+    """The gate battery must not let the CONSOLE decide a gate's exit code.
+
+    Gates print arrows and "±". On Windows a child inheriting a cp1252 console
+    dies with "'charmap' codec can't encode character '→'" — a
+    UnicodeEncodeError indistinguishable, from the outside, from a physics
+    failure. Measured 2026-08-05: element_designer PASSED from PowerShell and
+    FAILED from Git Bash at the same commit.
+    """
+    src = open(os.path.join(_ROOT, "tests", "validation", "run_battery.py"),
+               encoding="utf-8").read()
+    assert 'PYTHONIOENCODING="utf-8"' in src,         "run_battery does not force the child's stdout encoding"
+    assert 'encoding="utf-8"' in src,         "run_battery does not decode gate output as UTF-8"
+
+
 def _openems_python_resolver():
     """openEMS's interpreter is found on BOTH venv layouts, and asks no FreeCAD.
 
@@ -1617,6 +1632,8 @@ def main():
     check("solver detection runs", _solver_detection_runs)
     check("Elmer zip layout wires ELMER_Fortran_COMPILER (UDFs on Windows)",
           _elmer_env_fortran_compiler)
+    check("gate battery forces UTF-8 (the console must not decide a "
+          "gate's verdict)", _battery_forces_utf8)
     check("openEMS python resolver: FreeCAD-free, both venv layouts",
           _openems_python_resolver)
     check("openEMS gates SKIP a missing backend (never fail)",
