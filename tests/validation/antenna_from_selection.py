@@ -277,12 +277,20 @@ def gate_progress_is_real():
     class _S:
         t_start = time.time() - 30.0
 
+    # These assert BEHAVIOUR, not the exact string. They used to demand
+    # `== "0%"`, which broke in v0.89.0 the moment the label grew the three
+    # other numbers AJ asked for (done / to go / elapsed / ETA) even though
+    # every property they existed to protect still held. An over-specified
+    # assertion fails on an intended improvement and says nothing about the
+    # thing it was guarding.
+    early = run_gui._eta_text(_S(), 0, 100)
     check("ETA is withheld until it would be meaningful",
-          run_gui._eta_text(_S(), 0, 100) == "0%")
+          "left" not in early and "0%" in early, early)
     check("ETA appears once there is evidence",
           "left" in run_gui._eta_text(_S(), 50, 100))
+    unknown = run_gui._eta_text(_S(), 5, 0)
     check("an unknown total never divides by zero",
-          run_gui._eta_text(_S(), 5, 0) == "0%")
+          "0%" in unknown and "left" not in unknown, unknown)
     check("a finished job shows no countdown",
           "left" not in run_gui._eta_text(_S(), 100, 100))
     FreeCAD.closeDocument(doc.Name)

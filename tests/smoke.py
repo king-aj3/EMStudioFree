@@ -160,6 +160,24 @@ def _elmer_env_fortran_compiler():
     return "wired to the shipped stripped_gfortran"
 
 
+def _gate_runner_tees_to_console():
+    """A gate run under freecadcmd must be able to say WHY it failed.
+
+    freecadcmd drops print() on exit, so a failing gate produced exit 1 and a
+    ZERO-BYTE stderr. That silence caused a real mis-diagnosis on 2026-08-06:
+    antenna_from_selection was called pre-existing when it was a regression
+    introduced hours earlier, because there was no message to contradict the
+    assumption. tests/run_gate.py tees stdout into FreeCAD.Console, which
+    survives exit, so no gate needed editing.
+    """
+    src = open(os.path.join(_ROOT, "tests", "run_gate.py"),
+               encoding="utf-8").read()
+    assert "Console.PrintMessage" in src, "run_gate no longer tees to Console"
+    assert "runpy.run_path" in src, "run_gate no longer runs the gate"
+    # the exit code must survive, or the shim is worse than the silence
+    assert "code = 0 if c is None else" in src,         "run_gate no longer preserves the gate's exit code"
+
+
 def _battery_forces_utf8():
     """The gate battery must not let the CONSOLE decide a gate's exit code.
 
@@ -1632,6 +1650,8 @@ def main():
     check("solver detection runs", _solver_detection_runs)
     check("Elmer zip layout wires ELMER_Fortran_COMPILER (UDFs on Windows)",
           _elmer_env_fortran_compiler)
+    check("gate runner tees to FreeCAD.Console (a failing gate must say "
+          "why)", _gate_runner_tees_to_console)
     check("gate battery forces UTF-8 (the console must not decide a "
           "gate's verdict)", _battery_forces_utf8)
     check("openEMS python resolver: FreeCAD-free, both venv layouts",
