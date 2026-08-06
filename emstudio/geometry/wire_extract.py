@@ -207,19 +207,76 @@ def resample(pts, chord_mm):
     return out
 
 
-def equivalent_radius_mm(section_area_mm2, mode="area"):
+#: Any legitimate equivalent radius is bounded BELOW by the equal-area radius.
+#: That is Polya's inequality: of all simply-connected sections of a given
+#: area, the disc has the SMALLEST logarithmic capacity. It is a theorem, not
+#: a heuristic, and it is cheap — which makes it a real check on a claimed
+#: "better" radius rather than a matter of taste.
+#:
+#: It has already earned its place. A Schwarz-Christoffel derivation of the
+#: conformal radius attempted here returned 9.4422 mm for the fixture octagon
+#: (area 282.843 mm^2, circumradius exactly 10 mm), which is BELOW the
+#: equal-area 9.4885 mm and therefore impossible. The bound caught it
+#: immediately; without it the number looked entirely plausible.
+def polya_lower_bound_mm(section_area_mm2):
+    """Smallest equivalent radius any section of this area can have."""
+    if section_area_mm2 <= 0.0:
+        raise WireExtractError("non-positive section area")
+    return math.sqrt(section_area_mm2 / math.pi)
+
+
+def equivalent_radius_mm(section_area_mm2, mode="area", perimeter_mm=None):
     """Round-wire radius equivalent to a polygonal section.
 
     ``area`` (default) matches the cross-sectional area — the right choice for
-    DC/low-frequency resistance and the conventional RF choice. ``perimeter``
-    matches the surface, which is where RF current actually flows; the two
-    differ by a couple of percent for a near-circular polygon and the caller
-    is told which was used.
+    DC/low-frequency resistance and the conventional RF choice.
+
+    ``perimeter`` matches the surface, which is where RF current actually
+    flows. Requires ``perimeter_mm``: a section AREA alone does not determine
+    a perimeter, and inferring one would mean silently assuming a shape.
+
+    ON THE "CONFORMAL RADIUS" (logarithmic capacity), deliberately NOT offered
+    -------------------------------------------------------------------------
+    It is the physically principled choice for a thin-wire equivalent, and a
+    value of 9.535349 mm for this project's fixture octagon is recorded in
+    docs/NEXT_SESSION.md. It is **not implemented, on purpose**:
+
+    * No derivation for it exists anywhere in this repo — the figure is
+      second-hand.
+    * It could not be reproduced here. A Schwarz-Christoffel construction gave
+      9.4422 mm, which :func:`polya_lower_bound_mm` proves is IMPOSSIBLE, and
+      no standard Gamma-function closed form tested reproduced 9.535349
+      either. So BOTH candidate numbers are unverified, and one is provably
+      wrong.
+    * The suspicious part: the recorded value sits **+0.49 %** from the
+      equal-area radius while the failed SC value sits **-0.49 %** from it.
+      Symmetric about the shipped answer is what a sign error looks like.
+    * And the stake is small. Equal-area 9.4885 and equal-perimeter 9.7450
+      bracket any admissible answer, a 2.7 % spread; this module's own
+      measurement is that 2.7 % moves the impedance ~0.4 %, so the 0.49 %
+      under discussion moves it ~0.07 % — an order of magnitude inside the
+      manufacturing tolerance of the conductor it describes.
+
+    **Implementing it would mean shipping an unverifiable number to gain
+    0.07 %.** If it is ever wanted, derive it independently first and check it
+    against :func:`polya_lower_bound_mm`.
     """
     if section_area_mm2 <= 0.0:
         raise WireExtractError("non-positive section area")
     if mode == "area":
         return math.sqrt(section_area_mm2 / math.pi)
+    if mode == "perimeter":
+        if not perimeter_mm or perimeter_mm <= 0.0:
+            raise WireExtractError(
+                "equal-perimeter radius needs the section PERIMETER; an area "
+                "alone does not determine one without assuming a shape")
+        return float(perimeter_mm) / (2.0 * math.pi)
+    if mode == "conformal":
+        raise WireExtractError(
+            "the conformal (logarithmic-capacity) radius is not implemented: "
+            "the recorded 9.535349 mm figure has no derivation in this repo "
+            "and could not be reproduced, and the gain over equal-area is "
+            "~0.07 % of impedance. See equivalent_radius_mm.__doc__.")
     raise WireExtractError("unknown equivalent-radius mode: %r" % (mode,))
 
 

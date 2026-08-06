@@ -41,8 +41,68 @@ def check(label, ok, detail=""):
                                   ("   [" + str(detail)[:76] + "]") if detail else ""))
 
 
+def gate_equivalent_radius():
+    """The equivalent-radius modes, and the bound that makes them checkable.
+
+    Polya's inequality — of all simply-connected sections of a given area the
+    DISC has the smallest logarithmic capacity — puts a hard floor under any
+    equivalent radius. It is a theorem, so it is a real test of a claimed
+    "better" radius rather than a matter of preference, and it already caught
+    a wrong one (see equivalent_radius_mm.__doc__).
+    """
+    import math
+
+    from emstudio.geometry import wire_extract as wx
+
+    A = 282.842712474619                 # the fixture octagon, mm^2
+    R = 10.0                             # its circumradius, exactly
+    per = 2 * 8 * R * math.sin(math.pi / 8)
+
+    r_area = wx.equivalent_radius_mm(A)
+    r_per = wx.equivalent_radius_mm(A, "perimeter", perimeter_mm=per)
+    floor = wx.polya_lower_bound_mm(A)
+    check("equal-area radius of the fixture octagon", abs(r_area - 9.4885) < 5e-4,
+          "%.6f mm" % r_area)
+    check("equal-perimeter radius of the fixture octagon",
+          abs(r_per - 9.744954) < 5e-4, "%.6f mm" % r_per)
+    check("Polya floor equals the equal-area radius (the disc IS the minimum)",
+          abs(floor - r_area) < 1e-12, "%.6f mm" % floor)
+    check("equal-perimeter sits ABOVE the floor, as any real section must",
+          r_per > floor, "%.4f > %.4f" % (r_per, floor))
+
+    # The number that made this worth checking: a Schwarz-Christoffel
+    # conformal radius computed here came out at 9.4422 mm, BELOW the floor
+    # and therefore impossible. Pin the bound that rejects it.
+    check("the failed SC conformal radius (9.4422) is REJECTED by the floor",
+          9.4422 < floor, "9.4422 < %.4f" % floor)
+
+    # ...and the recorded 9.535349 is admissible but unreproduced, so the mode
+    # refuses rather than shipping it.
+    check("the recorded 9.535349 is at least admissible (above the floor)",
+          9.535349 > floor)
+    try:
+        wx.equivalent_radius_mm(A, "conformal")
+        check("an unverified conformal radius is REFUSED, not guessed", False)
+    except wx.WireExtractError as exc:
+        check("an unverified conformal radius is REFUSED, not guessed",
+              "not implemented" in str(exc), str(exc)[:60])
+
+    # a perimeter cannot be inferred from an area without assuming a shape
+    try:
+        wx.equivalent_radius_mm(A, "perimeter")
+        check("equal-perimeter refuses to invent a perimeter", False)
+    except wx.WireExtractError:
+        check("equal-perimeter refuses to invent a perimeter", True)
+
+    # the whole spread under discussion, so the stake is on the record
+    check("area/perimeter bracket the answer within 2.7 %",
+          abs(r_per / r_area - 1.0) < 0.03,
+          "%.2f %% spread" % ((r_per / r_area - 1.0) * 100))
+
+
 def main():
     print("EMStudio wire-from-solid gate")
+    gate_equivalent_radius()
     try:
         import FreeCAD  # noqa: F401
         import Part
