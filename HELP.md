@@ -114,6 +114,12 @@ Geometry → select metal → **EM Material** (PEC) → select dielectric → **
 - **Elmer (magnetics)**: axisymmetric — coaxial cylinders/tubes/rings centered on the
   Z axis; coil currents are PEAK amplitudes, powers time-averaged watts; needs `gmsh`
   + the CSC `elmerfem-csc` package (Detect Solvers shows the install line).
+- **OpenFOAM (CFD, add-on)**: needs the **ESI** (openfoam.com) build — Solver Setup
+  shows the two install commands on Linux, the Homebrew tap on macOS, and an
+  **Install…** button on Windows (WSL2; one Administrator step, explained by the
+  button). A found install is health-checked by actually running it: Ubuntu's own
+  archive package aborts on any function object, and the dialog says so instead of
+  showing MISSING. EMStudio works fully without it — nothing regresses if declined.
 
 ## Cable Designer in 30 seconds
 

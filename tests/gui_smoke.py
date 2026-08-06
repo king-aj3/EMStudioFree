@@ -566,9 +566,44 @@ def _pattern_frequency_picker():
     picks[1].setCurrentIndex(1)               # drive it from the OTHER tab
     assert dlg._selected_farfield() is ffs[1]
     assert combo.currentIndex() == 1, combo.currentIndex()
+
+    # LIVE-FOLLOW (AJ, 2026-08-06): once a balloon exists in the 3-D view,
+    # scrolling the picker must retarget it IN PLACE — same object, new
+    # pattern and label — never grow a second overlay. Built through the
+    # same vtk_out calls _show_in_3d uses (that method ends in a modal box,
+    # which an offscreen run must not open).
+    import os as _os
+    import tempfile as _tempfile
+
+    import FreeCAD
+
+    from emstudio.post import vtk_out
+    doc = FreeCAD.newDocument("gui_balloon_follow")
+    try:
+        wd = _tempfile.mkdtemp(prefix="emstudio_smoke_balloon_")
+        p = vtk_out.write_pattern_vtu(ffs[0],
+                                      _os.path.join(wd, "pattern3d.vtu"),
+                                      radius_mm=100.0,
+                                      center_mm=(0.0, 0.0, 0.0))
+        dlg._balloon = vtk_out.show_in_freecad(
+            p, "Pattern balloon @ 0.200 GHz", doc, transparency=55)
+        dlg._balloon_ctx = (p, (0.0, 0.0, 0.0), None)
+        n_before = len(doc.Objects)
+        combo.setCurrentIndex(3)              # 350 MHz
+        assert "0.350" in dlg._balloon.Label, dlg._balloon.Label
+        assert len(doc.Objects) == n_before, \
+            "scrolling grew a second overlay"
+        # a balloon the user deleted must be dropped, not crashed into
+        doc.removeObject(dlg._balloon.Name)
+        combo.setCurrentIndex(2)
+        assert dlg._balloon is None, "deleted balloon still referenced"
+    finally:
+        FreeCAD.closeDocument(doc.Name)
+
     combo.setCurrentIndex(0)
     dlg.close()
-    return "{0} frequencies, both pickers + 3-D export in sync".format(len(ffs))
+    return "{0} frequencies, pickers + 3-D export in sync, balloon " \
+           "live-follows".format(len(ffs))
 
 
 def _vswr_offscale_is_visible():
@@ -707,8 +742,72 @@ def _pattern_frequencies_dialog():
         assert pattern_band.to_hz(solver.PatternFreqStart) == 0.0, \
             "a narrowed band survived being handed back to the sweep"
         dlg.close()
-        return "recommends {0} patterns; hand-typed step round-trips".format(
-            rec["count"])
+
+        # PRE-RUN mode (the Run Solver pop-up, AJ 2026-08-06): on a FRESH
+        # solver it must arrive with the recommendation LIVE — enable checked,
+        # count = the recommended count — with OK reading "Run Solver" and
+        # the mute checkbox present and seeded from the caller.
+        solver.PatternFrequencies = 0
+        solver.PatternFreqStart = 0.0
+        solver.PatternFreqStop = 0.0
+        pre = PatternFrequenciesDialog(ana, solver, prerun=True,
+                                       ask_on_run=True)
+        assert pre.enable.isChecked(), \
+            "prerun on a fresh solver must arrive with the suggestion live"
+        assert pre.ask_box.isChecked() and pre.ask_on_run()
+        n_pre, _pf1, _pf2 = pre.resolved()
+        assert n_pre == rec["count"], (n_pre, rec["count"])
+        from PySide import QtWidgets as _QtW
+        ok_btn = pre.findChild(_QtW.QDialogButtonBox).button(
+            _QtW.QDialogButtonBox.Ok)
+        assert ok_btn.text().replace("&", "") == "Run Solver", ok_btn.text()
+        pre.ask_box.setChecked(False)
+        assert not pre.ask_on_run()
+        pre.close()
+        # ...but a solver with an EXPLICIT prior choice keeps it: prerun must
+        # respect count>0 instead of re-suggesting over it.
+        solver.PatternFrequencies = 5
+        pre2 = PatternFrequenciesDialog(ana, solver, prerun=True)
+        assert pre2.enable.isChecked() and pre2.resolved()[0] == 5, \
+            pre2.resolved()
+        pre2.close()
+        # and the Run Solver command actually calls the hook
+        import inspect
+
+        from emstudio import commands as _cmds
+        src = inspect.getsource(_cmds._RunSolver.Activated)
+        # Assert the CALL, not the name: a comment in Activated also says
+        # "_pattern_freq_prerun", and matching that let a mutation delete
+        # the real call and survive (caught 2026-08-06, first round).
+        assert "if not self._pattern_freq_prerun(ana, solver):" in src, \
+            "Run Solver no longer consults the pattern-band pop-up"
+
+        # STALE-SOLVER HEALING (AJ's "I click OK and nothing happens",
+        # 2026-08-06): an object missing the Pattern properties made
+        # apply_to_solver raise AFTER the dialog closed and BEFORE any
+        # confirmation. The heal must restore the properties, and both
+        # entrances must actually call it.
+        for p in ("PatternFrequencies", "PatternFreqStart",
+                  "PatternFreqStop"):
+            solver.removeProperty(p)
+        assert "PatternFrequencies" not in solver.PropertiesList
+        _cmds._heal_solver_properties(solver)
+        for p in ("PatternFrequencies", "PatternFreqStart",
+                  "PatternFreqStop"):
+            assert p in solver.PropertiesList, "heal did not restore " + p
+        healed = PatternFrequenciesDialog(ana, solver)
+        healed.enable.setChecked(True)
+        assert healed.apply_to_solver(), "apply failed on a healed solver"
+        healed.close()
+        assert "_heal_solver_properties(nec2_solvers[0])" in \
+            inspect.getsource(_cmds._PatternFrequencies.Activated), \
+            "menu entrance no longer heals stale solvers"
+        assert "_heal_solver_properties(solver)" in \
+            inspect.getsource(_cmds._RunSolver._pattern_freq_prerun), \
+            "prerun entrance no longer heals stale solvers"
+
+        return "recommends {0} patterns; hand-typed step round-trips; " \
+               "prerun pop-up live; stale solver heals".format(rec["count"])
     finally:
         FreeCAD.closeDocument(doc.Name)
 
@@ -2228,9 +2327,14 @@ def _solver_setup_dialog():
         btns = buttons(wdlg)
         installable = {k for k in solvers.BACKENDS
                        if btns.get(solvers.BACKENDS[k].label) == "Install…"}
-        assert installable == set(solvers.WIN_INSTALL_PLANS), (
-            "Install buttons {0} do not match WIN_INSTALL_PLANS {1}".format(
-                sorted(installable), sorted(solvers.WIN_INSTALL_PLANS)))
+        # openfoam's guided install is the WSL2 flow, deliberately NOT a
+        # WIN_INSTALL_PLANS zip — so the button contract is plans + openfoam,
+        # exactly. A plan entry for openfoam appearing here would shadow the
+        # WSL flow; the openfoam_setup gate guards that side.
+        expected = set(solvers.WIN_INSTALL_PLANS) | {"openfoam"}
+        assert installable == expected, (
+            "Install buttons {0} do not match the guided-install set {1}".format(
+                sorted(installable), sorted(expected)))
         assert "Build…" not in btns.values(), \
             "a from-source Build button on Windows (no bash, no compiler there)"
         # v0.78.0's actual fix: the log pane used to be hidden on Windows, which
@@ -2249,7 +2353,7 @@ def _solver_setup_dialog():
         else:
             _os.environ["LOCALAPPDATA"] = real_local
     return "builds; simulated Windows offers Install… for {0}".format(
-        ", ".join(sorted(solvers.WIN_INSTALL_PLANS)))
+        ", ".join(sorted(set(solvers.WIN_INSTALL_PLANS) | {"openfoam"})))
 
 
 def _assistant_settings_dialog():

@@ -3,6 +3,60 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.92.0] — 2026-08-06 — OpenFOAM on three OSes, and the pattern choice that rides the Run click
+
+### Fixed
+* **"I click OK and nothing happens" in Pattern Frequencies.** On a solver
+  object predating v0.91.0's properties (possible in mixed-install sessions,
+  e.g. an Add-on-Manager copy updating underneath an open document), storing
+  the choice raised `AttributeError` *after* the dialog closed and *before*
+  any confirmation — invisible outside the Report view. Both entrances now
+  re-run the proxy's idempotent property migration on the live object first,
+  and any failure past OK is SHOWN, never swallowed. Reproduced against a
+  stripped solver before fixing; gui_smoke pins the heal and both call
+  sites (2 mutations caught).
+
+### Added
+* **OpenFOAM joins Solver Setup — discovery that answers the right questions,
+  and a guided install on all three platforms.** OpenFOAM is a suite behind a
+  sourced environment, two forks share its name, and one widely-installed
+  distro build is broken at runtime — so `emstudio/setup/openfoam.py` reports
+  WHERE an install is (its `etc/bashrc`), WHICH fork/version it is (ESI
+  required; a Foundation install is reported, never offered), whether the
+  five required tools are present, and whether its **function objects
+  actually work** — a ~1 s runtime probe (1-cell blockMesh + one function
+  object), not a version floor. Ubuntu's own `openfoam` 1912 package fails
+  that probe with `error in IOstream "sha1"` (a packaging defect, measured);
+  Solver Setup now says exactly that instead of a bare MISSING.
+  Guided routes, each verified against the live source on 2026-08-06:
+  Linux = OpenCFD's repo script + `openfoam2512-default` (the newest FINAL
+  release in their repo; v2606 is still rc2 there); macOS = the community
+  OpenFOAM.app via `brew install gerlero/openfoam/openfoam` (ESI fork only,
+  Apple-silicon, verified usable end-to-end on the M1 host); Windows = an
+  Install button that creates **EMStudio's own WSL2 distro**
+  (`EMStudio-OpenFOAM`, SHA256-pinned Ubuntu rootfs, no Microsoft Store) and
+  installs the ESI packages inside it — per-user except the one honest
+  Administrator step (enabling WSL2), which the button explains instead of
+  failing. Gate: `openfoam_setup` (FAST), 8 engine + 3 GUI mutations caught.
+* **The Pattern Frequencies choice now rides the Run Solver click.** Pressing
+  Run on a NEC2 solver with a real sweep pops the dialog pre-filled — on a
+  fresh solver the recommendation arrives LIVE (band, step, count) and OK
+  reads **Run Solver** — so the scrollable per-frequency patterns are one
+  keypress away instead of parked in a menu nobody finds. A checkbox mutes
+  the pop-up; Analysis ▸ Pattern Frequencies… re-enables it.
+* **The 3-D pattern balloon follows the frequency picker live.** Once "Show
+  in 3D View" has placed a balloon, scrolling the picker rewrites and
+  re-reads it in place — same object, new pattern and label — instead of
+  needing another button press per frequency.
+
+### Changed
+* **Elmer's Windows Install button now downloads the release-pinned
+  `rel26.1` zip** instead of the rolling "current build" name. CSC abandoned
+  the funet nightly on 2026-08-05 (their `NIGTLY_BUILD_IS_BROKEN.txt`, citing
+  our #858: the nightlies had again shipped without the MinGW runtime DLLs);
+  the pinned zip was downloaded and inspected before switching — 296 DLLs in
+  `bin/`, every runtime DLL present. The MSYS2 completion fallback stays.
+
 ## [0.91.0] — 2026-08-06 — the picker you can find, and a plot that draws its data
 
 Everything here came from one user session on a real model — a 300 mm solid

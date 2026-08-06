@@ -529,6 +529,36 @@ def _open_results_for(result):
     SweepResultsDialog(result, parent=FreeCADGui.getMainWindow()).exec()
 
 
+#: Preference: pop the Pattern Frequencies dialog up inside Run Solver
+#: (NEC2). Default ON — the pre-run pop-up exists because the menu command
+#: alone was not discoverable (AJ could not find the scroll feature twice in
+#: one day, v0.91.0 and again the same evening).
+_PATTERN_ASK_PREF = "PatternFreqAskOnRun"
+
+
+def _heal_solver_properties(solver):
+    """Re-run the proxy's property migration on a live object. Never raises.
+
+    ``onDocumentRestored`` adds new properties to old documents — but only
+    for documents restored under THIS version. An object that slipped past
+    that (created or restored under an older tree in a mixed-install
+    session) simply lacks the new properties, and writing to it raises
+    AttributeError. The proxy's ``_ensure_properties`` is idempotent by
+    design, so calling it here is free on a healthy object and a repair on
+    a stale one. Measured failure this guards: OK in Pattern Frequencies
+    doing visibly nothing (AJ, 2026-08-06).
+    """
+    try:
+        proxy = getattr(solver, "Proxy", None)
+        ensure = getattr(proxy, "_ensure_properties", None)
+        if ensure:
+            ensure(solver)
+    except Exception as exc:                  # noqa: BLE001 — best effort
+        FreeCAD.Console.PrintWarning(
+            "EMStudio: property migration on '{0}' failed: {1}\n".format(
+                getattr(solver, "Label", "?"), exc))
+
+
 class _PatternFrequencies:
     """Choose the band and spacing of the NEC2 radiation-pattern pass.
 
@@ -575,11 +605,27 @@ class _PatternFrequencies:
             _warn("Multiple NEC2 solvers present — select the one to set up.")
             return
 
-        dlg = PatternFrequenciesDialog(ana, nec2_solvers[0],
-                                       parent=FreeCADGui.getMainWindow())
+        from emstudio.setup.solvers import PREF_GROUP
+        params = FreeCAD.ParamGet(PREF_GROUP)
+        _heal_solver_properties(nec2_solvers[0])
+        dlg = PatternFrequenciesDialog(
+            ana, nec2_solvers[0], parent=FreeCADGui.getMainWindow(),
+            ask_on_run=params.GetBool(_PATTERN_ASK_PREF, True))
         if dlg.exec_() != QtWidgets.QDialog.Accepted:
             return
-        summary = dlg.apply_to_solver()
+        # This menu entrance is also where the Run Solver pop-up gets turned
+        # back ON after being muted — the muted user cannot reach the
+        # checkbox any other way.
+        params.SetBool(_PATTERN_ASK_PREF, dlg.ask_on_run())
+        try:
+            summary = dlg.apply_to_solver()
+        except Exception as exc:              # noqa: BLE001 — MUST be visible
+            # An exception here previously died AFTER the dialog closed and
+            # BEFORE any confirmation — the user pressed OK and "nothing
+            # happened" (AJ, 2026-08-06, on a solver object missing the
+            # Pattern properties). Whatever goes wrong past OK gets SAID.
+            _warn("Could not store the pattern choice:\n\n{0}".format(exc))
+            return
         FreeCAD.ActiveDocument.recompute()
         FreeCAD.Console.PrintMessage(
             "EMStudio: pattern frequencies — {0}\n".format(summary))
@@ -595,6 +641,47 @@ class _RunSolver:
             "MenuText": "Run Solver",
             "ToolTip": "Run the selected solver (or the analysis' only solver) and plot results",
         }
+
+    @staticmethod
+    def _pattern_freq_prerun(ana, solver):
+        """Pattern Frequencies as part of pressing Run (AJ, 2026-08-06).
+
+        True = go ahead and solve; False = the user cancelled the run. The
+        dialog appears pre-filled — recommendation live on a fresh solver,
+        the stored choice otherwise — with OK relabelled "Run Solver", so
+        the decision happens exactly where the cost is about to be paid.
+        Muted via its own checkbox (preference), and skipped entirely when
+        the analysis has no band to scroll (a single-frequency solve).
+        """
+        from PySide import QtWidgets
+
+        from emstudio.objects.analysis import Analysis
+        from emstudio.setup.solvers import PREF_GROUP
+        from emstudio.ui.pattern_freq_dialog import PatternFrequenciesDialog
+
+        params = FreeCAD.ParamGet(PREF_GROUP)
+        if not params.GetBool(_PATTERN_ASK_PREF, True):
+            return True
+        f1, f2, pts = Analysis.freq_range_hz(ana)
+        if pts < 2 or f2 <= f1:
+            return True                      # nothing to scroll — no pop-up
+
+        _heal_solver_properties(solver)
+        dlg = PatternFrequenciesDialog(ana, solver,
+                                       parent=FreeCADGui.getMainWindow(),
+                                       prerun=True, ask_on_run=True)
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return False
+        params.SetBool(_PATTERN_ASK_PREF, dlg.ask_on_run())
+        try:
+            summary = dlg.apply_to_solver()
+        except Exception as exc:              # noqa: BLE001 — MUST be visible
+            _warn("Could not store the pattern choice:\n\n{0}".format(exc))
+            return False
+        FreeCAD.ActiveDocument.recompute()
+        FreeCAD.Console.PrintMessage(
+            "EMStudio: pattern frequencies — {0}\n".format(summary))
+        return True
 
     @staticmethod
     def _nec2_preflight(ana, solver):
@@ -703,6 +790,13 @@ class _RunSolver:
             # already knows how to derive the centreline from one, so refusing
             # was a choice, not a limitation.
             if not self._nec2_preflight(ana, solver):
+                return
+
+            # The pattern-band choice rides the Run click itself — see
+            # _pattern_freq_prerun. AFTER the preflight: a repaired wire
+            # model can change nothing about the band, but a cancelled
+            # repair must not leave a half-configured solver behind.
+            if not self._pattern_freq_prerun(ana, solver):
                 return
 
             def run_fn(a, s, cb):

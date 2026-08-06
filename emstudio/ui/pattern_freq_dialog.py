@@ -20,12 +20,22 @@ MHZ = 1e6
 
 
 class PatternFrequenciesDialog(QtWidgets.QDialog):
-    """Set the radiation-pattern band and spacing on a NEC2 solver."""
+    """Set the radiation-pattern band and spacing on a NEC2 solver.
 
-    def __init__(self, analysis, solver, parent=None):
+    Two entrances, one dialog. ``prerun=True`` is the Run Solver path (AJ,
+    2026-08-06): the choice pops up AFTER pressing Run and BEFORE the solve,
+    pre-filled with the recommendation and with OK relabelled "Run Solver" —
+    because a pre-run decision parked in a menu is exactly the
+    discoverability bug v0.91.0 fixed once already, one level up.
+    ``ask_on_run`` seeds the mute checkbox; the caller owns the preference.
+    """
+
+    def __init__(self, analysis, solver, parent=None, prerun=False,
+                 ask_on_run=True):
         super().__init__(parent)
         self.analysis = analysis
         self.solver = solver
+        self.prerun = prerun
         self.setWindowTitle("EMStudio — Pattern Frequencies")
         self.setMinimumWidth(560)
 
@@ -92,14 +102,32 @@ class PatternFrequenciesDialog(QtWidgets.QDialog):
         layout.addWidget(self.body)
         layout.addStretch(1)
 
+        self.ask_box = QtWidgets.QCheckBox(
+            "Show this dialog whenever Run Solver starts a NEC2 solve")
+        self.ask_box.setChecked(ask_on_run)
+        self.ask_box.setToolTip(
+            "Unchecked, Run Solver goes straight to the solve and this "
+            "dialog stays available under Analysis ▸ Pattern Frequencies… — "
+            "where re-ticking this box brings the pop-up back.")
+        layout.addWidget(self.ask_box)
+
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
             parent=self)
+        if prerun:
+            buttons.button(QtWidgets.QDialogButtonBox.Ok).setText("Run Solver")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
         self._load_from_solver()
+        # Pre-run on a FRESH solver: arrive with the suggestion LIVE — band,
+        # step and count already filled — so one press of "Run Solver" gives
+        # the scrollable pattern set. The summary line states the output cost
+        # before anything runs; a previously-made choice (count set, or
+        # explicitly stored band) is respected instead.
+        if prerun and int(getattr(solver, "PatternFrequencies", 0) or 0) == 0:
+            self.enable.setChecked(True)
         for w in (self.start, self.stop, self.step):
             w.valueChanged.connect(self._refresh)
         self.use_sweep.toggled.connect(self._band_toggled)
@@ -209,6 +237,10 @@ class PatternFrequenciesDialog(QtWidgets.QDialog):
             lines.append("<i>Recommended: {0:.4g} MHz — {1}.</i>".format(
                 self.rec["step_hz"] / MHZ, self.rec["note"]))
         self.summary.setText("<br>".join(lines))
+
+    def ask_on_run(self):
+        """The mute checkbox — the caller persists it as a preference."""
+        return self.ask_box.isChecked()
 
     # -- commit ---------------------------------------------------------------
     def apply_to_solver(self):

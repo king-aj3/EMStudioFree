@@ -43,6 +43,7 @@ FAST = {
     "freq_guard": None,
     "horn": None,
     "lfmf": None,
+    "openfoam_setup": None,
     "p1546": None,
     "p1812": None,
     "p2001": "itu_maps:P2001.npz",

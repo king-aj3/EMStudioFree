@@ -120,6 +120,10 @@ class SolverInstallerDialog(QtWidgets.QDialog):
     # -- table ---------------------------------------------------------------
 
     def refresh(self):
+        # OpenFOAM discovery caches its runtime probe (it RUNS a solver);
+        # every refresh here is a moment the user expects a fresh look —
+        # dialog open, Re-detect, and the tail of an install.
+        solvers.openfoam_clear_cache()
         plan = solvers.install_plan()
         rows = [(info, None) for info in plan["found"]]
         rows += [(m["info"], m) for m in plan["missing"]]
@@ -158,6 +162,13 @@ class SolverInstallerDialog(QtWidgets.QDialog):
                 detail = "in the sudo step below (apt: {0})".format(b.apt_package)
             else:
                 detail = b.manual_hint.splitlines()[0] if b.manual_hint else b.homepage
+            if not info.found and b.key == "openfoam":
+                # "MISSING" can hide the real story here: an install may
+                # exist that is the wrong fork, incomplete, or the distro
+                # build whose function objects abort. Say THAT instead.
+                note = solvers.openfoam_status_note()
+                if note:
+                    detail = note
             item = QtWidgets.QTableWidgetItem(detail)
             item.setToolTip(detail if info.found else (miss or {}).get("steps", detail))
             self.table.setItem(i, 2, item)
@@ -184,6 +195,20 @@ class SolverInstallerDialog(QtWidgets.QDialog):
                         wplan["estimate"]))
                 btn.clicked.connect(
                     lambda _=False, key=b.key: self._win_install(key))
+                self.table.setCellWidget(i, 3, btn)
+            elif not info.found and b.key == "openfoam" and self._is_win:
+                # Not a WIN_INSTALL_PLANS zip: OpenFOAM's guided Windows
+                # path builds EMStudio's own WSL2 distro. The button stays
+                # honest when WSL2 itself is missing — it explains the one
+                # admin step instead of failing at the first command.
+                btn = QtWidgets.QPushButton("Install…", self.table)
+                btn.setToolTip(
+                    "Creates EMStudio's own WSL2 distro and installs the "
+                    "official ESI OpenFOAM inside it (per-user, no Store). "
+                    "If WSL2 is not enabled yet, explains the one-time "
+                    "Administrator step instead of failing.")
+                btn.clicked.connect(
+                    lambda _=False: self._openfoam_install())
                 self.table.setCellWidget(i, 3, btn)
 
     def _copy_apt(self):
@@ -268,6 +293,59 @@ class SolverInstallerDialog(QtWidgets.QDialog):
                 state["done"] = True
 
         self.log.appendPlainText("=== installing {0} ===".format(label))
+        self.redetect_btn.setEnabled(False)
+        self._lock = lock
+        threading.Thread(target=work, daemon=True).start()
+        self._timer.start(300)
+
+    def _openfoam_install(self):
+        """Guided OpenFOAM install: EMStudio's own WSL2 distro, in a thread.
+
+        The WSL2-readiness check happens HERE, before any confirmation
+        dialog: when the one-time Administrator step is still needed there
+        is nothing to confirm — the honest move is to show the exact
+        commands and stop.
+        """
+        if self._busy_key:
+            return
+        from emstudio.setup import openfoam as of_setup
+        state, detail = of_setup.windows_wsl_state()
+        if state != "ready":
+            guidance = of_setup.windows_guidance(detail)
+            self.log.appendPlainText(guidance)
+            QtWidgets.QMessageBox.information(
+                self, "EMStudio — one-time WSL2 setup needed", guidance)
+            return
+        answer = QtWidgets.QMessageBox.question(
+            self, "EMStudio — install OpenFOAM?",
+            "Create the '{0}' WSL distro and install the official ESI "
+            "OpenFOAM packages inside it now?\n\nEstimated time: 10-40 min "
+            "(a ~340 MB rootfs download plus package installs; needs about "
+            "4 GB of disk). Per-user — no admin rights needed for this "
+            "part.\n\nRemove it later with:  wsl --unregister {0}".format(
+                of_setup.WSL_DISTRO),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if answer != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._busy_key = "openfoam"
+        self._state = {"done": False, "error": None, "lines": []}
+        state_d = self._state
+        lock = threading.Lock()
+
+        def line_cb(line):
+            with lock:
+                state_d["lines"].append(line)
+
+        def work():
+            try:
+                of_setup.run_windows_install(line_callback=line_cb)
+            except Exception as exc:  # noqa: BLE001 — surfaced in the dialog
+                state_d["error"] = exc
+            finally:
+                state_d["done"] = True
+
+        self.log.appendPlainText("=== installing OpenFOAM (WSL2) ===")
         self.redetect_btn.setEnabled(False)
         self._lock = lock
         threading.Thread(target=work, daemon=True).start()

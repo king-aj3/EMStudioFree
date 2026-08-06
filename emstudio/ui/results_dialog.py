@@ -260,6 +260,48 @@ class SweepResultsDialog(QtWidgets.QDialog):
                 combo.setCurrentIndex(idx)
                 combo.blockSignals(False)
             show(idx)
+        self._update_balloon()
+
+    def _update_balloon(self):
+        """Re-point an existing 3-D pattern balloon at the picked frequency.
+
+        Live-follow: once "Show in 3D View" has created a balloon, scrolling
+        the picker rewrites its VTU (same path, same centre and radius so
+        only the pattern changes, never the framing) and re-reads it in
+        place — no second button press, no second overlay. A balloon the
+        user deleted from the tree is dropped silently; the next "Show in
+        3D View" starts a fresh one.
+        """
+        obj = getattr(self, "_balloon", None)
+        if obj is None:
+            return
+        try:
+            doc = obj.Document
+            alive = doc.getObject(obj.Name) is not None
+        except Exception:                      # noqa: BLE001 — deleted object
+            alive = False
+        if not alive:
+            self._balloon = None
+            return
+        ff = self._selected_farfield()
+        if ff is None or not (ff.phi.size > 4 and ff.theta.size > 1):
+            return
+        from emstudio.post import vtk_out
+
+        path, centre, extent = self._balloon_ctx
+        try:
+            p = vtk_out.write_pattern_vtu(
+                ff, path,
+                radius_mm=(vtk_out.auto_radius_mm(extent) if extent
+                           else 100.0),
+                center_mm=centre)
+            obj.read(p)
+            obj.Label = "Pattern balloon @ {0:.3f} GHz".format(ff.freq / 1e9)
+            doc.recompute()
+        except Exception as exc:               # noqa: BLE001 — non-fatal
+            import FreeCAD
+            FreeCAD.Console.PrintWarning(
+                "EMStudio: balloon update failed: {0}\n".format(exc))
 
     def _selected_farfield(self):
         """The far field the user is looking at, or the only one there is."""
@@ -446,9 +488,16 @@ class SweepResultsDialog(QtWidgets.QDialog):
                     center_mm=(centre or (0.0, 0.0, 0.0)))
                 # Semi-transparent: the balloon now ENCLOSES the antenna, so
                 # an opaque one would hide the very geometry it describes.
-                created.append(vtk_out.show_in_freecad(
+                balloon = vtk_out.show_in_freecad(
                     p, "Pattern balloon @ {0:.3f} GHz".format(ff.freq / 1e9),
-                    doc, transparency=55).Label)
+                    doc, transparency=55)
+                created.append(balloon.Label)
+                # Remember it: from here on the balloon FOLLOWS the picker
+                # live (AJ, 2026-08-06 — scrolling the solved frequencies
+                # should update the 3-D view, not need another button press).
+                self._balloon = balloon
+                self._balloon_ctx = (p, centre or (0.0, 0.0, 0.0),
+                                     extent)
             cur = getattr(self.result, "currents", None)
             if cur is not None:
                 p = vtk_out.write_currents_vtu(cur, os.path.join(workdir, "currents.vtu"))

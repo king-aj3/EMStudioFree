@@ -27,6 +27,10 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
+# Import-light (stdlib only at module level), so this cannot cycle: the
+# openfoam module imports solvers strictly inside functions.
+from emstudio.setup import openfoam as _openfoam
+
 
 def _is_mac():
     """True on macOS. Read at CALL time so tests can patch ``sys.platform``.
@@ -353,6 +357,34 @@ BACKENDS = {
                    brew="openblas"),
         ),
     ),
+    # OpenFOAM is NOT resolved by the generic path/probe machinery below —
+    # find_backend() delegates it to emstudio.setup.openfoam, which answers
+    # the four questions a suite-behind-a-sourced-environment needs (where,
+    # which fork, are the required tools there, do function objects WORK).
+    # This entry exists so the Solver Setup table, install_plan() and the
+    # first-run wizard enumerate it like any other backend.
+    "openfoam": Backend(
+        key="openfoam",
+        label="OpenFOAM (CFD conjugate heat / enclosure airflow)",
+        method="FVM",
+        executables=("buoyantSimpleFoam",),  # representative only; see above
+        version_args=(),
+        # apt_package is EMPTY on purpose and must stay that way: the
+        # Ubuntu-archive 'openfoam' package is the defective v1912 build
+        # whose function objects abort (error in IOstream "sha1", measured
+        # 2026-08-06) — it must never join the one-command sudo line. The
+        # ESI route needs their repo added first, so it cannot be a plain
+        # apt_package either; the two commands live in manual_hint.
+        manual_hint=(
+            "ESI (openfoam.com) build required — two commands:\n"
+            "curl -s {0} | sudo bash\n"
+            "sudo apt-get install -y {1}\n"
+            "Do NOT install the Ubuntu-archive 'openfoam' package: that is "
+            "the v1912 build whose function objects abort at runtime "
+            "(EMStudio detects it and explains, but cannot use it)."
+            .format(_openfoam.ESI_REPO_SCRIPT_URL, _openfoam.APT_PACKAGE)),
+        homepage="https://www.openfoam.com/",
+    ),
     # Meshing/support tools, discovered the same way.
     "gmsh": Backend(
         key="gmsh",
@@ -458,6 +490,19 @@ def find_backend(key):
     """Locate a single backend by registry key. Returns a :class:`SolverInfo`."""
     backend = BACKENDS[key]
 
+    # OpenFOAM is a suite behind a sourced environment, not an executable —
+    # its resolver answers fork/tools/capability questions the generic path
+    # below cannot ask. found here means USABLE (right fork, required tools
+    # present, function objects actually work); a found-but-unusable install
+    # surfaces through openfoam_status_note() instead, so the user learns
+    # WHY it is not offered rather than seeing a bare MISSING.
+    if key == "openfoam":
+        rich = _openfoam.find_openfoam()
+        if rich.usable:
+            return SolverInfo(backend, rich.bashrc, rich.describe(),
+                              rich.source)
+        return SolverInfo(backend, "")
+
     # 1) explicit FreeCAD preference
     pref = _pref_path(key)
     if pref and os.path.isfile(pref) and os.access(pref, os.X_OK):
@@ -506,6 +551,27 @@ def detect_all():
 def is_ephemeral_path(path):
     """True if a detected path lives in a transient location (AppImage mount)."""
     return path.startswith("/tmp/.mount_")
+
+
+def openfoam_status_note():
+    """The found-but-unusable OpenFOAM diagnostic, or ''. Never raises.
+
+    Surfaced wherever a MISSING row would otherwise hide the real story
+    (wrong fork / missing tools / the defective distro build) — the dialog
+    and the text report both append it.
+    """
+    try:
+        return _openfoam.status_note()
+    except Exception:
+        return ""
+
+
+def openfoam_clear_cache():
+    """Forget cached OpenFOAM discovery (Re-detect / post-install)."""
+    try:
+        _openfoam.clear_cache()
+    except Exception:
+        pass
 
 
 def _lib_present(stem):
@@ -674,6 +740,20 @@ MACOS_HINTS = {
     "elmer": "No Homebrew formula. CSC publishes macOS builds — see "
              "https://www.elmerfem.org/ (Download → macOS), or build with "
              "brew install cmake open-mpi openblas first.",
+    # The tap command below is deliberately NOT in brew_package /
+    # VERIFIED_BREW_FORMULAE: those gate homebrew-CORE formulae, and core has
+    # no openfoam at all (formulae.brew.sh/api/formula/openfoam.json → 404,
+    # checked 2026-08-06). The gerlero tap packages the ESI fork EXCLUSIVELY
+    # and ships a sourceable etc/bashrc shim inside the .app — both verified
+    # from the repo source the same day.
+    "openfoam": "{0}  — the community OpenFOAM.app (ESI fork, exactly what "
+                "EMStudio needs; Apple-silicon Macs on macOS 14+; Intel Macs "
+                "cap at v2506 via app release 2.1.2). Manual alternative: "
+                "download the release zip from "
+                "https://github.com/gerlero/openfoam-app and drop the .app "
+                "in /Applications (unnotarized: right-click → Open once). "
+                "The openfoam.org Foundation fork does NOT work with "
+                "EMStudio's cases.".format(_openfoam.MACOS_BREW_CMD),
     "palace": "No Homebrew formula. macOS IS supported by the CMake superbuild: "
               "xcode-select --install, brew install cmake open-mpi openblas gcc, then "
               "git clone https://github.com/awslabs/palace.git ~/opt/palace-src && "
@@ -731,6 +811,19 @@ WINDOWS_HINTS = {
              "and EMStudio detects it automatically. Manual alternative: the "
              "official installer at https://www.elmerfem.org/.",
     "palace": "No native Windows support (Linux/macOS only) — use WSL2.",
+    # ESI's native mingw Windows binary is advertised in their own wiki and
+    # its download 404s at every path (measured 2026-08-06, reported
+    # upstream) — so the guided route is the vendor-preferred WSL2 one, and
+    # it is honest about the single admin step no installer can skip.
+    "openfoam": "Guided install available — the Install button creates "
+                "EMStudio's own WSL2 distro ('{0}': Ubuntu rootfs, "
+                "SHA256-verified, no Microsoft Store) and installs the "
+                "official ESI OpenFOAM packages inside it, all per-user. "
+                "ONE-TIME prerequisite that does need Administrator + a "
+                "reboot: enabling WSL2 itself (wsl --install "
+                "--no-distribution) — the button explains this when needed "
+                "instead of failing. Uninstall: wsl --unregister {0}."
+                .format(_openfoam.WSL_DISTRO),
     "gmsh": "One-click guided install available — the Install button downloads the "
             "official gmsh Windows zip (~37 MB, per-user, no admin rights). "
             "Manual alternative: https://gmsh.info/.",
@@ -765,8 +858,21 @@ def _managed_dirs(key):
 
 #: Guided Windows installs: official prebuilt archives only, from the
 #: publisher's own distribution point (funet is CSC's mirror — CSC writes
-#: Elmer; gmsh.info is gmsh's home). Both URLs are upstream-maintained
-#: "current build" names, so they do not go stale with each release.
+#: Elmer; gmsh.info is gmsh's home).
+#:
+#: The Elmer URL is RELEASE-PINNED as of 2026-08-06, and the rolling
+#: "current build" name must not come back: CSC's NIGTLY_BUILD_IS_BROKEN.txt
+#: (funet, 2026-08-05, citing our ElmerCSC/elmerfem#858) says the nightly
+#: zips had AGAIN stopped bundling the MinGW runtime DLLs, the nightly is
+#: abandoned ("we will not try to repair"), the rolling names now hold a
+#: restored July-1 build, and fresh builds live behind a GitHub login
+#: (Actions artifacts) — unusable for unattended installs. The rel26.1/
+#: subdir is the release-pinned alternative: stable name AND stable content.
+#: VERIFIED before switching (2026-08-06, the exact zip below, downloaded
+#: and inspected): 3819 entries, bin/ElmerSolver.exe + bin/ElmerGrid.exe,
+#: 296 DLLs in bin/ including every runtime DLL in the completion list —
+#: which stays anyway, because it is free on a complete zip and repairs an
+#: incomplete one.
 #: Elmer gui/nompi is deliberate on BOTH axes: nompi because EMStudio drives
 #: a headless serial ElmerSolver and MS-MPI needs its own admin installer;
 #: gui — NOT nogui — because when this was chosen the nogui zip shipped no
@@ -778,9 +884,9 @@ def _managed_dirs(key):
 #: strength of one upstream rebuild.
 WIN_INSTALL_PLANS = {
     "elmer": {
-        "estimate": "3-15 min (a ~219 MB download; no compile)",
+        "estimate": "3-15 min (a ~210 MB download; no compile)",
         "url": "https://www.nic.funet.fi/pub/sci/physics/elmer/bin/windows/"
-               "ElmerFEM-gui-nompi-Windows-AMD64.zip",
+               "rel26.1/ElmerFEM-gui-nompi-Windows-AMD64-rel26.1.zip",
         # The file that proves extraction found the real tree, relative to it.
         "proof": os.path.join("bin", "ElmerSolver.exe"),
         # UPSTREAM FIXED THIS — the completion step below is now normally a
@@ -1162,6 +1268,9 @@ def install_report_text():
         for m in plan["missing"]:
             b = m["info"].backend
             lines.append("  [MISSING] {0}".format(b.label))
+        note = openfoam_status_note()
+        if note:
+            lines += ["", "  note: " + note]
         lines += ["", "Windows install guidance:"]
         for m in plan["missing"]:
             b = m["info"].backend
@@ -1180,6 +1289,9 @@ def install_report_text():
                 info.backend.label, info.path, ver))
         for m in plan["missing"]:
             lines.append("  [MISSING] {0}".format(m["info"].backend.label))
+        note = openfoam_status_note()
+        if note:
+            lines += ["", "  note: " + note]
         if plan["brew_line"]:
             lines += ["", "Homebrew packages (one command):", "  " + plan["brew_line"]]
         lines += ["", "Per-backend guidance:"]
@@ -1201,6 +1313,9 @@ def install_report_text():
     for m in plan["missing"]:
         b = m["info"].backend
         lines.append("  [MISSING] {0}".format(b.label))
+    note = openfoam_status_note()
+    if note:
+        lines += ["", "  note: " + note]
     if plan["apt_line"]:
         lines += ["", "One command covers all missing packages/prerequisites:",
                   "  " + plan["apt_line"]]
@@ -1304,7 +1419,13 @@ BUILD_PLANS = {
         "estimate": "15–35 min (CMake; all cores)",
         "prefix": os.path.join(_HOME, "opt", "elmer"),
         "steps": [
-            ("clone Elmer (release branch)",
+            # release-26.2.1 is a git TAG, not a branch — Elmer publishes no
+            # release-X.Y.Z branches at all (full branch list checked
+            # 2026-08-06). `git clone -b` resolves tags, so this works; any
+            # future change fetching refs/heads/release-* explicitly would
+            # not. The PPA is a different beast again: it ships dated devel
+            # snapshots versioned 9.0-0ppa0-<date>, never "26.2.1".
+            ("clone Elmer (release tag)",
              ["bash", "-c",
               "test -d ~/opt/elmerfem || git clone --depth 1 "
               "-b release-26.2.1 https://github.com/ElmerCSC/elmerfem.git "
