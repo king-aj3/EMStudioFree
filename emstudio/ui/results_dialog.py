@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from PySide import QtWidgets
+from PySide import QtCore, QtWidgets
 
 import matplotlib
 
@@ -35,6 +35,196 @@ VSWR_VIEW_TOP = 10.0
 VSWR_ACCEPT = 2.0
 
 
+#: Open non-modal results dialogs. WA_DeleteOnClose destroys the C++ side on
+#: close, and with a None parent nothing else would keep the PYTHON wrapper
+#: alive while shown — this list does. Entries remove themselves on destroy.
+_open_results = []
+
+
+def show_sweep_results(result, parent=None):
+    """Show the sweep-results dialog NON-MODAL, deleted for real on close.
+
+    Every caller used ``.exec()`` (application-modal) — which an adversarial
+    review (2026-08-06) showed broke the scrubbing feature twice over: the
+    modal dialog input-blocked the floating viewport scrubber (unusable
+    until close), and ``close()`` on a parented dialog only HID it, so
+    post-close scrubs drove a hidden dialog that lazily built matplotlib
+    figures forever and the scrubber's dead-dialog detection could never
+    fire. Non-modal + WA_DeleteOnClose fixes all of it at once — and lets
+    the user rotate the 3-D view while the plots are up, which is the whole
+    point of putting results in the viewport.
+    """
+    dlg = SweepResultsDialog(result, parent=parent)
+    dlg.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
+    _open_results.append(dlg)
+
+    def _gone(*_a):
+        try:
+            _open_results.remove(dlg)
+        except ValueError:
+            pass
+
+    dlg.destroyed.connect(_gone)
+    dlg.show()
+    return dlg
+
+
+def _retarget_balloon(balloon, ctx, ff):
+    """Rewrite a 3-D pattern balloon's VTU in place for a new far field.
+
+    Returns False when the balloon is gone (deleted from the tree, or its
+    document closed) — callers drop their reference. Shared by the dialog's
+    live-follow and the floating viewport scrubber, so the two can never
+    disagree about what an update does. Same path, same centre and radius:
+    only the pattern changes, never the framing.
+    """
+    try:
+        doc = balloon.Document
+        if doc.getObject(balloon.Name) is None:
+            return False
+    except Exception:                          # noqa: BLE001 — deleted object
+        return False
+    if ff is None or not (ff.phi.size > 4 and ff.theta.size > 1):
+        return True                            # nothing drawable; keep the ref
+    from emstudio.post import vtk_out
+
+    path, centre, extent = ctx
+    try:
+        p = vtk_out.write_pattern_vtu(
+            ff, path,
+            radius_mm=(vtk_out.auto_radius_mm(extent) if extent else 100.0),
+            center_mm=centre)
+        balloon.read(p)
+        balloon.Label = "Pattern balloon @ {0:.3f} GHz".format(ff.freq / 1e9)
+        doc.recompute()
+    except Exception as exc:                   # noqa: BLE001 — non-fatal
+        import FreeCAD
+        FreeCAD.Console.PrintWarning(
+            "EMStudio: balloon update failed: {0}\n".format(exc))
+    return True
+
+
+class BalloonScrubber(QtWidgets.QWidget):
+    """Floating frequency slider that lives over the 3-D viewport.
+
+    "Show in 3D View" spawns it beside the balloon it controls (AJ,
+    2026-08-06: scrub the frequencies and watch the balloon change without
+    the results dialog in the way). It OWNS its data — the far-field list,
+    the balloon object and the write context — so it keeps working after
+    the results dialog closes; while the dialog lives, ``on_change`` routes
+    every scrub through the dialog's shared selection, so the 2-D tabs and
+    the sweep-plot cursors move with it. One scrubber at a time: a new
+    "Show in 3D View" replaces the old one (a stack of orphaned sliders,
+    each bound to a dead balloon, is worse than none).
+    """
+
+    _instance = None
+
+    @classmethod
+    def show_for(cls, farfields, index, balloon, ctx, on_change=None):
+        old, cls._instance = cls._instance, None
+        if old is not None:
+            try:
+                old.close()
+            except RuntimeError:
+                pass                           # Qt C++ side already deleted
+        sc = cls(farfields, index, balloon, ctx, on_change)
+        cls._instance = sc
+        sc.show()
+        return sc
+
+    def __init__(self, farfields, index, balloon, ctx, on_change=None):
+        import FreeCADGui
+        mw = FreeCADGui.getMainWindow()
+        super().__init__(mw, QtCore.Qt.Tool)
+        self.setWindowTitle("EMStudio — pattern frequency")
+        self._ffs = list(farfields)
+        self._balloon = balloon
+        self._ctx = ctx
+        self.on_change = on_change
+
+        row = QtWidgets.QHBoxLayout(self)
+        row.setContentsMargins(10, 6, 10, 6)
+        self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self)
+        self.slider.setRange(0, len(self._ffs) - 1)
+        self.slider.setValue(index)
+        self.slider.setTracking(True)
+        self.slider.setMinimumWidth(280)
+        row.addWidget(self.slider, 1)
+        self.label = QtWidgets.QLabel(self)
+        self.label.setMinimumWidth(90)
+        row.addWidget(self.label)
+
+        # Same coalescing the dialog uses: label instantly, balloon ~16 fps
+        # with the trailing edge guaranteed.
+        self._timer = QtCore.QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(60)
+        self._timer.timeout.connect(self._apply)
+        self.slider.valueChanged.connect(self._on_value)
+
+        self._set_label(index)
+        self._position_over_view(mw)
+
+    # -- wiring ---------------------------------------------------------------
+    def balloon_is(self, obj):
+        return obj is not None and obj is self._balloon
+
+    def set_index_silent(self, idx):
+        """Follow an external selection without echoing it back."""
+        if self.slider.value() != idx:
+            self.slider.blockSignals(True)
+            self.slider.setValue(idx)
+            self.slider.blockSignals(False)
+        self._set_label(idx)
+
+    def _set_label(self, idx):
+        self.label.setText("{0:.4g} MHz".format(self._ffs[idx].freq / 1e6))
+
+    def _on_value(self, idx):
+        self._set_label(idx)
+        self._timer.start()
+
+    def _apply(self):
+        idx = self.slider.value()
+        if self.on_change is not None:
+            # The dialog drives everything (tabs, cursors, balloon) while it
+            # lives; when it has been closed the bound method's C++ side is
+            # gone and raises — drop the hook and scrub the balloon solo.
+            try:
+                self.on_change(idx)
+                return
+            except RuntimeError:
+                self.on_change = None
+        if not _retarget_balloon(self._balloon, self._ctx, self._ffs[idx]):
+            self.close()
+
+    def closeEvent(self, event):
+        if BalloonScrubber._instance is self:
+            BalloonScrubber._instance = None
+        super().closeEvent(event)
+
+    def _position_over_view(self, mw):
+        """Bottom-centre of the active 3-D view; centre of the window else.
+
+        Positioning is cosmetic, so every step is allowed to fail — a
+        scrubber that appears at a default spot beats one that crashed
+        trying to be pretty. It is a normal Tool window: the user can drag
+        it wherever they like afterwards.
+        """
+        try:
+            mdi = mw.findChild(QtWidgets.QMdiArea)
+            sub = mdi.activeSubWindow() if mdi is not None else None
+            ref = sub if sub is not None else mw
+            top_left = ref.mapToGlobal(QtCore.QPoint(0, 0))
+            self.adjustSize()
+            x = top_left.x() + (ref.width() - self.width()) // 2
+            y = top_left.y() + ref.height() - self.height() - 48
+            self.move(max(x, 0), max(y, 0))
+        except Exception:                      # noqa: BLE001 — cosmetic only
+            pass
+
+
 class SweepResultsDialog(QtWidgets.QDialog):
     """Tabbed plots for a one-port SweepResult."""
 
@@ -49,10 +239,14 @@ class SweepResultsDialog(QtWidgets.QDialog):
         tabs = QtWidgets.QTabWidget(self)
         layout.addWidget(tabs)
 
-        tabs.addTab(self._plot_s11(), "S-Parameters")
-        tabs.addTab(self._plot_vswr(), "VSWR")
-        tabs.addTab(self._plot_z(), "Impedance")
+        # The scrub state is decided BEFORE any plot is built: the sweep
+        # plots (S11 / VSWR / impedance) each register a frequency CURSOR —
+        # a vertical line with intersection markers and a live readout —
+        # that follows the same shared selection the pattern tabs and the
+        # 3-D balloon use, so sliding through the band moves everything at
+        # once (AJ, 2026-08-06).
         farfield = getattr(result, "farfield", None)
+        self._freq_cursors = []
         if farfield is not None:
             # A sweep can carry a pattern PER FREQUENCY (the solver's
             # PatternFrequencies). Wrap each pattern tab in a picker so the
@@ -69,10 +263,19 @@ class SweepResultsDialog(QtWidgets.QDialog):
                 range(len(self._farfields)),
                 key=lambda i: abs(self._farfields[i].freq - farfield.freq))
             self._pattern_views = []
+
+        tabs.addTab(self._plot_s11(), "S-Parameters")
+        tabs.addTab(self._plot_vswr(), "VSWR")
+        tabs.addTab(self._plot_z(), "Impedance")
+        if farfield is not None:
             tabs.addTab(self._pattern_tab(self._plot_pattern), "Pattern")
             if farfield.phi.size > 4:  # full-sphere data -> 3-D balloon
                 tabs.addTab(self._pattern_tab(self._plot_pattern3d),
                             "Pattern 3D")
+            if len(self._farfields) >= 2:
+                # Land every cursor on the starting selection so the plots
+                # open already annotated, not waiting for a first drag.
+                self._fire_freq_cursors()
         currents = getattr(result, "currents", None)
         if currents is not None:
             tabs.addTab(self._plot_currents(currents), "Currents")
@@ -147,6 +350,70 @@ class SweepResultsDialog(QtWidgets.QDialog):
         holder._canvas = canvas  # keep a ref
         return fig, holder
 
+    def _add_freq_cursor(self, ax, holder, series, unit):
+        """A frequency cursor on a sweep plot: vline + markers + readout.
+
+        ``series`` is ``[(label, y_array), ...]`` on ``self.result.freq``.
+        Values at the selected frequency come from ``np.interp`` — pattern
+        frequencies USUALLY land on sweep samples (the recommended step is
+        built to), but a hand-typed step need not, and a cursor that snaps
+        to the wrong sample would disagree with the pattern tab's title.
+        Invisible until the first fire, so single-pattern results keep
+        their plots exactly as they were.
+        """
+        f = self.result.freq
+        vline = ax.axvline(float(f[0]) / 1e6, color="#c8553d",
+                           linewidth=1.2, alpha=0.0)
+        dots = [ax.plot([], [], "o", markersize=6, color="#c8553d",
+                        zorder=5)[0] for _ in series]
+        note = ax.annotate("", xy=(0.02, 0.02), xycoords="axes fraction",
+                           va="bottom", fontsize=8, color="#c8553d",
+                           bbox={"boxstyle": "round,pad=0.25",
+                                 "fc": "#ffffff", "ec": "#c8553d",
+                                 "alpha": 0.85})
+        canvas = holder._canvas
+
+        def update(freq_hz):
+            x = freq_hz / 1e6
+            # A pattern band is allowed to EXCEED the sweep (resolve_band
+            # never clamps an override), and np.interp would then silently
+            # report the band-edge sweep value under the wrong frequency —
+            # a confident wrong number on three plots at once (adversarial
+            # review, 2026-08-06). Outside the sweep (or on a single-point
+            # sweep, where interpolation is fiction) the cursor SAYS SO
+            # instead of guessing.
+            in_band = (f.size > 1
+                       and float(f[0]) <= freq_hz <= float(f[-1]))
+            vline.set_xdata([x, x])
+            vline.set_alpha(0.8 if in_band else 0.0)
+            if not in_band:
+                for dot in dots:
+                    dot.set_data([], [])
+                text = ("{0:.4g} MHz: outside the swept band — no "
+                        "curve value here".format(x))
+                note.set_text(text)
+                canvas.draw_idle()
+                return text
+            vals = []
+            for (label, y), dot in zip(series, dots):
+                yv = float(np.interp(freq_hz, f, y))
+                dot.set_data([x], [yv])
+                vals.append("{0} {1:.4g}{2}".format(label, yv, unit))
+            text = "{0:.4g} MHz:  {1}".format(x, ",  ".join(vals))
+            note.set_text(text)
+            canvas.draw_idle()
+            return text
+
+        self._freq_cursors.append(update)
+
+    def _fire_freq_cursors(self):
+        ffs = getattr(self, "_farfields", None)
+        if not ffs or len(ffs) < 2:
+            return
+        freq = ffs[self._ff_index].freq
+        for update in self._freq_cursors:
+            update(freq)
+
     def _plot_s11(self):
         fig, canvas = self._canvas()
         ax = fig.add_subplot(111)
@@ -161,6 +428,8 @@ class SweepResultsDialog(QtWidgets.QDialog):
         ax.grid(True)
         ax.axhline(-10.0, linestyle="--", linewidth=1, color="#999999")
         ax.legend()
+        self._add_freq_cursor(ax, canvas, [("S11", self.result.s11_db())],
+                              " dB")
         return canvas
 
     def _plot_pattern3d(self, ff):
@@ -243,8 +512,28 @@ class SweepResultsDialog(QtWidgets.QDialog):
                 built[idx] = stack.addWidget(w)
             stack.setCurrentIndex(built[idx])
 
+        # The scrub slider (AJ, 2026-08-06): drag through the solved
+        # frequencies and watch the plot — and the 3-D balloon, when one is
+        # up — change in real time. Bottom of the tab, full width, with
+        # tracking ON; the balloon rewrite is throttled in
+        # _select_frequency so dragging stays smooth.
+        srow = QtWidgets.QHBoxLayout()
+        slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, holder)
+        slider.setRange(0, len(self._farfields) - 1)
+        slider.setValue(self._ff_index)
+        slider.setTracking(True)
+        slider.setToolTip("Slide through the solved frequencies — plots and "
+                          "the 3-D balloon follow live.")
+        srow.addWidget(QtWidgets.QLabel(
+            "{0:.4g}".format(self._farfields[0].freq / 1e6)))
+        srow.addWidget(slider, 1)
+        srow.addWidget(QtWidgets.QLabel(
+            "{0:.4g} MHz".format(self._farfields[-1].freq / 1e6)))
+        box.addLayout(srow)
+
         combo.currentIndexChanged.connect(self._select_frequency)
-        self._pattern_views.append((combo, show))
+        slider.valueChanged.connect(self._select_frequency)
+        self._pattern_views.append((combo, slider, show))
         show(self._ff_index)
         return holder
 
@@ -253,12 +542,41 @@ class SweepResultsDialog(QtWidgets.QDialog):
         if not (0 <= idx < len(self._farfields)):
             return
         self._ff_index = idx
-        for combo, show in self._pattern_views:
-            if combo.currentIndex() != idx:
-                # Without the block this re-enters through currentIndexChanged.
-                combo.blockSignals(True)
-                combo.setCurrentIndex(idx)
-                combo.blockSignals(False)
+        for combo, slider, _show in self._pattern_views:
+            for w in (combo, slider):
+                if (w.currentIndex() if w is combo else w.value()) != idx:
+                    # Without the block this re-enters through the signals.
+                    w.blockSignals(True)
+                    (w.setCurrentIndex if w is combo else w.setValue)(idx)
+                    w.blockSignals(False)
+        # The sweep plots' frequency cursors ride along (vline + markers +
+        # readout). draw_idle coalesces repaints on the Qt loop, so these
+        # stay direct — they are what makes the drag feel live.
+        self._fire_freq_cursors()
+        # EVERYTHING EXPENSIVE is coalesced (~16 fps, trailing edge
+        # guaranteed): the pattern-figure builds AND the balloon rewrite. A
+        # tracking slider emits a value per pixel; building a polar figure
+        # plus a full-sphere plot_surface per pixel froze the drag for
+        # seconds and cached every intermediate figure forever (adversarial
+        # review, 2026-08-06 — a drag across 201 frequencies could construct
+        # ~400 figures). Deferring the builds means only indices the user
+        # dwells on get built; the release value always lands.
+        if not hasattr(self, "_balloon_timer"):
+            self._balloon_timer = QtCore.QTimer(self)
+            self._balloon_timer.setSingleShot(True)
+            self._balloon_timer.setInterval(60)
+            self._balloon_timer.timeout.connect(self._apply_selection)
+        self._balloon_timer.start()
+        # Keep a floating viewport scrubber (if it points at OUR balloon)
+        # on the same frequency.
+        sc = BalloonScrubber._instance
+        if sc is not None and sc.balloon_is(getattr(self, "_balloon", None)):
+            sc.set_index_silent(idx)
+
+    def _apply_selection(self):
+        """Trailing edge of a scrub: build the visible plots, move the balloon."""
+        idx = self._ff_index
+        for _combo, _slider, show in self._pattern_views:
             show(idx)
         self._update_balloon()
 
@@ -275,33 +593,9 @@ class SweepResultsDialog(QtWidgets.QDialog):
         obj = getattr(self, "_balloon", None)
         if obj is None:
             return
-        try:
-            doc = obj.Document
-            alive = doc.getObject(obj.Name) is not None
-        except Exception:                      # noqa: BLE001 — deleted object
-            alive = False
-        if not alive:
-            self._balloon = None
-            return
         ff = self._selected_farfield()
-        if ff is None or not (ff.phi.size > 4 and ff.theta.size > 1):
-            return
-        from emstudio.post import vtk_out
-
-        path, centre, extent = self._balloon_ctx
-        try:
-            p = vtk_out.write_pattern_vtu(
-                ff, path,
-                radius_mm=(vtk_out.auto_radius_mm(extent) if extent
-                           else 100.0),
-                center_mm=centre)
-            obj.read(p)
-            obj.Label = "Pattern balloon @ {0:.3f} GHz".format(ff.freq / 1e9)
-            doc.recompute()
-        except Exception as exc:               # noqa: BLE001 — non-fatal
-            import FreeCAD
-            FreeCAD.Console.PrintWarning(
-                "EMStudio: balloon update failed: {0}\n".format(exc))
+        if not _retarget_balloon(obj, self._balloon_ctx, ff):
+            self._balloon = None
 
     def _selected_farfield(self):
         """The far field the user is looking at, or the only one there is."""
@@ -382,6 +676,7 @@ class SweepResultsDialog(QtWidgets.QDialog):
         ax.set_xlabel("Frequency (MHz)")
         ax.set_ylabel("VSWR (ref {0:g} Ω)".format(self.result.z0))
         ax.grid(True, which="both", alpha=0.4)
+        self._add_freq_cursor(ax, canvas, [("VSWR", v)], ":1")
         return canvas
 
     def _plot_z(self):
@@ -394,6 +689,9 @@ class SweepResultsDialog(QtWidgets.QDialog):
         ax.axhline(0.0, linewidth=0.8)
         ax.grid(True)
         ax.legend()
+        self._add_freq_cursor(ax, canvas,
+                              [("R", np.real(self.result.zin)),
+                               ("X", np.imag(self.result.zin))], " Ω")
         return canvas
 
     def _plot_pattern(self, ff):
@@ -498,6 +796,14 @@ class SweepResultsDialog(QtWidgets.QDialog):
                 self._balloon = balloon
                 self._balloon_ctx = (p, centre or (0.0, 0.0, 0.0),
                                      extent)
+                # ...and with a band to scrub, a floating slider appears on
+                # the viewport itself. It routes through _select_frequency
+                # while this dialog lives (tabs + cursors + balloon all
+                # move) and keeps driving the balloon alone after close.
+                if len(getattr(self, "_farfields", [])) >= 2:
+                    BalloonScrubber.show_for(
+                        self._farfields, self._ff_index, balloon,
+                        self._balloon_ctx, on_change=self._select_frequency)
             cur = getattr(self.result, "currents", None)
             if cur is not None:
                 p = vtk_out.write_currents_vtu(cur, os.path.join(workdir, "currents.vtu"))

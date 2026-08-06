@@ -371,6 +371,18 @@ N patterns cost **one** extra solver run, not N — NEC2 evaluates the pattern a
 every step of its frequency card (measured: 201 patterns in 7.18 s). What they
 cost is disk: about 0.33 MB each.
 
+After a multi-pattern solve, the whole results dialog scrubs as one: a
+**slider** at the bottom of both pattern tabs (and a combo box at the top)
+slides through the solved frequencies, the 2-D cut and 3-D balloon redraw
+live, and the S-Parameters, VSWR and Impedance plots each show a **frequency
+cursor** — a vertical line with intersection markers and a readout of the
+values at the selected frequency. **Show in 3D View** additionally floats a
+small **scrubber slider over the 3-D viewport**: it drives the same shared
+selection while the dialog is open, keeps scrubbing the viewport balloon
+after you close it, and disappears if you delete the balloon. Wire currents
+stay solved at the best-match frequency only — their overlay and tab are
+labelled with it.
+
 Both the **Pattern** and **Pattern 3D** tabs then grow a **Frequency** picker,
 and **Show in 3D View** exports whichever frequency the picker is on — the two
 tabs and the viewport always agree. The wire-currents overlay is labelled with

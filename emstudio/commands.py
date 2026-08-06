@@ -524,9 +524,9 @@ class _ShowResults:
 
 def _open_results_for(result):
     """Open the right results dialog for whatever kind of result this is."""
-    from emstudio.ui.results_dialog import SweepResultsDialog
+    from emstudio.ui.results_dialog import show_sweep_results
 
-    SweepResultsDialog(result, parent=FreeCADGui.getMainWindow()).exec()
+    show_sweep_results(result, parent=FreeCADGui.getMainWindow())
 
 
 #: Preference: pop the Pattern Frequencies dialog up inside Run Solver
@@ -838,7 +838,7 @@ class _RunSolver:
             if driven:
                 # S-parameter sweep — reuse the antenna results dialog
                 def on_success(result):
-                    from emstudio.ui.results_dialog import SweepResultsDialog
+                    from emstudio.ui.results_dialog import show_sweep_results
 
                     f_min, s11_min = result.min_s11()
                     FreeCAD.Console.PrintMessage(
@@ -846,7 +846,8 @@ class _RunSolver:
                         "(results in {1})\n".format(
                             result.meta.get("duration_s", -1.0),
                             result.meta.get("workdir", "?")))
-                    SweepResultsDialog(result, parent=FreeCADGui.getMainWindow()).exec()
+                    show_sweep_results(result,
+                                       parent=FreeCADGui.getMainWindow())
             else:
                 def on_success(result):
                     from emstudio.ui.eigenmode_dialog import EigenModeResultsDialog

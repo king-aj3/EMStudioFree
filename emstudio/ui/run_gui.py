@@ -272,6 +272,8 @@ def _finish(state, parent):
             result.meta.get("workdir", "?"),
         )
     )
-    from emstudio.ui.results_dialog import SweepResultsDialog
+    from emstudio.ui.results_dialog import show_sweep_results
 
-    SweepResultsDialog(result, parent=parent).exec()
+    # Non-modal on purpose: the results feed the 3-D viewport (balloon +
+    # floating scrubber), and a modal dialog would input-block both.
+    show_sweep_results(result, parent=parent)

@@ -3,6 +3,48 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.93.0] — 2026-08-06 — scrub the band: sliders, frequency cursors, and a scrubber on the viewport
+
+### Added
+* **A scrub slider on both pattern tabs.** Drag through the solved
+  frequencies and the 2-D cut, the 3-D matplotlib balloon and the FreeCAD
+  viewport balloon all change in real time. Balloon rewrites are coalesced
+  (~16 fps, trailing edge guaranteed) so dragging stays smooth.
+* **Frequency cursors on the sweep plots.** S-Parameters, VSWR and
+  Impedance each carry a vertical cursor with intersection markers and a
+  live readout (S11 dB / VSWR:1 / R + X Ω), interpolated at the exact
+  selected frequency — the whole dialog moves as one as you slide.
+* **A floating scrubber on the 3-D viewport.** "Show in 3D View" now spawns
+  a small slider window over the view itself. While the results dialog is
+  open it drives everything (tabs, cursors, balloon); after the dialog
+  closes it keeps scrubbing the balloon on its own, and it closes itself if
+  the balloon is deleted. One at a time — a new Show in 3D View replaces it.
+### Changed
+* **Sweep-results dialogs are now NON-MODAL and really close.** The
+  three-lens adversarial review of this feature found the modal `exec()`
+  callers broke it structurally: the floating scrubber was input-blocked
+  while the dialog was open, and closing a parented dialog only HID it —
+  post-close scrubs drove the hidden dialog, lazily building up to two
+  matplotlib figures per visited frequency in a window the user believed
+  gone, and the scrubber's dead-dialog/solo path was unreachable.
+  `show_sweep_results()` (non-modal + WA_DeleteOnClose) fixes all of it,
+  and you can now rotate the 3-D view while the plots are up.
+* **Scrub costs are trailing-edge only.** Dragging across 201 frequencies
+  used to build (and cache forever) a polar + 3-D figure pair for every
+  index the thumb crossed — multi-second freezes. Figure builds now ride
+  the same 60 ms coalescing as the balloon; only dwelled-on indices build.
+* **The frequency cursor refuses to lie out of band.** A pattern band may
+  exceed the S11 sweep; `np.interp` would clamp and print the band-edge
+  value under the wrong frequency on three plots at once. Outside the sweep
+  (or on a one-point sweep) the readout now says so instead.
+
+  Verified: gui_smoke drives sliders, combos, cursors, balloon and scrubber
+  end-to-end — including the real non-modal close path (the review showed
+  the old test exercised a wiring production never creates) — green 3×
+  consecutively on 0.21.2 (a fixed-budget event spin was ~50% flaky there;
+  waits are now condition-based with deferred-delete pumping) and on 1.1.1;
+  8 mutations caught; 9 review findings confirmed, all fixed.
+
 ## [0.92.0] — 2026-08-06 — OpenFOAM on three OSes, and the pattern choice that rides the Run click
 
 ### Fixed

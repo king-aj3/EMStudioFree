@@ -567,17 +567,92 @@ def _pattern_frequency_picker():
     assert dlg._selected_farfield() is ffs[1]
     assert combo.currentIndex() == 1, combo.currentIndex()
 
+    # THE SCRUB SLIDERS (AJ, 2026-08-06): each pattern tab carries a
+    # bottom slider spanning the solved band, synced with the combos both
+    # ways through the shared selection.
+    sliders = [s for s in dlg.findChildren(QtWidgets.QSlider)
+               if s.maximum() == len(ffs) - 1]
+    assert len(sliders) == 2, \
+        "expected a scrub slider on both pattern tabs, got {0}".format(
+            len(sliders))
+    sliders[0].setValue(3)
+    assert dlg._selected_farfield() is ffs[3]
+    assert all(c.currentIndex() == 3 for c in picks), "combo did not follow"
+    combo.setCurrentIndex(1)
+    assert all(s.value() == 1 for s in sliders), "slider did not follow"
+
+    # FREQUENCY CURSORS: the three sweep plots each registered one, and a
+    # selection change fires them with the selected pattern's frequency.
+    assert len(dlg._freq_cursors) == 3, \
+        "expected cursors on S11/VSWR/Z, got {0}".format(
+            len(dlg._freq_cursors))
+    fired = []
+    _orig_cursor = dlg._freq_cursors[0]
+    dlg._freq_cursors[0] = lambda hz: (fired.append(hz), _orig_cursor(hz))[1]
+    combo.setCurrentIndex(4)
+    assert fired and abs(fired[-1] - ffs[4].freq) < 1.0, \
+        "cursors did not fire with the selected frequency: {0}".format(fired)
+    dlg._freq_cursors[0] = _orig_cursor
+    # In-band the readout carries real values; OUTSIDE the sweep it says so
+    # instead of clamping to the band edge (np.interp's silent default — a
+    # confident wrong number under a wrong label, adversarial review
+    # 2026-08-06). A pattern band may legitimately exceed the sweep.
+    text_in = _orig_cursor(ffs[2].freq)
+    assert text_in and "MHz" in text_in and "outside" not in text_in, text_in
+    text_out = _orig_cursor(500e6)          # sweep tops out at 400 MHz
+    assert text_out and "outside" in text_out, \
+        "out-of-band cursor readout clamps instead of saying so: " \
+        "{0!r}".format(text_out)
+
     # LIVE-FOLLOW (AJ, 2026-08-06): once a balloon exists in the 3-D view,
     # scrolling the picker must retarget it IN PLACE — same object, new
-    # pattern and label — never grow a second overlay. Built through the
-    # same vtk_out calls _show_in_3d uses (that method ends in a modal box,
-    # which an offscreen run must not open).
+    # pattern and label — never grow a second overlay. Balloon rewrites are
+    # THROTTLED (60 ms trailing edge), so the checks spin the event loop.
+    # Built through the same vtk_out calls _show_in_3d uses (that method
+    # ends in a modal box, which an offscreen run must not open).
     import os as _os
     import tempfile as _tempfile
+    import time as _time
 
     import FreeCAD
 
     from emstudio.post import vtk_out
+    from emstudio.ui.results_dialog import BalloonScrubber, show_sweep_results
+
+    def spin_until(cond, timeout_ms=5000, what="condition"):
+        """Pump events until cond() — NEVER a fixed sleep budget.
+
+        A fixed 250 ms spin was flaky on 0.21.2 (~50% of runs): under
+        manual processEvents(AllEvents, ms) Qt5's glib dispatcher can
+        starve a fresh single-shot timer for a whole spin (adversarial
+        review, 2026-08-06, reproduced and instrumented). Plain
+        processEvents() delivers them; the deadline is generous and the
+        loop exits the moment the condition holds.
+        """
+        from PySide import QtCore as _QtC
+        t_end = _time.time() + timeout_ms / 1000.0
+        while _time.time() < t_end:
+            QtWidgets.QApplication.processEvents()
+            # DEFERRED DELETES need asking for. Qt processes them only when
+            # control returns to the event loop that posted them, so a
+            # manual processEvents() pump never sees WA_DeleteOnClose
+            # through — the dialog stays alive and a lifetime check waits
+            # forever (measured on 0.21.2/Qt5, 2026-08-06). Production has a
+            # real loop and needs none of this.
+            QtWidgets.QApplication.sendPostedEvents(
+                None, _QtC.QEvent.DeferredDelete)
+            if cond():
+                return
+            _time.sleep(0.01)
+        raise AssertionError("timed out waiting for " + what)
+
+    def _alive(widget):
+        try:
+            widget.isVisible()
+            return True
+        except RuntimeError:
+            return False
+
     doc = FreeCAD.newDocument("gui_balloon_follow")
     try:
         wd = _tempfile.mkdtemp(prefix="emstudio_smoke_balloon_")
@@ -589,21 +664,97 @@ def _pattern_frequency_picker():
             p, "Pattern balloon @ 0.200 GHz", doc, transparency=55)
         dlg._balloon_ctx = (p, (0.0, 0.0, 0.0), None)
         n_before = len(doc.Objects)
+        n_figs = sum(s.count()
+                     for s in dlg.findChildren(QtWidgets.QStackedWidget))
         combo.setCurrentIndex(3)              # 350 MHz
-        assert "0.350" in dlg._balloon.Label, dlg._balloon.Label
+        spin_until(lambda: "0.350" in dlg._balloon.Label, what="balloon@350")
         assert len(doc.Objects) == n_before, \
             "scrolling grew a second overlay"
-        # a balloon the user deleted must be dropped, not crashed into
+        # the trailing edge builds the newly-visited pattern figures too —
+        # deferred with the balloon, but never skipped
+        assert sum(s.count()
+                   for s in dlg.findChildren(QtWidgets.QStackedWidget)) \
+            > n_figs, "deferred figure build never landed"
+
+        # THE VIEWPORT SCRUBBER: routes through the dialog while it lives
+        # (combos + cursors + balloon all move — reachable now that the
+        # dialog is NON-MODAL)...
+        sc = BalloonScrubber.show_for(ffs, 3, dlg._balloon,
+                                      dlg._balloon_ctx,
+                                      on_change=dlg._select_frequency)
+        sc.slider.setValue(2)
+        spin_until(lambda: combo.currentIndex() == 2,
+                   what="scrubber driving the dialog")
+        spin_until(lambda: "0.300" in dlg._balloon.Label, what="balloon@300")
+        # ...stays a SINGLETON (a second Show in 3-D replaces it)...
+        sc2 = BalloonScrubber.show_for(ffs, 2, dlg._balloon,
+                                       dlg._balloon_ctx)
+        assert BalloonScrubber._instance is sc2 and sc2 is not sc
+        assert not sc.isVisible(), "replaced scrubber left on screen"
+        # ...and scrubs the balloon SOLO with no dialog hook at all.
+        sc2.slider.setValue(1)
+        spin_until(lambda: "0.250" in dlg._balloon.Label, what="balloon@250")
+        # a balloon the user deleted must be dropped, not crashed into:
+        # the dialog clears its reference, the scrubber closes itself.
         doc.removeObject(dlg._balloon.Name)
-        combo.setCurrentIndex(2)
-        assert dlg._balloon is None, "deleted balloon still referenced"
+        sc2.slider.setValue(0)
+        spin_until(lambda: BalloonScrubber._instance is None,
+                   what="scrubber self-close on balloon deletion")
+        # a DIFFERENT index than the dialog is on — a no-op set emits no
+        # signal and would skip the very path under test
+        combo.setCurrentIndex(4)
+        spin_until(lambda: dlg._balloon is None,
+                   what="dialog dropping the deleted balloon")
+
+        # THE PRODUCTION WIRING (adversarial review, 2026-08-06: the old
+        # modal callers made the dead-dialog path unreachable, so the suite
+        # was green while the shipped behavior could not happen). A dialog
+        # opened the way commands.py/run_gui.py now open it dies FOR REAL on
+        # close; the scrubber detects that, goes solo, and still dies with
+        # its balloon.
+        res2 = SweepResult(freq, s11, z0=50.0, meta={"backend": "nec2c"})
+        res2.farfields = ffs
+        res2.farfield = ffs[0]
+        dlg2 = show_sweep_results(res2)
+        p2 = vtk_out.write_pattern_vtu(ffs[0],
+                                       _os.path.join(wd, "pattern3d_2.vtu"),
+                                       radius_mm=100.0,
+                                       center_mm=(0.0, 0.0, 0.0))
+        balloon2 = vtk_out.show_in_freecad(
+            p2, "Pattern balloon @ 0.200 GHz", doc, transparency=55)
+        ctx2 = (p2, (0.0, 0.0, 0.0), None)
+        sc3 = BalloonScrubber.show_for(ffs, 0, balloon2, ctx2,
+                                       on_change=dlg2._select_frequency)
+        dlg2.close()
+        spin_until(lambda: not _alive(dlg2),
+                   what="WA_DeleteOnClose really deleting the dialog")
+        sc3.slider.setValue(3)                # dead hook -> solo retarget
+        spin_until(lambda: "0.350" in balloon2.Label,
+                   what="solo scrub after dialog death")
+        assert sc3.on_change is None, \
+            "scrubber kept a hook to a deleted dialog"
+        doc.removeObject(balloon2.Name)
+        sc3.slider.setValue(1)
+        spin_until(lambda: BalloonScrubber._instance is None,
+                   what="post-death scrubber self-close")
+        # and the shipped callers really use the non-modal path
+        import inspect as _inspect
+
+        from emstudio import commands as _cmds2
+        from emstudio.ui import run_gui as _rg
+        assert "show_sweep_results(" in _inspect.getsource(_rg), \
+            "run_gui stopped using the non-modal results path"
+        assert ".exec()" not in _inspect.getsource(
+            _cmds2._open_results_for), \
+            "_open_results_for went modal again"
     finally:
         FreeCAD.closeDocument(doc.Name)
 
     combo.setCurrentIndex(0)
     dlg.close()
-    return "{0} frequencies, pickers + 3-D export in sync, balloon " \
-           "live-follows".format(len(ffs))
+    return "{0} frequencies, sliders + combos + cursors + 3-D export in " \
+           "sync, balloon live-follows, scrubber drives it all and " \
+           "survives the dialog".format(len(ffs))
 
 
 def _vswr_offscale_is_visible():
