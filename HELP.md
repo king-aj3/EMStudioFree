@@ -38,7 +38,7 @@ thing; **System** designs a system of them. Every command has its own icon.
 | **Lumped Port** | Feed point on the selected edge/face; set Direction + Impedance |
 | **Coil Excitation** | Mark the selected solid as an N-turn current-driven winding (magnetics). **Set `Axis` to the real winding axis** (+X/+Y/+Z — the direction the current circulates *around*); a wrong axis silently corrupts the drive. 3-D runs report the stored energy, the coil **inductance**, and the ampere-turns actually delivered — a delivery far from 100 % means the current is not circulating as asked |
 | **Add NEC2 / openEMS / Elmer / Palace Solver** | Attach a solver: NEC2 wire MoM · openEMS full-wave FDTD · Elmer FEM magnetics · Palace FEM full-wave |
-| **Pattern Frequencies…** | *(NEC2)* Compute a radiation pattern at several frequencies so the results dialog can **scroll the band**. Opens on the analysis sweep with a recommended step — both editable. N patterns cost **one** extra solver run, not N; the cost is ~0.33 MB of output each. Run it *before* Run Solver |
+| **Pattern Frequencies…** | *(NEC2)* Compute a radiation pattern at several frequencies so the results dialog can **scrub the band**: sliders on both pattern tabs, frequency cursors with live readouts on the S11/VSWR/impedance plots, and (after *Show in 3D View*) a floating scrubber over the viewport that keeps working even after the results dialog closes. Opens on the analysis sweep with a recommended step — both editable. N patterns cost **one** extra solver run, not N; the cost is ~0.33 MB of output each. **The same dialog pops up automatically when you press Run Solver** (pre-filled; a checkbox mutes it — re-tick here to bring it back) |
 | **Run Solver** | Solve + open results (S11 / VSWR / Impedance / Pattern tabs, Touchstone export; magnetics: powers, L/M/k, fields in 3-D) |
 | **WPT: Sweep Coil Gap** | Parametric study: coupling k across a range of coil gaps, plotted k(gap) |
 
@@ -185,8 +185,9 @@ Every run's working directory (deck, raw solver output, `port_1.csv`,
   nothing in the band is close to a match. An electrically small antenna with a
   fraction of an ohm of feed resistance really does sit at VSWR 400+; it needs a
   matching network, not a re-run.
-- **No frequency picker on the Pattern tab** → the run produced one pattern.
-  Use **Pattern Frequencies…** before solving.
+- **No frequency picker/slider on the Pattern tab** → the run produced one
+  pattern. Accept the Pattern Frequencies pop-up when you press Run Solver
+  (or run **Analysis ▸ Pattern Frequencies…**), then solve again.
 - **"Thin-wire check" warning under the results** → NEC-2's kernel assumes a
   segment is ≳ 8 wire radii long and says nothing when it is not. Use a thinner
   conductor, a coarser wire path, or a volume solver (Elmer 3-D / Palace).
