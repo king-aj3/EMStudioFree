@@ -141,21 +141,51 @@ def parse_port_impedances(path):
 
 
 def parse_currents(path, freq_hz):
-    """Parse the CURRENTS AND LOCATION table (single-frequency deck).
+    """Parse the CURRENTS AND LOCATION table nearest ``freq_hz``.
 
     nec2c format (verified 2026-07-05):
         SEG TAG   X Y Z (wavelengths)   LENGTH   REAL IMAG MAGN PHASE
+
+    THE COORDINATES ARE IN WAVELENGTHS — NEC-2's convention for this table —
+    so parsing needs a frequency to scale them back to metres, and it must be
+    the frequency OF THE TABLE IT PARSED. This function used to read the FIRST
+    table in the file and scale it with the CALLER'S frequency. On the
+    single-frequency decks it was written for, those are the same thing. On a
+    multi-frequency pattern deck (the DEFAULT path since the v0.92 pre-run
+    dialog) they are not: the first table belongs to the band-start frequency,
+    so a 10–100 MHz sweep of a 300 mm helix drew a "Wire currents" overlay
+    scaled by lam(67.6 MHz)/lam(10 MHz) — a 44 mm miniature of a 300 mm coil —
+    carrying the 10 MHz current VALUES under a best-match label. Both halves
+    wrong, neither visibly an error (2026-08-07, AJ's screenshot).
+
+    Now: every currents table is collected with the frequency header that
+    precedes it (same ``_FREQ_RE`` discriminator the pattern splitter uses),
+    the block NEAREST ``freq_hz`` is chosen, and its coordinates are scaled by
+    THAT BLOCK'S OWN wavelength — so the geometry is exact even when the
+    nearest solved frequency is not the requested one. A single-frequency file
+    has one block and behaves exactly as before. The returned ``freq`` is the
+    block's actual frequency, so labels downstream state what the data IS.
+
     Returns dict: {seg, tag, pos_m (N,3), i_complex, i_mag, freq}.
     """
     import numpy as np
 
-    lam = 299792458.0 / freq_hz
-    rows = []
+    blocks = []          # [[freq_hz, rows], ...]
+    cur_f = None
+    rows = None
     in_table = False
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
+            m = _FREQ_RE.search(line)
+            if m:
+                # the frequency datum precedes its own tables in the output
+                cur_f = float(m.group(1)) * 1e6
+                in_table = False
+                continue
             if "CURRENTS AND LOCATION" in line:
                 in_table = True
+                rows = []
+                blocks.append([cur_f, rows])
                 continue
             if in_table:
                 nums = _FLOAT_RE.findall(line)
@@ -165,19 +195,26 @@ def parse_currents(path, freq_hz):
                         x, y, z, _l, re_i, im_i, mag, _ph = (float(n) for n in nums[2:10])
                     except ValueError:
                         continue
-                    rows.append((seg, tag, x * lam, y * lam, z * lam, re_i, im_i, mag))
+                    rows.append((seg, tag, x, y, z, re_i, im_i, mag))
                 elif rows and not line.strip():
-                    break
-    if not rows:
+                    in_table = False
+    blocks = [(f, r) for f, r in blocks if r]
+    if not blocks:
         raise NecParseError("no current data found in {0}".format(path))
+    # A block with no frequency header (never seen from nec2c/nec2++, but the
+    # format is not ours) can only be scaled by the caller's frequency.
+    f_blk, rows = min(blocks,
+                      key=lambda fr: abs((fr[0] or freq_hz) - freq_hz))
+    f_blk = f_blk or freq_hz
+    lam = 299792458.0 / f_blk
     arr = np.asarray(rows, dtype=float)
     return {
         "seg": arr[:, 0].astype(int),
         "tag": arr[:, 1].astype(int),
-        "pos_m": arr[:, 2:5],
+        "pos_m": arr[:, 2:5] * lam,
         "i_complex": arr[:, 5] + 1j * arr[:, 6],
         "i_mag": arr[:, 7],
-        "freq": freq_hz,
+        "freq": f_blk,
     }
 
 

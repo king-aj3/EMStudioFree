@@ -183,6 +183,95 @@ def gate_wiring():
           "Pattern Frequencies" in ui)
 
 
+#: Two frequency blocks, each with a currents table AND a pattern table.
+#: The SAME physical wire (1.5 m along z) appears in both blocks, expressed in
+#: each block's OWN wavelengths — so a parser that picks the right block but
+#: scales with the wrong lambda cannot return the right geometry, and one that
+#: fails to close the currents table swallows pattern rows (>= 10 numbers each)
+#: into the currents. The current magnitudes differ per block on purpose.
+_TWO_BLOCK_CURRENTS = """
+                               --------- FREQUENCY --------
+                               FREQUENCY=  2.0000E+02 MHZ
+                               WAVELENGTH= 1.49896
+
+                       - - - CURRENTS AND LOCATION - - -
+
+  SEG  TAG    COORDINATES OF SEG CENTER     SEG         - - - CURRENT (AMPS) - - -
+  NO.  NO.     X        Y        Z       LENGTH     REAL      IMAG      MAGN     PHASE
+    1    1  0.00067  0.00067  0.16678  0.33357  1.00E+00  0.00E+00  1.00E+00     0.00
+    2    1  0.00067  0.00067  0.50035  0.33357  2.00E+00  0.00E+00  2.00E+00     0.00
+    3    1  0.00067  0.00067  0.83392  0.33357  1.00E+00  0.00E+00  1.00E+00     0.00
+
+                       - - - RADIATION PATTERNS - - -
+  0.00    0.00   -3.00  -99.0  -3.00  1.0 2.0 3.0 4.0 5.0 6.0
+ 90.00    0.00    1.00  -99.0   1.00  1.0 2.0 3.0 4.0 5.0 6.0
+
+                               --------- FREQUENCY --------
+                               FREQUENCY=  4.0000E+02 MHZ
+                               WAVELENGTH= 0.74948
+
+                       - - - CURRENTS AND LOCATION - - -
+
+  SEG  TAG    COORDINATES OF SEG CENTER     SEG         - - - CURRENT (AMPS) - - -
+  NO.  NO.     X        Y        Z       LENGTH     REAL      IMAG      MAGN     PHASE
+    1    1  0.00133  0.00133  0.33356  0.66714  4.00E+00  0.00E+00  4.00E+00     0.00
+    2    1  0.00133  0.00133  1.00070  0.66714  5.00E+00  0.00E+00  5.00E+00     0.00
+    3    1  0.00133  0.00133  1.66784  0.66714  4.00E+00  0.00E+00  4.00E+00     0.00
+
+                       - - - RADIATION PATTERNS - - -
+  0.00    0.00   -6.00  -99.0  -6.00  1.0 2.0 3.0 4.0 5.0 6.0
+ 90.00    0.00    5.00  -99.0   5.00  1.0 2.0 3.0 4.0 5.0 6.0
+
+"""
+
+
+def gate_currents_blocks():
+    """parse_currents on a multi-frequency file: right block, right lambda.
+
+    THE DEFECT THIS PINS (2026-08-07, found from a screenshot): the parser
+    read the FIRST currents table (the band-start frequency) and scaled its
+    wavelength-relative coordinates with the CALLER'S frequency. On the
+    multi-frequency deck that v0.92 made the default, a 10-100 MHz sweep of a
+    300 mm helix drew "Wire currents" as a 44 mm miniature carrying the 10 MHz
+    current values under a best-match label. Geometry AND data wrong, neither
+    visibly an error.
+    """
+    import tempfile
+
+    import numpy as np
+
+    from emstudio.solvers.nec2 import parser
+
+    path = os.path.join(tempfile.mkdtemp(), "case_ff.out")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(_TWO_BLOCK_CURRENTS)
+
+    # The fixture wire is 1.5 m along z, 3 segments of 0.5 m: centres at
+    # 0.25 / 0.75 / 1.25 m (span 1.0 m), expressed in each block's own
+    # wavelengths (lambda = 1.49896 m at 200 MHz, 0.74948 m at 400 MHz).
+    a = parser.parse_currents(path, 200e6)
+    b = parser.parse_currents(path, 400e6)
+    check("each request selects the block NEAREST its frequency",
+          abs(a["freq"] - 200e6) < 1.0 and abs(b["freq"] - 400e6) < 1.0,
+          (a["freq"], b["freq"]))
+    check("current VALUES come from the selected block, not the first",
+          list(b["i_mag"]) == [4.0, 5.0, 4.0], list(b["i_mag"]))
+    za = np.asarray(a["pos_m"])[:, 2]
+    zb = np.asarray(b["pos_m"])[:, 2]
+    check("both blocks decode to the SAME physical wire (own-lambda scaling)",
+          np.allclose(za, zb, rtol=1e-3), (za.tolist(), zb.tolist()))
+    check("and it is the real 1 m span, not a first-block miniature",
+          abs((za.max() - za.min()) - 1.0) < 0.01, za.max() - za.min())
+    check("a 400 MHz request scaled with the caller's lambda would be HALF "
+          "size — the old bug — and it is not",
+          abs(zb.max() - zb.min() - 1.0) < 0.01, zb.max() - zb.min())
+    check("the pattern tables did not pollute the currents (3 segs each)",
+          len(a["seg"]) == 3 and len(b["seg"]) == 3,
+          (len(a["seg"]), len(b["seg"])))
+    check("an off-grid request still lands on the nearest block",
+          abs(parser.parse_currents(path, 260e6)["freq"] - 200e6) < 1.0)
+
+
 def gate_band():
     """The band/step arithmetic the dialog and the runner share."""
     from emstudio.solvers.nec2 import pattern_band as pb
@@ -414,6 +503,9 @@ def gate_live():
         check("and it is still the 2.13 dBi dipole the literature gate pins",
               abs(float(res.farfield.gain.max()) - 2.13) < 0.05,
               float(res.farfield.gain.max()))
+        import numpy as _np
+        pos0 = _np.asarray(res.currents["pos_m"])
+        span0 = float((pos0.max(0) - pos0.min(0)).max())
 
         solver.PatternFrequencies = 11
         doc.recompute()
@@ -436,6 +528,20 @@ def gate_live():
         check("result.farfield is still the best-match pattern",
               abs(res.farfield.freq - min(
                   freqs, key=lambda f: abs(f - res.min_s11()[0]))) < 1.0)
+        # THE 2026-08-07 DEFECT, live: on the multi-frequency file the
+        # currents used to come from the FIRST block (band start) scaled with
+        # the best-match wavelength — same wire, wrong size, wrong values.
+        pos1 = _np.asarray(res.currents["pos_m"])
+        span1 = float((pos1.max(0) - pos1.min(0)).max())
+        check("multi-run currents geometry matches the single-run's "
+              "(the 44 mm-miniature bug)",
+              abs(span1 - span0) < 0.01 * max(span0, 1e-9),
+              "single {0:.4f} m vs multi {1:.4f} m".format(span0, span1))
+        check("and the currents carry the best-match block's frequency, "
+              "not the band start's",
+              abs(res.currents["freq"] - res.farfield.freq) < 1.0
+              and abs(res.currents["freq"] - 200e6) > 1e6,
+              res.currents["freq"])
     finally:
         FreeCAD.closeDocument(doc.Name)
 
@@ -445,6 +551,7 @@ def main():
     gate_parser()
     gate_writer()
     gate_wiring()
+    gate_currents_blocks()
     gate_band()
     gate_segmentation()
     gate_polyline_deck()

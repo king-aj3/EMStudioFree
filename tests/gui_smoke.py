@@ -2460,10 +2460,19 @@ def _solver_setup_dialog():
         return out
 
     # --- the real platform path ---------------------------------------------
+    # The real property is CONDITIONAL: guided-install buttons exist ONLY on
+    # native Windows. This used to assert "no Install button" flat, which is
+    # the same claim only where the test happened to run — Linux, macOS, and a
+    # VM with every backend already installed. On a real Windows box with a
+    # missing installable backend (the WORK box: OpenFOAM absent, WSL2
+    # blocked) the dialog CORRECTLY offers Install… and the flat assertion
+    # called correct behaviour a failure (2026-08-07). The Windows behaviours
+    # themselves are pinned by the simulated-Windows branch below.
     dlg = SolverInstallerDialog()
     assert dlg.table.rowCount() >= len(solvers.BACKENDS), "backend rows missing"
-    assert "Install…" not in buttons(dlg).values(), \
-        "a guided-install button appeared OFF Windows"
+    if _os.name != "nt":
+        assert "Install…" not in buttons(dlg).values(), \
+            "a guided-install button appeared OFF Windows"
     dlg.deleteLater()
 
     # --- simulated native Windows -------------------------------------------

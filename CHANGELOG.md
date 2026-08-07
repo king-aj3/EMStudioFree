@@ -3,6 +3,43 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.93.1] — 2026-08-07 — the Wire currents overlay is coil-sized again
+
+### Fixed
+* **"Wire currents" drew a miniature of the antenna on multi-frequency
+  pattern runs** — found from a user screenshot: a 300 mm helix with a 44 mm
+  currents overlay. NEC-2's CURRENTS AND LOCATION table lists coordinates
+  **in wavelengths**; `parse_currents` read the FIRST table in the file (the
+  band-START frequency) and scaled it with the CALLER'S wavelength (the best
+  match). On the single-frequency decks it was written for those coincide; on
+  the multi-frequency deck the v0.92 pre-run dialog made the default, they do
+  not — a 10–100 MHz sweep drew the coil at λ(67.6 MHz)/λ(10 MHz) = **1/6.8
+  scale**, and — the worse half — the |I| values shown were the **10 MHz
+  distribution under a best-match label**. `parse_currents` now collects every
+  currents table with the frequency header that precedes it (the same
+  discriminator the pattern splitter uses), picks the block **nearest the
+  requested frequency**, and scales with **that block's own wavelength**; the
+  returned `freq` is the block's actual frequency, so the tab title, the
+  viewport label and the data finally agree. Single-frequency files have one
+  block — behaviour identical, frozen gates untouched.
+* **gui_smoke's Solver Setup check was platform-blind**: it asserted "no
+  Install… button" on the real platform path, which is only the correct claim
+  OFF Windows. On a real Windows box with a missing installable backend (this
+  one: OpenFOAM absent, WSL2 blocked) the dialog *correctly* offers Install…
+  and the check called that a failure. Green on Linux, macOS and a
+  fully-provisioned VM never covered it. Now conditional on `os.name`; the
+  Windows behaviours stay pinned by the simulated-Windows branch.
+
+### Testing
+`pattern_sweep.py` +9 checks (a two-block currents fixture in each block's own
+wavelengths — same trap-pinning shape as the pattern `_TWO_BLOCK` — plus live
+checks that the multi-run currents match the single-run geometry to 0.1 mm and
+carry the best-match block's frequency); **4/4 mutations caught** (first-block
+regression, caller's-lambda regression, wrong label, unterminated table).
+Verified against real output both ways: the v0.90 single-frequency file parses
+byte-identically, and yesterday's 91-block file returns the full-size helix at
+every requested frequency.
+
 ## [0.93.0] — 2026-08-06 — scrub the band: sliders, frequency cursors, and a scrubber on the viewport
 
 ### Added
