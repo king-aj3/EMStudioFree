@@ -63,6 +63,7 @@ import math
 import os
 import subprocess
 
+from emstudio import procutil
 from emstudio.setup import solvers as solver_setup
 
 
@@ -485,7 +486,8 @@ def mesh_3d(bodies, workdir, air, lc_air, size_fields=None, embed_lines=None,
     gmsh = solver_setup.find_backend("gmsh")
     exe = gmsh.path if gmsh.found else "gmsh"
     proc = subprocess.run([exe, "-3", "-format", "msh22", geo, "-o", msh],
-                          capture_output=True, text=True, timeout=timeout_s)
+                          capture_output=True, text=True, timeout=timeout_s,
+                          creationflags=procutil.CREATE_NO_WINDOW)
     if line_callback is not None:
         for line in (proc.stdout + proc.stderr).splitlines():
             line_callback(line)

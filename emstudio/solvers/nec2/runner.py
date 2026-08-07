@@ -131,6 +131,10 @@ def run(analysis, solver, workdir=None, line_callback=None):
         result.farfield.save_csv(os.path.join(workdir, "farfield_port_1.csv"))
         # the same single-frequency output carries the current distribution
         result.currents = parser.parse_currents(ff_out, f_ff)
+        # Per-frequency currents ride the same one-run output as the
+        # patterns; the dialog scrubs them together. Single-frequency runs
+        # get a one-entry list, so callers never branch.
+        result.currents_all = parser.parse_currents_all(ff_out) or [result.currents]
         progress.report(line_callback, 1.0, "Done")
     except Exception as exc:  # noqa: BLE001 — far field is best-effort extra
         result.meta["farfield_error"] = str(exc)

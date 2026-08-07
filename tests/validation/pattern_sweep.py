@@ -159,6 +159,8 @@ def gate_wiring():
           "pattern_band.resolve_band(solver, f1, f2)" in src)
     check("the deck's thin-wire measurement reaches the result",
           'result.meta["thin_wire"] = deck_report["thin_wire"]' in src)
+    check("the runner carries per-frequency currents (currents_all)",
+          "result.currents_all = parser.parse_currents_all(ff_out)" in src)
 
     ui = open(os.path.join(_ROOT, "emstudio", "ui", "results_dialog.py"),
               encoding="utf-8").read()
@@ -270,6 +272,34 @@ def gate_currents_blocks():
           (len(a["seg"]), len(b["seg"])))
     check("an off-grid request still lands on the nearest block",
           abs(parser.parse_currents(path, 260e6)["freq"] - 200e6) < 1.0)
+
+    # parse_currents_all — the per-frequency set the Currents tab scrubs
+    alls = parser.parse_currents_all(path)
+    check("parse_currents_all returns every block, sorted by frequency",
+          len(alls) == 2 and [round(c["freq"] / 1e6) for c in alls] == [200, 400],
+          [c["freq"] for c in alls])
+    check("each entry keeps its own block's values",
+          list(alls[0]["i_mag"]) == [1.0, 2.0, 1.0]
+          and list(alls[1]["i_mag"]) == [4.0, 5.0, 4.0])
+    z0 = np.asarray(alls[0]["pos_m"])[:, 2]
+    z1 = np.asarray(alls[1]["pos_m"])[:, 2]
+    check("every entry decodes the same physical wire (own-lambda each)",
+          np.allclose(z0, z1, rtol=1e-3))
+
+    # The sort must be REAL, not an accident of the file's own order — the
+    # dialog aligns currents to far fields BY INDEX, both lists sorted. A
+    # mutation that dropped the sort survived on the ascending fixture
+    # (2026-08-07), so this one is descending on purpose.
+    half = _TWO_BLOCK_CURRENTS.index("                               ---------"
+                                     " FREQUENCY --------", 100)
+    reversed_file = _TWO_BLOCK_CURRENTS[half:] + _TWO_BLOCK_CURRENTS[:half]
+    rpath = os.path.join(tempfile.mkdtemp(), "case_ff_desc.out")
+    with open(rpath, "w", encoding="utf-8") as fh:
+        fh.write(reversed_file)
+    ralls = parser.parse_currents_all(rpath)
+    check("a file whose blocks arrive DESCENDING still returns ascending",
+          [round(c["freq"] / 1e6) for c in ralls] == [200, 400],
+          [c["freq"] for c in ralls])
 
 
 def gate_band():
@@ -542,6 +572,21 @@ def gate_live():
               abs(res.currents["freq"] - res.farfield.freq) < 1.0
               and abs(res.currents["freq"] - 200e6) > 1e6,
               res.currents["freq"])
+        # per-frequency currents: one per pattern, same frequencies, same
+        # physical wire, physically DIFFERENT distributions across the band
+        alls = getattr(res, "currents_all", [])
+        check("currents_all has one entry per solved pattern frequency",
+              len(alls) == len(res.farfields)
+              and all(abs(c["freq"] - f.freq) < 1.0
+                      for c, f in zip(alls, res.farfields)), len(alls))
+        spans = [float((_np.asarray(c["pos_m"]).max(0)
+                        - _np.asarray(c["pos_m"]).min(0)).max()) for c in alls]
+        check("every entry spans the same physical wire",
+              max(spans) - min(spans) < 0.01 * max(spans), (min(spans), max(spans)))
+        peaks = [float(_np.asarray(c["i_mag"]).max()) for c in alls]
+        check("the distributions really differ across the band (not one "
+              "table repeated)", len({round(p, 6) for p in peaks}) > 5,
+              [round(p, 4) for p in peaks])
     finally:
         FreeCAD.closeDocument(doc.Name)
 

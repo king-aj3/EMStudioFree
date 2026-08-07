@@ -121,19 +121,22 @@ class BalloonScrubber(QtWidgets.QWidget):
     _instance = None
 
     @classmethod
-    def show_for(cls, farfields, index, balloon, ctx, on_change=None):
+    def show_for(cls, farfields, index, balloon, ctx, on_change=None,
+                 currents_ctx=None):
         old, cls._instance = cls._instance, None
         if old is not None:
             try:
                 old.close()
             except RuntimeError:
                 pass                           # Qt C++ side already deleted
-        sc = cls(farfields, index, balloon, ctx, on_change)
+        sc = cls(farfields, index, balloon, ctx, on_change,
+                 currents_ctx=currents_ctx)
         cls._instance = sc
         sc.show()
         return sc
 
-    def __init__(self, farfields, index, balloon, ctx, on_change=None):
+    def __init__(self, farfields, index, balloon, ctx, on_change=None,
+                 currents_ctx=None):
         import FreeCADGui
         mw = FreeCADGui.getMainWindow()
         super().__init__(mw, QtCore.Qt.Tool)
@@ -141,6 +144,10 @@ class BalloonScrubber(QtWidgets.QWidget):
         self._ffs = list(farfields)
         self._balloon = balloon
         self._ctx = ctx
+        # (currents_all, overlay object, vtu path) — so the wire colours keep
+        # scrubbing after the dialog closes, not just the balloon. Optional:
+        # a run with no currents overlay scrubs the balloon alone as before.
+        self._currents_ctx = currents_ctx
         self.on_change = on_change
 
         row = QtWidgets.QHBoxLayout(self)
@@ -198,6 +205,28 @@ class BalloonScrubber(QtWidgets.QWidget):
                 self.on_change = None
         if not _retarget_balloon(self._balloon, self._ctx, self._ffs[idx]):
             self.close()
+            return
+        self._retarget_currents(self._ffs[idx].freq)
+
+    def _retarget_currents(self, freq_hz):
+        """Solo-scrub the wire-currents overlay (dialog-closed path)."""
+        if not self._currents_ctx:
+            return
+        alls, obj, path = self._currents_ctx
+        try:
+            doc = obj.Document
+            if doc.getObject(obj.Name) is None:
+                self._currents_ctx = None      # user deleted it; let it rest
+                return
+            from emstudio.post import vtk_out
+
+            cur = min(alls, key=lambda c: abs(c["freq"] - freq_hz))
+            obj.read(vtk_out.write_currents_vtu(cur, path))
+            obj.Label = "Wire currents @ {0:.3f} GHz".format(
+                float(cur.get("freq", 0.0)) / 1e9)
+            doc.recompute()
+        except Exception:                      # noqa: BLE001 — deleted/closed
+            self._currents_ctx = None
 
     def closeEvent(self, event):
         if BalloonScrubber._instance is self:
@@ -278,7 +307,7 @@ class SweepResultsDialog(QtWidgets.QDialog):
                 self._fire_freq_cursors()
         currents = getattr(result, "currents", None)
         if currents is not None:
-            tabs.addTab(self._plot_currents(currents), "Currents")
+            tabs.addTab(self._currents_tab(currents), "Currents")
         nearfield = getattr(result, "nearfield", None)
         if nearfield is not None:
             tabs.addTab(self._plot_nearfield(nearfield), "Near Field")
@@ -574,11 +603,12 @@ class SweepResultsDialog(QtWidgets.QDialog):
             sc.set_index_silent(idx)
 
     def _apply_selection(self):
-        """Trailing edge of a scrub: build the visible plots, move the balloon."""
+        """Trailing edge of a scrub: build the visible plots, move the overlays."""
         idx = self._ff_index
         for _combo, _slider, show in self._pattern_views:
             show(idx)
         self._update_balloon()
+        self._update_currents_overlay()
 
     def _update_balloon(self):
         """Re-point an existing 3-D pattern balloon at the picked frequency.
@@ -603,6 +633,119 @@ class SweepResultsDialog(QtWidgets.QDialog):
         if not ffs:
             return getattr(self.result, "farfield", None)
         return ffs[min(max(self._ff_index, 0), len(ffs) - 1)]
+
+    def _selected_currents(self):
+        """The currents at the scrubbed frequency, or None without a choice.
+
+        Selected by FREQUENCY, not index: the currents list and the far-field
+        list come from the same file blocks so their indices normally agree,
+        but nothing downstream should depend on that staying true.
+        """
+        alls = list(getattr(self.result, "currents_all", None) or [])
+        if not alls:
+            return None
+        ff = self._selected_farfield()
+        if ff is None:
+            return alls[0]
+        return min(alls, key=lambda c: abs(c["freq"] - ff.freq))
+
+    def _update_currents_overlay(self):
+        """Re-point the 3-D wire-currents overlay at the picked frequency."""
+        obj = getattr(self, "_currents_obj", None)
+        if obj is None:
+            return
+        cur = self._selected_currents()
+        if cur is None:
+            return
+        try:
+            doc = obj.Document
+            if doc.getObject(obj.Name) is None:
+                self._currents_obj = None      # user deleted it; let it rest
+                return
+            from emstudio.post import vtk_out
+
+            p = vtk_out.write_currents_vtu(cur, self._currents_path)
+            obj.read(p)
+            obj.Label = "Wire currents @ {0:.3f} GHz".format(
+                float(cur.get("freq", 0.0)) / 1e9)
+            doc.recompute()
+        except Exception:                      # noqa: BLE001 — deleted/closed
+            self._currents_obj = None
+
+    def _currents_tab(self, currents):
+        """The Currents tab — scrubbing with the rest of the dialog.
+
+        Per-frequency currents ship in the same one-run output as the
+        per-frequency patterns, so when both are present the tab registers
+        itself as one more scrub view: the combo/slider/cursor selection
+        drives it exactly like the pattern tabs (AJ noticed the one tab that
+        did NOT move with the slider, 2026-08-07 — a dialog where four tabs
+        scrub and one silently stays put reads as broken, and the static tab
+        was quietly showing a DIFFERENT frequency than the scrubbed plots).
+
+        Falls back to the static single plot whenever there is nothing to
+        scrub: a single-frequency run, an old result object, or a currents
+        list that does not line up one-to-one with the far fields (they come
+        from the same file blocks, so a mismatch means something upstream
+        changed — showing best-match honestly beats indexing wrongly).
+        """
+        ffs = getattr(self, "_farfields", None) or []
+        alls = list(getattr(self.result, "currents_all", None) or [])
+        alls.sort(key=lambda c: c["freq"])
+        scrubbable = (
+            len(alls) >= 2 and len(alls) == len(ffs)
+            and all(abs(c["freq"] - ff.freq) < 1.0
+                    for c, ff in zip(alls, ffs)))
+        if not scrubbable:
+            return self._plot_currents(currents)
+
+        holder = QtWidgets.QWidget(self)
+        box = QtWidgets.QVBoxLayout(holder)
+        box.setContentsMargins(0, 0, 0, 0)
+
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Frequency:"))
+        combo = QtWidgets.QComboBox(holder)
+        for c in alls:
+            combo.addItem("{0:.4g} MHz".format(c["freq"] / 1e6))
+        combo.setCurrentIndex(self._ff_index)
+        row.addWidget(combo)
+        row.addWidget(QtWidgets.QLabel(
+            "(currents at every solved frequency — scrubs with the pattern)"))
+        row.addStretch(1)
+        box.addLayout(row)
+
+        stack = QtWidgets.QStackedWidget(holder)
+        box.addWidget(stack)
+        built = {}
+
+        def show(idx):
+            if idx not in built:
+                built[idx] = stack.addWidget(self._plot_currents(alls[idx]))
+            stack.setCurrentIndex(built[idx])
+
+        srow = QtWidgets.QHBoxLayout()
+        slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, holder)
+        slider.setRange(0, len(alls) - 1)
+        slider.setValue(self._ff_index)
+        slider.setTracking(True)
+        slider.setToolTip("Slide through the solved frequencies — every "
+                          "scrubbing tab follows.")
+        srow.addWidget(QtWidgets.QLabel(
+            "{0:.4g}".format(alls[0]["freq"] / 1e6)))
+        srow.addWidget(slider, 1)
+        srow.addWidget(QtWidgets.QLabel(
+            "{0:.4g} MHz".format(alls[-1]["freq"] / 1e6)))
+        box.addLayout(srow)
+
+        combo.currentIndexChanged.connect(self._select_frequency)
+        slider.valueChanged.connect(self._select_frequency)
+        # Registering here is the whole feature: _select_frequency syncs the
+        # widgets and _apply_selection calls show(idx) on the trailing edge,
+        # identically to the pattern tabs.
+        self._pattern_views.append((combo, slider, show))
+        show(self._ff_index)
+        return holder
 
     def _plot_currents(self, cur):
         fig, canvas = self._canvas()
@@ -741,6 +884,7 @@ class SweepResultsDialog(QtWidgets.QDialog):
         doc = FreeCAD.ActiveDocument or FreeCAD.newDocument()
         created = []
         ff = None          # the post-try check reads this; keep it bound
+        want_scrubber = False
         try:
             # The pattern the user is LOOKING AT, not the best-match one. This
             # read self.result.farfield, which is pinned to the resonance, so
@@ -800,20 +944,33 @@ class SweepResultsDialog(QtWidgets.QDialog):
                 # the viewport itself. It routes through _select_frequency
                 # while this dialog lives (tabs + cursors + balloon all
                 # move) and keeps driving the balloon alone after close.
-                if len(getattr(self, "_farfields", [])) >= 2:
-                    BalloonScrubber.show_for(
-                        self._farfields, self._ff_index, balloon,
-                        self._balloon_ctx, on_change=self._select_frequency)
-            cur = getattr(self.result, "currents", None)
+                want_scrubber = len(getattr(self, "_farfields", [])) >= 2
+            cur = self._selected_currents() or getattr(self.result, "currents", None)
             if cur is not None:
+                # The SELECTED frequency's currents, and live-follow: like the
+                # balloon, the overlay re-reads its VTU when the scrub moves,
+                # so the wire colours and the balloon always show the same
+                # point in the sweep.
                 p = vtk_out.write_currents_vtu(cur, os.path.join(workdir, "currents.vtu"))
-                # NAME the frequency. Currents are solved at the best match
-                # only, so once the balloon can be at a different frequency an
-                # unlabelled "Wire currents" sitting beside it reads as though
-                # the two belong to the same point in the sweep.
-                created.append(vtk_out.show_in_freecad(
+                obj = vtk_out.show_in_freecad(
                     p, "Wire currents @ {0:.3f} GHz".format(
-                        float(cur.get("freq", 0.0)) / 1e9), doc).Label)
+                        float(cur.get("freq", 0.0)) / 1e9), doc)
+                created.append(obj.Label)
+                self._currents_obj = obj
+                self._currents_path = p
+            # The floating scrubber comes AFTER the currents overlay so it
+            # can carry BOTH: while this dialog lives it routes through
+            # _select_frequency (tabs + cursors + balloon + wire colours all
+            # move); after close it keeps scrubbing balloon AND currents.
+            if want_scrubber:
+                alls = list(getattr(self.result, "currents_all", None) or [])
+                cur_ctx = None
+                if len(alls) >= 2 and getattr(self, "_currents_obj", None) is not None:
+                    cur_ctx = (alls, self._currents_obj, self._currents_path)
+                BalloonScrubber.show_for(
+                    self._farfields, self._ff_index, balloon,
+                    self._balloon_ctx, on_change=self._select_frequency,
+                    currents_ctx=cur_ctx)
             nf = getattr(self.result, "nearfield", None)
             if nf is not None:
                 p = vtk_out.write_field_plane_vtu(nf, os.path.join(workdir, "nearfield.vtu"))

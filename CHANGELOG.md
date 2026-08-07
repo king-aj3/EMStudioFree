@@ -3,6 +3,41 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.94.0] — 2026-08-07 — the Currents tab scrubs too, and no more console flashes
+
+### Added
+* **The Current Distribution scrubs with everything else.** AJ's follow-up to
+  the v0.93.1 fix: four tabs moved with the frequency slider and one silently
+  stayed put — quietly showing a *different* frequency than the scrubbed
+  plots. The per-frequency currents were already in the same one-run output
+  as the per-frequency patterns; `parse_currents_all()` now returns them all
+  (each block scaled by its own wavelength, sorted by frequency), the runner
+  carries `result.currents_all`, and the Currents tab registers as a third
+  scrub view — combo + slider, synced through the shared selection. Watching
+  the helix's distribution morph from a uniform loop current at 10 MHz to
+  three counter-phased lobes through resonance is the physics lesson the
+  static tab was hiding.
+* **The 3-D wire-currents overlay live-follows the scrub** exactly like the
+  balloon (same VTU-rewrite mechanism, same trailing-edge coalescing), and
+  the floating viewport scrubber carries BOTH after the dialog closes.
+
+### Fixed
+* **No more black console windows flashing over the viewport.** FreeCAD.exe
+  is a GUI-subsystem process, so every console-subsystem child it spawned —
+  nec2++, ElmerSolver, gmsh, `wsl`, every version probe — opened its own
+  console window. One NEC2 solve flashed three. All **17 spawn sites** now
+  pass `creationflags=procutil.CREATE_NO_WINDOW` (a constant that is 0 off
+  Windows, so nothing branches); a smoke check statically sweeps every
+  `subprocess.*` call in the package so a future spawn cannot regress it.
+
+### Testing
+Gate: parse_currents_all checks including a **descending-block fixture**
+(a sort-dropping mutation survived the ascending one — a check that cannot
+fail is not a check) and live: 11 entries, same wire to 0.2 mm, peak |I|
+sweeping 3.7 → 13.7 → 3.5 mA/V through resonance. **5/5 parser mutations
+caught**; the no-console smoke check mutation-verified; gui_smoke asserts
+three synced scrub views and the currents/farfield selection coupling.
+
 ## [0.93.1] — 2026-08-07 — the Wire currents overlay is coil-sized again
 
 ### Fixed

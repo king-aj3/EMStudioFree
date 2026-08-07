@@ -25,6 +25,8 @@ import tempfile
 import threading
 import time
 
+from emstudio import procutil
+
 
 class SolverError(RuntimeError):
     """Raised when a solver run fails; message carries the tail of its output."""
@@ -98,6 +100,7 @@ class SolverJob:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                creationflags=procutil.CREATE_NO_WINDOW,
             )
         except OSError as exc:
             raise SolverError("could not start {0}: {1}".format(self.cmd[0], exc))

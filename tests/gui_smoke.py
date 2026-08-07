@@ -542,6 +542,16 @@ def _pattern_frequency_picker():
            for i, f in enumerate(np.linspace(200e6, 400e6, 5))]
     res.farfields = ffs
     res.farfield = ffs[2]
+    # per-frequency CURRENTS ride the same file, so the Currents tab scrubs
+    # too (AJ, 2026-08-07 — the one tab that did not move with the slider);
+    # distinct i_mag per entry so following can be told from staying put
+    pos = np.column_stack([np.zeros(9), np.zeros(9), np.linspace(0, 0.5, 9)])
+    cur_all = [{"seg": np.arange(1, 10), "tag": np.ones(9, int),
+                "pos_m": pos, "i_complex": np.full(9, 0.1 + 0j),
+                "i_mag": np.full(9, 0.1 + 0.01 * i), "freq": ff.freq}
+               for i, ff in enumerate(ffs)]
+    res.currents_all = cur_all
+    res.currents = cur_all[2]
 
     dlg = SweepResultsDialog(res)
     combos = dlg.findChildren(QtWidgets.QComboBox)
@@ -551,9 +561,10 @@ def _pattern_frequency_picker():
     assert "MHz" in combo.itemText(0), combo.itemText(0)
     # it must OPEN on the pattern the rest of the dialog describes
     assert combo.currentIndex() == 2, combo.currentIndex()
-    # 8 phi values -> the 3-D balloon tab exists too, so there are TWO pickers.
-    assert len(picks) == 2, "expected a picker on both pattern tabs, got {0}".format(
-        len(picks))
+    # 8 phi values -> the 3-D balloon tab exists too; plus the CURRENTS tab
+    # registers as a third scrub view now that per-frequency currents exist.
+    assert len(picks) == 3, ("expected pickers on both pattern tabs AND the "
+                             "Currents tab, got {0}".format(len(picks)))
 
     # and switching must not raise (the plot is built lazily on demand)
     combo.setCurrentIndex(4)
@@ -572,14 +583,22 @@ def _pattern_frequency_picker():
     # ways through the shared selection.
     sliders = [s for s in dlg.findChildren(QtWidgets.QSlider)
                if s.maximum() == len(ffs) - 1]
-    assert len(sliders) == 2, \
-        "expected a scrub slider on both pattern tabs, got {0}".format(
+    assert len(sliders) == 3, \
+        "expected a scrub slider on both pattern tabs + Currents, got {0}".format(
             len(sliders))
     sliders[0].setValue(3)
     assert dlg._selected_farfield() is ffs[3]
     assert all(c.currentIndex() == 3 for c in picks), "combo did not follow"
     combo.setCurrentIndex(1)
     assert all(s.value() == 1 for s in sliders), "slider did not follow"
+
+    # the CURRENTS selection follows the shared index by FREQUENCY
+    assert dlg._selected_currents() is cur_all[1], \
+        "the currents selection did not follow the scrub"
+    # and a currents-driven change moves everything else
+    dlg._select_frequency(0)
+    assert dlg._selected_farfield() is ffs[0]
+    assert dlg._selected_currents() is cur_all[0]
 
     # FREQUENCY CURSORS: the three sweep plots each registered one, and a
     # selection change fires them with the selected pattern's frequency.

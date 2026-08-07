@@ -37,6 +37,8 @@ import hashlib
 import os
 import re
 import subprocess
+
+from emstudio import procutil
 import sys
 from dataclasses import dataclass, field
 
@@ -367,7 +369,8 @@ def _run_probe(bashrc, wsl_distro=""):
     else:
         cmd = ["bash", "-c", script]
     try:
-        out = subprocess.run(cmd, capture_output=True, timeout=180)
+        out = subprocess.run(cmd, capture_output=True, timeout=180,
+                             creationflags=procutil.CREATE_NO_WINDOW)
     except Exception:
         return None
     return _parse_probe_output(_decode(out.stdout or b""))
@@ -433,7 +436,8 @@ def wsl_distros():
         return []
     try:
         out = subprocess.run([_wsl_exe(), "-l", "-q"], capture_output=True,
-                             timeout=60)
+                             timeout=60,
+                             creationflags=procutil.CREATE_NO_WINDOW)
     except Exception:
         return []
     # Exit code is unreliable here (an empty distro list is nonzero on some
@@ -464,7 +468,8 @@ def _windows_candidates():
         try:
             out = subprocess.run(
                 [_wsl_exe(), "-d", distro, "--", "bash", "-c", ls_cmd],
-                capture_output=True, timeout=60)
+                capture_output=True, timeout=60,
+                creationflags=procutil.CREATE_NO_WINDOW)
         except Exception:
             continue
         for line in _decode(out.stdout or b"").splitlines():
@@ -487,6 +492,7 @@ def _wsl_bashrc_version(distro, path):
             [_wsl_exe(), "-d", distro, "--", "bash", "-c",
              "grep -m1 '^ *export *WM_PROJECT_VERSION' '{0}' "
              "2>/dev/null".format(path)],
+            creationflags=procutil.CREATE_NO_WINDOW,
             capture_output=True, timeout=60)
     except Exception:
         return ""
@@ -626,7 +632,8 @@ def windows_wsl_state():
         return "no-wsl", ""
     try:
         out = subprocess.run([_wsl_exe(), "--status"], capture_output=True,
-                             timeout=60)
+                             timeout=60,
+                             creationflags=procutil.CREATE_NO_WINDOW)
     except Exception as exc:
         return "not-operational", str(exc)
     text = (_decode(out.stdout or b"") + "\n"
@@ -641,7 +648,8 @@ def windows_wsl_state():
         # distributions" (exit 1) is still READY — import creates ours.
         try:
             probe = subprocess.run([_wsl_exe(), "-l", "-q"],
-                                   capture_output=True, timeout=60)
+                                   capture_output=True, timeout=60,
+                                   creationflags=procutil.CREATE_NO_WINDOW)
         except Exception as exc:
             return "not-operational", str(exc)
         ptext = (_decode(probe.stdout or b"") + "\n"
@@ -760,7 +768,8 @@ def run_windows_install(line_callback=None):
         os.makedirs(distro_dir, exist_ok=True)
         job = subprocess.run(
             [_wsl_exe(), "--import", WSL_DISTRO, distro_dir, tarball],
-            capture_output=True, timeout=1800)
+            capture_output=True, timeout=1800,
+            creationflags=procutil.CREATE_NO_WINDOW)
         try:
             os.unlink(tarball)
         except OSError:
@@ -824,7 +833,8 @@ class SolverJobStream:
 
     def run(self, timeout):
         proc = subprocess.Popen(self.cmd, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT)
+                                stderr=subprocess.STDOUT,
+                                creationflags=procutil.CREATE_NO_WINDOW)
         try:
             import threading
             timer = threading.Timer(timeout, proc.kill)

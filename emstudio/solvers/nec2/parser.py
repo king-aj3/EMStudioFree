@@ -170,7 +170,38 @@ def parse_currents(path, freq_hz):
     """
     import numpy as np
 
-    blocks = []          # [[freq_hz, rows], ...]
+    blocks = _currents_blocks(path)
+    if not blocks:
+        raise NecParseError("no current data found in {0}".format(path))
+    # A block with no frequency header (never seen from nec2c/nec2++, but the
+    # format is not ours) can only be scaled by the caller's frequency.
+    f_blk, rows = min(blocks,
+                      key=lambda fr: abs((fr[0] or freq_hz) - freq_hz))
+    return _currents_dict(f_blk or freq_hz, rows)
+
+
+def parse_currents_all(path):
+    """EVERY currents table in the file, one dict per solved frequency.
+
+    The multi-frequency pattern deck carries a CURRENTS AND LOCATION table per
+    FR step — the same one-run economics as the patterns — so the current
+    distribution can be scrubbed across the band exactly like the balloon
+    (AJ's ask, 2026-08-07). Each block is scaled by its own wavelength; the
+    list comes back sorted by frequency, matching ``parse_radiation_patterns_
+    all``'s ordering so the two index identically in the results dialog.
+
+    Blocks without a frequency header cannot be scaled and are skipped —
+    unlike :func:`parse_currents`, there is no caller's frequency to fall
+    back on. Returns [] for a file with no currents at all.
+    """
+    out = [_currents_dict(f, rows) for f, rows in _currents_blocks(path) if f]
+    out.sort(key=lambda c: c["freq"])
+    return out
+
+
+def _currents_blocks(path):
+    """[(freq_hz_or_None, rows)] for every CURRENTS AND LOCATION table."""
+    blocks = []
     cur_f = None
     rows = None
     in_table = False
@@ -185,7 +216,7 @@ def parse_currents(path, freq_hz):
             if "CURRENTS AND LOCATION" in line:
                 in_table = True
                 rows = []
-                blocks.append([cur_f, rows])
+                blocks.append((cur_f, rows))
                 continue
             if in_table:
                 nums = _FLOAT_RE.findall(line)
@@ -198,15 +229,14 @@ def parse_currents(path, freq_hz):
                     rows.append((seg, tag, x, y, z, re_i, im_i, mag))
                 elif rows and not line.strip():
                     in_table = False
-    blocks = [(f, r) for f, r in blocks if r]
-    if not blocks:
-        raise NecParseError("no current data found in {0}".format(path))
-    # A block with no frequency header (never seen from nec2c/nec2++, but the
-    # format is not ours) can only be scaled by the caller's frequency.
-    f_blk, rows = min(blocks,
-                      key=lambda fr: abs((fr[0] or freq_hz) - freq_hz))
-    f_blk = f_blk or freq_hz
-    lam = 299792458.0 / f_blk
+    return [(f, r) for f, r in blocks if r]
+
+
+def _currents_dict(freq_hz, rows):
+    """One parsed currents table, wavelength-relative rows -> metres."""
+    import numpy as np
+
+    lam = 299792458.0 / freq_hz
     arr = np.asarray(rows, dtype=float)
     return {
         "seg": arr[:, 0].astype(int),
@@ -214,7 +244,7 @@ def parse_currents(path, freq_hz):
         "pos_m": arr[:, 2:5] * lam,
         "i_complex": arr[:, 5] + 1j * arr[:, 6],
         "i_mag": arr[:, 7],
-        "freq": f_blk,
+        "freq": freq_hz,
     }
 
 

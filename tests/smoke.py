@@ -1546,6 +1546,39 @@ def _analysis_roundtrip():
         pass
 
 
+def _no_console_windows_on_spawn():
+    """Every subprocess spawn passes creationflags (CREATE_NO_WINDOW).
+
+    FreeCAD.exe is a GUI-subsystem process, so each console-subsystem child
+    it spawns flashes a NEW black console over the viewport unless the spawn
+    says creationflags=procutil.CREATE_NO_WINDOW. One NEC2 solve was three
+    such windows; a user read it as "something is broken" (AJ, 2026-08-07).
+    The constant is 0 off Windows, so there is no branching at call sites --
+    which is what makes this statically checkable: EVERY spawn must carry it.
+    """
+    import glob
+    import re
+
+    bad = []
+    for p in glob.glob(os.path.join(_ROOT, "emstudio", "**", "*.py"),
+                       recursive=True):
+        src = open(p, encoding="utf-8").read()
+        for m in re.finditer(
+                r"subprocess\.(Popen|run|check_output|check_call|call)\(",
+                src):
+            depth, i = 1, m.end()
+            while depth and i < len(src):
+                depth += {"(": 1, ")": -1}.get(src[i], 0)
+                i += 1
+            if "creationflags" not in src[m.start():i]:
+                bad.append("{0}:{1}".format(
+                    os.path.relpath(p, _ROOT),
+                    src[:m.start()].count(chr(10)) + 1))
+    assert not bad, (
+        "subprocess spawns without creationflags (each pops a console "
+        "window on Windows under the GUI): " + ", ".join(bad))
+
+
 def _icons_parse_as_xml():
     import xml.dom.minidom as minidom
 
@@ -1659,6 +1692,8 @@ def main():
     check("openEMS gates SKIP a missing backend (never fail)",
           _openems_gates_skip_without_openems)
     check("icons parse as valid XML/SVG", _icons_parse_as_xml)
+    check("no spawn can flash a console window (creationflags everywhere)",
+          _no_console_windows_on_spawn)
     check("installer build plans well-formed (no sudo)", _installer_build_plans)
     check("install text is platform-segregated (Win/Linux)", _install_text_platform_segregation)
     check("version probe returns a version, never help text",

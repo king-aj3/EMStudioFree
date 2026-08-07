@@ -24,6 +24,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+
+from emstudio import procutil
 import sys
 from dataclasses import dataclass, field
 
@@ -436,6 +438,7 @@ def _probe_version(path, version_args):
             [path, *version_args],
             capture_output=True,
             text=True,
+            creationflags=procutil.CREATE_NO_WINDOW,
             timeout=10,
         )
         text = (out.stdout or out.stderr or "").strip()
@@ -578,7 +581,8 @@ def _lib_present(stem):
     """True if a shared library with this stem is registered with the loader."""
     try:
         out = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True,
-                             timeout=10).stdout
+                             timeout=10,
+                             creationflags=procutil.CREATE_NO_WINDOW).stdout
         return ("lib" + stem) in out
     except Exception:
         return False
@@ -1025,7 +1029,8 @@ def _zstd_tar():
         return None
     try:
         out = subprocess.run([tar, "--version"], capture_output=True,
-                             text=True, timeout=15)
+                             text=True, timeout=15,
+                             creationflags=procutil.CREATE_NO_WINDOW)
     except Exception:
         return None
     return tar if "libzstd" in (out.stdout or "") else None
@@ -1056,7 +1061,8 @@ def _install_msys2_dlls(bin_dir, pkgs, dlls, say):
         db = os.path.join(tmp, "mingw64.db")
         _download_archive(_MSYS2_MINGW64 + "mingw64.db", db, say)
         listing = subprocess.run([tar, "-tf", db], capture_output=True,
-                                 text=True, timeout=120)
+                                 text=True, timeout=120,
+                                 creationflags=procutil.CREATE_NO_WINDOW)
         if listing.returncode != 0:
             raise SolverError("cannot read the MSYS2 package index: "
                               + (listing.stderr or "")[:200])
@@ -1076,14 +1082,16 @@ def _install_msys2_dlls(bin_dir, pkgs, dlls, say):
 
         for p in pkgs:
             desc = subprocess.run([tar, "-xOf", db, wanted[p] + "/desc"],
-                                  capture_output=True, text=True, timeout=60)
+                                  capture_output=True, text=True, timeout=60,
+                                  creationflags=procutil.CREATE_NO_WINDOW)
             m = _re.search(r"%FILENAME%\s*\n(\S+)", desc.stdout or "")
             fname = m.group(1) if m else wanted[p] + "-any.pkg.tar.zst"
             arch = os.path.join(tmp, fname)
             say("fetching runtime package " + fname)
             _download_archive(_MSYS2_MINGW64 + fname, arch, say)
             ex = subprocess.run([tar, "-xf", arch, "-C", tmp],
-                                capture_output=True, text=True, timeout=300)
+                                capture_output=True, text=True, timeout=300,
+                                creationflags=procutil.CREATE_NO_WINDOW)
             if ex.returncode != 0:
                 raise SolverError("cannot extract {0}: {1}".format(
                     fname, (ex.stderr or "")[:200]))
@@ -1160,7 +1168,8 @@ def _download_archive(url, dest, say):
     job = subprocess.run(
         [curl, "-fsSL", "--connect-timeout", "30", "--retry", "2",
          "-o", dest, url],
-        capture_output=True, text=True, timeout=1800)
+        capture_output=True, text=True, timeout=1800,
+        creationflags=procutil.CREATE_NO_WINDOW)
     if job.returncode != 0:
         raise SolverError("curl download failed (exit {0}): {1}".format(
             job.returncode, (job.stderr or "").strip()[:300]))
