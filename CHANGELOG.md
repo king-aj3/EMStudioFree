@@ -75,7 +75,7 @@ Verified against real output both ways: the v0.90 single-frequency file parses
 byte-identically, and yesterday's 91-block file returns the full-size helix at
 every requested frequency.
 
-## [Unreleased]
+## [0.95.0] — 2026-08-08 — the native Windows tier: the installer that existed all along
 
 ### Added
 * **OpenFOAM on Windows now installs natively — no elevation at all.** ESI

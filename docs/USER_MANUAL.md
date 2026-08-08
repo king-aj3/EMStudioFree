@@ -53,7 +53,7 @@ are real results from those tests, not illustrations.
    | openEMS | 3-D antennas, S-parameters, patterns | wizard **Build…** button (~15–60 min) |
    | FastHenry | wire/litz bundle impedance | wizard **Build…** button (~1 min) |
    | Palace | Phase-4 full-wave FEM | wizard **Build…** button (~30–90 min) |
-   | OpenFOAM (ESI) | CFD conjugate heat / enclosure airflow (add-on) | two shown commands (OpenCFD's repo + `openfoam2512-default`); macOS: `brew install gerlero/openfoam/openfoam`; Windows: **Install…** button (WSL2) |
+   | OpenFOAM (ESI) | CFD conjugate heat / enclosure airflow (add-on) | two shown commands (OpenCFD's repo + `openfoam2512-default`); macOS: `brew install gerlero/openfoam/openfoam`; Windows: **Install…** button — native ESI build (no admin), WSL2 fallback |
 
    OpenFOAM is the one backend where *which build* matters: EMStudio needs the
    **ESI (openfoam.com)** flavour, and it health-checks a found install by
