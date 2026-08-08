@@ -167,6 +167,73 @@ def main():
     check("WSL distro name is wsl-argument-safe (no spaces)",
           " " not in of.WSL_DISTRO and of.WSL_DISTRO)
 
+    # --- the native Windows tier (measured on the VM 2026-08-08) -----------
+    print(" native Windows tier:")
+    check("the native URL carries the VERSION in the FILENAME — the "
+          "unversioned name the wiki advertises has 404'd for years",
+          "OpenFOAM-{0}-windows-mingw.exe".format(of.WIN_NATIVE_VERSION)
+          in of.WIN_NATIVE_URL, of.WIN_NATIVE_URL)
+    check("native URL is version-pinned, never /latest/ (v2606 has NO "
+          "Windows build; 'latest' is exactly what breaks)",
+          "/source/latest/" not in of.WIN_NATIVE_URL
+          and of.WIN_NATIVE_VERSION in of.WIN_NATIVE_URL)
+    check("the bundled MSYS2 bash path is where the package puts it",
+          of.WIN_NATIVE_BASH.replace("\\", "/")
+          == "msys64/usr/bin/bash.exe", of.WIN_NATIVE_BASH)
+    check("the posix bashrc path matches the pinned version",
+          of.WIN_NATIVE_BASHRC
+          == "/home/ofuser/OpenFOAM/OpenFOAM-{0}/etc/bashrc".format(
+              of.WIN_NATIVE_VERSION), of.WIN_NATIVE_BASHRC)
+    check("native_bash is derived from the install root",
+          of.OpenFoamInfo(native_root=os.path.join("X", "Y")).native_bash
+          == os.path.join("X", "Y", of.WIN_NATIVE_BASH))
+    check("no native_root -> no native bash (posix installs are unaffected)",
+          of.OpenFoamInfo(bashrc="/usr/lib/openfoam/openfoam2512/etc/bashrc")
+          .native_bash == "")
+
+    # THE PSTREAM REPAIR. A silent install leaves the MPI-linked Pstream
+    # active with no MS-MPI on the box, so every solver exits 0xC0000135
+    # with no message. Exercised against a FIXTURE tree, because the bug is
+    # a file-size/identity question, not a Windows question.
+    print(" Pstream repair (the 0xC0000135 trap):")
+    with tempfile.TemporaryDirectory() as td:
+        bindir = os.path.join(td, of.WIN_NATIVE_BINDIR)
+        os.makedirs(bindir)
+        active = os.path.join(bindir, "libPstream.dll")
+        msmpi_b = b"M" * 172544          # the sizes measured on the VM
+        dummy_b = b"D" * 36864
+        for name, data in (("libPstream.dll", msmpi_b),
+                           ("libPstream.dll-msmpi", msmpi_b),
+                           ("libPstream.dll-dummy", dummy_b)):
+            with open(os.path.join(bindir, name), "wb") as fh:
+                fh.write(data)
+        real_probe, of._msmpi_present = of._msmpi_present, lambda: False
+        try:
+            said = []
+            res = of.pstream_repair(td, said.append)
+            check("with no MS-MPI, the msmpi Pstream is swapped for the dummy",
+                  res == "swapped-to-dummy", res)
+            check("the active Pstream is now the dummy",
+                  os.path.getsize(active) == len(dummy_b))
+            check("the msmpi build is kept as a backup (parallel is "
+                  "recoverable once MS-MPI is installed)",
+                  os.path.isfile(active + ".emstudio-backup-msmpi"))
+            check("the swap is EXPLAINED, not silent", bool(said))
+            check("re-running is idempotent",
+                  of.pstream_repair(td) == "already-serial")
+            # ...and it must NOT touch a machine that really has MS-MPI.
+            of._msmpi_present = lambda: True
+            with open(active, "wb") as fh:
+                fh.write(msmpi_b)
+            check("with MS-MPI present, the msmpi build is LEFT ALONE",
+                  of.pstream_repair(td) == "msmpi-present"
+                  and os.path.getsize(active) == len(msmpi_b))
+        finally:
+            of._msmpi_present = real_probe
+    with tempfile.TemporaryDirectory() as td2:
+        check("a tree with no Pstream files is left alone, not crashed on",
+              of.pstream_repair(td2) == "no-pstream")
+
     # --- registry integration ----------------------------------------------
     print(" registry integration:")
     check("'openfoam' is a registered backend", "openfoam" in solvers.BACKENDS)

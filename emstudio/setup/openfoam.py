@@ -36,6 +36,7 @@ import glob
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 
 from emstudio import procutil
@@ -97,9 +98,43 @@ MACOS_APP_GLOB = "/Applications/OpenFOAM-v*.app"
 #: (VERIFIED_BREW_FORMULAE is a core-formula allow-list).
 MACOS_BREW_CMD = "brew install gerlero/openfoam/openfoam"
 
-#: Windows: our WSL2 distro. EMStudio OWNS this distro (created by
-#: ``wsl --import`` below), so installs never touch a user's own distro and
-#: uninstall is one honest command: ``wsl --unregister EMStudio-OpenFOAM``.
+#: Windows, PREFERRED route: ESI's own cross-compiled native build. Measured
+#: end-to-end on the Windows VM 2026-08-08 — silent, per-user, NO admin
+#: (`/S /D=`, exit 0, manifest is `asInvoker`), ships all five required tools
+#: AND its own MSYS2 bash, and passes the capability probe (blockMesh 0,
+#: function objects 0).
+#:
+#: VERSION-PINNED, and the FILENAME CARRIES THE VERSION — that is the whole
+#: reason this route was missed for weeks. The wiki advertises an
+#: UNVERSIONED `/source/latest/OpenFOAM-windows-mingw.exe` which has 404'd
+#: for years (reported four times upstream; ours is
+#: openfoam/core/openfoam#3593). Only `/source/<ver>/OpenFOAM-<ver>-windows-
+#: mingw.exe` actually exists. Do NOT "simplify" this to `latest`.
+#:
+#: v2512 and not v2606: v2606 has NO Windows build published at all (both
+#: names 404). Re-read the directory listing before bumping — and note the
+#: v2512 build stamp is `bd2b6720-20260127`, i.e. it POSTDATES the fix for
+#: upstream #3488 (a mingw-only memory-alignment segfault in snappyHexMesh).
+#: An older respin would carry that defect.
+WIN_NATIVE_VERSION = "v2512"
+WIN_NATIVE_URL = ("https://dl.openfoam.com/source/{0}/"
+                  "OpenFOAM-{0}-windows-mingw.exe").format(WIN_NATIVE_VERSION)
+
+#: Relative to the install root: the MSYS2 bash the package ships, and the
+#: OpenFOAM tree inside its virtual home. `ofuser` is upstream's build-time
+#: user and is baked into the package layout.
+WIN_NATIVE_BASH = os.path.join("msys64", "usr", "bin", "bash.exe")
+WIN_NATIVE_POSIX_PREFIX = "/home/ofuser/OpenFOAM/OpenFOAM-" + WIN_NATIVE_VERSION
+WIN_NATIVE_BASHRC = WIN_NATIVE_POSIX_PREFIX + "/etc/bashrc"
+#: Where the solver .exes and their DLLs live, relative to the tree.
+WIN_NATIVE_BINDIR = os.path.join("msys64", "home", "ofuser", "OpenFOAM",
+                                 "OpenFOAM-" + WIN_NATIVE_VERSION,
+                                 "platforms", "win64MingwDPInt32Opt", "bin")
+
+#: Windows, FALLBACK route: our own WSL2 distro. EMStudio OWNS this distro
+#: (created by ``wsl --import`` below), so installs never touch a user's own
+#: distro and uninstall is one honest command:
+#: ``wsl --unregister EMStudio-OpenFOAM``.
 WSL_DISTRO = "EMStudio-OpenFOAM"
 #: Ubuntu's official WSL rootfs. NOTE the /wsl/releases/ path: the sibling
 #: /wsl/noble/current/ directory contains ONLY manifests, no tarballs —
@@ -127,8 +162,9 @@ class OpenFoamInfo:
     prefix: str = ""          # WM_PROJECT_DIR (parent of etc/)
     version: str = ""         # e.g. "v2512", "v1912", "12"
     fork: str = ""            # "esi" | "foundation" | "unknown"
-    source: str = ""          # apt-esi|source|apt-foundation|distro|app|pref|env|wsl:<distro>
+    source: str = ""          # apt-esi|source|apt-foundation|distro|app|pref|env|wsl:<distro>|win-native:<root>
     wsl_distro: str = ""      # Windows only: distro the install lives in
+    native_root: str = ""     # Windows only: root of a native (mingw) install
     missing_required: tuple = ()
     missing_wanted: tuple = ()
     #: "" = not probed; "ok"; "defective-sha1" (the known Ubuntu packaging
@@ -139,6 +175,13 @@ class OpenFoamInfo:
     @property
     def found(self):
         return bool(self.bashrc)
+
+    @property
+    def native_bash(self):
+        """The MSYS2 bash a native Windows install ships, or ''."""
+        if not self.native_root:
+            return ""
+        return os.path.join(self.native_root, WIN_NATIVE_BASH)
 
     @property
     def usable(self):
@@ -361,19 +404,92 @@ def _classify_probe(parsed):
     return "failed"
 
 
-def _run_probe(bashrc, wsl_distro=""):
-    """Execute the capability probe natively or inside a WSL distro."""
+def _run_probe(bashrc, wsl_distro="", bash_exe=""):
+    """Execute the capability probe: native POSIX, WSL distro, or bundled bash.
+
+    ``bash_exe`` is the Windows-native route — the MSYS2 bash that ESI's own
+    installer ships. It needs a LOGIN shell (``-l``): without it MSYS2's own
+    PATH is unset and even ``dirname`` is missing, so sourcing OpenFOAM's
+    bashrc dies half-way and every marker after it vanishes (measured
+    2026-08-08).
+    """
     script = _probe_script(bashrc)
-    if wsl_distro:
+    if bash_exe:
+        cmd = [bash_exe, "-lc", script]
+    elif wsl_distro:
         cmd = [_wsl_exe(), "-d", wsl_distro, "--", "bash", "-c", script]
     else:
         cmd = ["bash", "-c", script]
     try:
-        out = subprocess.run(cmd, capture_output=True, timeout=180,
+        out = subprocess.run(cmd, capture_output=True, timeout=300,
                              creationflags=procutil.CREATE_NO_WINDOW)
     except Exception:
         return None
     return _parse_probe_output(_decode(out.stdout or b""))
+
+
+# --- the native-Windows MPI repair ------------------------------------------
+
+def pstream_repair(install_root, say=None):
+    """Make a no-admin native install RUNNABLE. Returns a status string.
+
+    THE DEFECT, measured on the Windows VM 2026-08-08: ESI's installer ships
+    three files — ``libPstream.dll`` plus ``libPstream.dll-msmpi`` and
+    ``libPstream.dll-dummy``. It is meant to install the MS-MPI variant only
+    when it can also install MS-MPI itself (which needs admin), and the dummy
+    otherwise. A SILENT (``/S``) install skips that choice and leaves the
+    **msmpi** variant active — 172544 bytes, byte-identical to ``-msmpi`` —
+    while ``msmpi.dll`` is nowhere on the system.
+
+    The result is the nastiest possible failure mode: EVERY solver exits
+    ``0xC0000135`` (STATUS_DLL_NOT_FOUND) with no message, and ``ldd`` calls
+    the whole closure resolved because it never inspects libPstream's own
+    imports. That cost an hour, and it is the same lesson as nec2++: measure
+    the closure, then NEGATIVE-CONTROL it — swapping the dummy in is what
+    proved the diagnosis.
+
+    So: when MS-MPI is absent and the active Pstream is the msmpi build, swap
+    in the dummy (keeping a backup). Serial-only — which is all a no-admin
+    install could offer anyway — and installing MS-MPI later restores
+    parallel by putting the backup back.
+    """
+    def note(msg):
+        if say:
+            say(msg)
+
+    bindir = os.path.join(install_root, WIN_NATIVE_BINDIR)
+    active = os.path.join(bindir, "libPstream.dll")
+    dummy = active + "-dummy"
+    msmpi = active + "-msmpi"
+    if not os.path.isfile(active) or not os.path.isfile(dummy):
+        return "no-pstream"          # layout changed; leave it alone
+    if _msmpi_present():
+        return "msmpi-present"       # parallel is genuinely available
+    try:
+        if os.path.isfile(msmpi) and os.path.getsize(active) \
+                != os.path.getsize(msmpi):
+            return "already-serial"  # dummy (or something else) already in
+        backup = active + ".emstudio-backup-msmpi"
+        if not os.path.exists(backup):
+            shutil.copy2(active, backup)
+        shutil.copy2(dummy, active)
+    except OSError as exc:
+        return "failed: {0}".format(exc)
+    note("MS-MPI is not installed, so the MPI build of libPstream.dll could "
+         "not load and every solver would have exited 0xC0000135 with no "
+         "message. Swapped in the serial build shipped beside it — runs are "
+         "single-process. Install Microsoft MPI (needs admin) and re-run "
+         "Detect Solvers to restore parallel.")
+    return "swapped-to-dummy"
+
+
+def _msmpi_present():
+    root = os.environ.get("SystemRoot", r"C:\Windows")
+    for cand in (os.path.join(root, "System32", "msmpi.dll"),
+                 os.path.join(root, "SysWOW64", "msmpi.dll")):
+        if os.path.isfile(cand):
+            return True
+    return False
 
 
 # --- per-platform candidate enumeration -------------------------------------
@@ -446,16 +562,60 @@ def wsl_distros():
             if line.strip()]
 
 
-def _windows_candidates():
-    """OpenFOAM installs inside WSL distros, best-first.
+def win_native_root():
+    """Per-user root for the guided NATIVE Windows install."""
+    from emstudio.setup.solvers import win_install_root
+    return os.path.join(win_install_root(), "openfoam")
 
-    Probes OUR distro first, then a pref-named one, then every other distro.
-    Each look is one ``wsl -d <distro> bash -c 'ls ...'`` call — a cold
-    distro can take seconds to start, so order matters and results are
-    cached by the session-level cache in :func:`find_openfoam`.
+
+def _windows_native_candidates():
+    """ESI's native (mingw) Windows installs — the PREFERRED Windows route.
+
+    Ours first, then the places a hand-run installer lands. Each candidate
+    is identified by the MSYS2 bash beside the tree, because that bash is
+    what every later call must go through: the solvers are native .exes but
+    their environment only exists inside the shipped shell.
     """
+    roots = [win_native_root()]
+    for base in (os.environ.get("LOCALAPPDATA", ""),
+                 os.environ.get("ProgramFiles", ""),
+                 os.path.expanduser("~"), "C:\\"):
+        if base:
+            roots.extend(sorted(glob.glob(os.path.join(base, "OpenFOAM*"))))
+    cands = []
+    for root in roots:
+        bash = os.path.join(root, WIN_NATIVE_BASH)
+        if not os.path.isfile(bash):
+            continue
+        # The version is in the tree's own directory name; read it from disk
+        # rather than assuming our pin, so a hand-installed v2506 is found.
+        for tree in sorted(glob.glob(os.path.join(
+                root, "msys64", "home", "ofuser", "OpenFOAM",
+                "OpenFOAM-v*"))):
+            ver = os.path.basename(tree).replace("OpenFOAM-", "")
+            posix = "/home/ofuser/OpenFOAM/{0}/etc/bashrc".format(
+                os.path.basename(tree))
+            cands.append(_Candidate(posix, "win-native:" + root, ver,
+                                    fork_of(ver)))
+    return cands
+
+
+def _windows_candidates():
+    """Windows: the native install first, then WSL distros.
+
+    Native is preferred because it needs no elevation at all and starts
+    instantly; WSL2 remains the fallback (and the only route for parallel
+    runs and runtime-compiled code). Probes OUR distro first, then a
+    pref-named one, then every other distro — each look is one
+    ``wsl -d <distro> bash -c 'ls ...'`` call and a cold distro can take
+    seconds to start, so order matters and results are cached by the
+    session-level cache in :func:`find_openfoam`.
+    """
+    native = _windows_native_candidates()
+    if any(c.fork == "esi" for c in native):
+        return native
     if not wsl_available():
-        return []
+        return native
     ordered = []
     pref = _pref_string(_PREF_WSL_DISTRO_KEY)
     for name in ([WSL_DISTRO] + ([pref] if pref else []) + wsl_distros()):
@@ -483,7 +643,9 @@ def _windows_candidates():
             cands.append(_Candidate(path, source, ver, fork_of(ver)))
         if any(c.fork == "esi" for c in cands):
             break  # a usable-looking install; don't cold-start more distros
-    return cands
+    # A non-ESI native install still beats nothing: report it rather than
+    # hiding it, exactly as _pick_best does for a Foundation tree.
+    return cands + native
 
 
 def _wsl_bashrc_version(distro, path):
@@ -554,10 +716,17 @@ def find_openfoam(refresh=False):
         if best.source.startswith("wsl:") else "",
     )
 
+    # A native Windows install is driven through the MSYS2 bash it ships;
+    # `source` carries the install root so the bash (and the Pstream repair)
+    # can be located from the info alone.
+    if best.source.startswith("win-native:"):
+        info.native_root = best.source.split(":", 1)[1]
+        info.prefix = info.native_root
+
     # 2) runtime probe — ESI candidates only. Sourcing a Foundation bashrc
     #    just to watch our probe fail teaches nothing we don't already know.
     if info.fork == "esi":
-        parsed = _run_probe(info.bashrc, info.wsl_distro)
+        parsed = _run_probe(info.bashrc, info.wsl_distro, info.native_bash)
         if parsed is None:
             info.function_objects = "broken"
         else:
@@ -712,6 +881,79 @@ def windows_guidance(detail=""):
     if detail:
         lines += ["", "wsl --status said:", detail]
     return "\n".join(lines)
+
+
+def run_windows_native_install(line_callback=None):
+    """Download + silently install ESI's native Windows build. Per-user.
+
+    THE PREFERRED Windows route, and the only one needing no elevation at
+    all. Measured end-to-end on the Windows VM 2026-08-08: `/S /D=` returns
+    exit 0 with no wizard and no UAC prompt (the installer's manifest is
+    `asInvoker`), and the probe then passes.
+
+    Two traps this had to learn, both of which produce silent nonsense:
+
+    * **The `/D=` argument must be LAST and UNQUOTED** — NSIS's own rule.
+      Passing the command as a LIST lets Python quote it (``"/D=C:\\..."``)
+      and NSIS then ignores the target directory entirely, so the install
+      lands somewhere else while still reporting success. Hence the single
+      command STRING below.
+    * **A silent install leaves an unusable tree** until
+      :func:`pstream_repair` runs — see that function. Do not reorder it
+      after the probe; the probe would simply report ``broken``.
+    """
+    from emstudio.setup import solvers as _solvers
+    from emstudio.solvers.base import SolverError
+
+    def say(line):
+        if line_callback:
+            line_callback(line)
+
+    if os.name != "nt":
+        raise SolverError("the native Windows install only exists on Windows")
+
+    root = win_native_root()
+    os.makedirs(os.path.dirname(root), exist_ok=True)
+    installer = os.path.join(os.path.dirname(root),
+                             "OpenFOAM-{0}-windows-mingw.exe".format(
+                                 WIN_NATIVE_VERSION))
+    say("downloading ESI's native Windows build (~200 MB)...")
+    _solvers._download_archive(WIN_NATIVE_URL, installer, say)
+
+    say("installing silently to {0} (no admin needed)...".format(root))
+    # NSIS: /D last, unquoted, absolute. A string, NOT a list — see above.
+    cmd = '"{0}" /S /D={1}'.format(installer, root)
+    try:
+        job = subprocess.run(cmd, capture_output=True, timeout=3600,
+                             creationflags=procutil.CREATE_NO_WINDOW)
+    except Exception as exc:
+        raise SolverError("the installer could not be run: {0}".format(exc))
+    if job.returncode != 0:
+        raise SolverError(
+            "the installer exited {0} — nothing was installed".format(
+                job.returncode))
+    try:
+        os.unlink(installer)
+    except OSError:
+        pass
+
+    # The repair MUST precede detection (see pstream_repair's docstring).
+    status = pstream_repair(root, say)
+    if status.startswith("failed"):
+        raise SolverError(
+            "installed, but the MPI shim could not be repaired ({0}); every "
+            "solver would exit 0xC0000135".format(status))
+
+    info = find_openfoam(refresh=True)
+    if not info.usable:
+        raise SolverError(
+            "installed to {0} but the runtime probe is not happy: {1} — "
+            "report this".format(root, status_note() or "nothing detected"))
+    say("detected: {0}".format(info.describe()))
+    if status == "swapped-to-dummy":
+        say("NOTE: this install runs SERIAL only. Installing Microsoft MPI "
+            "(needs admin) and pressing Re-detect restores parallel runs.")
+    return info
 
 
 def run_windows_install(line_callback=None):

@@ -75,6 +75,33 @@ Verified against real output both ways: the v0.90 single-frequency file parses
 byte-identically, and yesterday's 91-block file returns the full-size helix at
 every requested frequency.
 
+## [Unreleased]
+
+### Added
+* **OpenFOAM on Windows now installs natively — no elevation at all.** ESI
+  publishes a cross-compiled Windows build after all; we had concluded it did
+  not exist because their wiki advertises an **unversioned** filename that has
+  404'd for years (reported upstream four times before ours,
+  openfoam/core/openfoam#3593). The real artifacts are versioned:
+  `/source/v2512/OpenFOAM-v2512-windows-mingw.exe`. Measured end-to-end on a
+  Windows box: `/S /D=` installs silently, per-user, exit 0, no UAC (the
+  manifest is `asInvoker`), it ships all five required tools **and its own
+  MSYS2 bash**, and the capability probe passes (blockMesh 0, function
+  objects 0). It is now the **preferred** Windows route; WSL2 remains the
+  fallback for what it cannot do — parallel runs and runtime-compiled code
+  (EMStudio's own cases use neither).
+* **`pstream_repair()` — the fix for a trap that makes every solver die
+  silently.** ESI's installer ships `libPstream.dll` in MPI and dummy
+  flavours and is meant to choose between them by whether it can also
+  install MS-MPI (which needs admin). A **silent** install skips that choice
+  and leaves the MPI build active with no `msmpi.dll` on the machine, so
+  every solver exits `0xC0000135` (STATUS_DLL_NOT_FOUND) with no message —
+  and `ldd` calls the closure fully resolved, because it never inspects
+  libPstream's own imports. EMStudio now detects this and swaps in the
+  serial build, keeping the MPI one as a backup so installing MS-MPI later
+  restores parallel. Proven by negative control, then gated (13 checks,
+  4 mutations caught).
+
 ## [0.93.0] — 2026-08-06 — scrub the band: sliders, frequency cursors, and a scrubber on the viewport
 
 ### Added

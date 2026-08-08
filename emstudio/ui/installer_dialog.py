@@ -309,6 +309,38 @@ class SolverInstallerDialog(QtWidgets.QDialog):
         if self._busy_key:
             return
         from emstudio.setup import openfoam as of_setup
+
+        # NATIVE FIRST (2026-08-08): ESI's own cross-compiled build installs
+        # per-user with NO elevation at all and starts instantly, so it is
+        # offered first; WSL2 stays available for what it cannot do —
+        # parallel runs and runtime-compiled code.
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Question)
+        box.setWindowTitle("EMStudio — install OpenFOAM")
+        box.setText(
+            "Two routes, both official ESI builds:\n\n"
+            "• NATIVE (recommended) — ~200 MB, 2-5 min, no admin rights at "
+            "all. Runs single-process; it also cannot compile code at "
+            "run time (no coded boundary conditions), which EMStudio's own "
+            "cases do not use.\n\n"
+            "• WSL2 — 10-40 min and about 4 GB, and enabling WSL2 itself "
+            "needs Administrator once. This is the fuller route: parallel "
+            "runs and runtime-compiled code.")
+        native_btn = box.addButton("Install native  (recommended)",
+                                   QtWidgets.QMessageBox.AcceptRole)
+        wsl_btn = box.addButton("Install via WSL2",
+                                QtWidgets.QMessageBox.AcceptRole)
+        box.addButton(QtWidgets.QMessageBox.Cancel)
+        box.setDefaultButton(native_btn)
+        box.exec_()
+        clicked = box.clickedButton()
+        if clicked is native_btn:
+            self._start_openfoam_job(of_setup.run_windows_native_install,
+                                     "OpenFOAM (native)")
+            return
+        if clicked is not wsl_btn:
+            return
+
         state, detail = of_setup.windows_wsl_state()
         if state != "ready":
             guidance = of_setup.windows_guidance(detail)
@@ -328,6 +360,11 @@ class SolverInstallerDialog(QtWidgets.QDialog):
         if answer != QtWidgets.QMessageBox.Yes:
             return
 
+        self._start_openfoam_job(of_setup.run_windows_install,
+                                 "OpenFOAM (WSL2)")
+
+    def _start_openfoam_job(self, run_fn, label):
+        """Run one OpenFOAM install route in a thread, streaming its log."""
         self._busy_key = "openfoam"
         self._state = {"done": False, "error": None, "lines": []}
         state_d = self._state
@@ -339,13 +376,13 @@ class SolverInstallerDialog(QtWidgets.QDialog):
 
         def work():
             try:
-                of_setup.run_windows_install(line_callback=line_cb)
+                run_fn(line_callback=line_cb)
             except Exception as exc:  # noqa: BLE001 — surfaced in the dialog
                 state_d["error"] = exc
             finally:
                 state_d["done"] = True
 
-        self.log.appendPlainText("=== installing OpenFOAM (WSL2) ===")
+        self.log.appendPlainText("=== installing {0} ===".format(label))
         self.redetect_btn.setEnabled(False)
         self._lock = lock
         threading.Thread(target=work, daemon=True).start()
