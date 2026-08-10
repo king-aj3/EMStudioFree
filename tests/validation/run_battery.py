@@ -58,7 +58,8 @@ FAST = {
 }
 
 SOLVER = [
-    "amr_palace", "antenna_from_selection", "bh_elmer", "cavity_palace", "circwaveguide_palace",
+    "amr_palace", "antenna_from_selection", "openfoam_cavity",
+    "bh_elmer", "cavity_palace", "circwaveguide_palace",
     "coax_palace", "coil_inductance_elmer", "curved_wire_nec2",
     "cylcavity_palace", "dipole_nec2",
     "fastsweep_palace",
@@ -110,6 +111,7 @@ def _tier_audit():
 #: Declared here, the battery says "skip" honestly, and running one BY HAND
 #: fails loudly when the backend is absent — correct, because you asked for it.
 SOLVER_REQS = {
+    "openfoam_cavity": "openfoam",
     "patch_openems": "openems_python",
     "msl_notch_openems": "openems_python",
     "patch_auto_openems": "openems_python",
@@ -130,6 +132,20 @@ def _requirement_missing(req):
                 return ("no openEMS python environment — set "
                         "EMSTUDIO_OPENEMS_PYTHON, or install openEMS with its "
                         "venv beside the binary")
+        finally:
+            sys.path.pop(0)
+        return None
+    if kind == "openfoam":
+        sys.path.insert(0, _ROOT)
+        try:
+            from emstudio.setup import openfoam as _of
+            info = _of.find_openfoam()
+            if not info.found:
+                return ("no OpenFOAM — install it from Solver Setup "
+                        "(Windows: ESI's native build, no admin needed)")
+            if not info.usable:
+                return ("OpenFOAM found but NOT usable: {0} — {1}".format(
+                    info.describe(), _of.status_note() or "probe unhappy"))
         finally:
             sys.path.pop(0)
         return None

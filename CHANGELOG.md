@@ -3,6 +3,53 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.96.0] — 2026-08-10 — EMStudio can finally SOLVE something with OpenFOAM
+
+### Added
+* **`emstudio/solvers/openfoam/` — the first OpenFOAM solve path.** Until now
+  EMStudio could find OpenFOAM, install it and health-check it, but there was
+  no `emstudio/solvers/openfoam` at all: the README's "conjugate heat /
+  enclosure airflow" described the *installer*, not a capability. The first
+  slice is the **differentially-heated square cavity** — buoyancy-driven flow
+  in a closed box, which is the reduced form of the question an RF enclosure
+  actually poses. `writer.py` emits the case, `runner.py` drives
+  blockMesh → checkMesh → buoyantBoussinesqSimpleFoam through whichever
+  install discovery resolved (native Windows / WSL2 / POSIX), `parser.py`
+  reads the field back and returns a wall-averaged Nusselt number.
+* **Physical properties are DERIVED from (Ra, Pr), not typed.** Ra and Pr fix
+  the flow; `nu` and `alpha` are solved for exactly, and `ra_written`
+  recomputes Ra from the numbers actually emitted so the round trip is
+  assertable. Hand-tuning is how a case ends up quietly at Ra 9.4e4 while the
+  report says 1e5.
+* **The result path uses no function objects.** A `wallHeatFlux` function
+  object would be the obvious route and is the one that aborts on Ubuntu's
+  1912 build with `error in IOstream "sha1"` — the failure the capability
+  probe exists to catch. Reading the written `T` field needs none of that
+  machinery, so the result cannot inherit the fault.
+
+### Testing
+New `openfoam_cavity` gate (SOLVER tier, requirement declared in
+`SOLVER_REQS` so a box without OpenFOAM **skips honestly** instead of
+self-passing). 36 checks: the Ra round trip, rejection of Ra/Pr ≤ 0, a
+truncated field caught by its own count, an unsolved `uniform` field treated
+as an error rather than a reading, and the ESI-flavour dictionaries.
+
+Its anchors are deliberately **not** literature values. The obvious reference
+is de Vahl Davis (1983), and those numbers could not be verified from a
+primary or open source while this was written — only that the benchmark
+exists. This repo already carries the scar of the alternative: `foam_run.py`
+once hard-coded "v2212+ restores function objects" as a release boundary, and
+the note beside it now reads *"the number was plausible and invented."* So the
+gate anchors on things needing no citation — **the conduction limit is exact**
+(Nu is normalised by the pure-conduction solution, so Ra → 0 gives 1 by
+construction), **energy conservation** (hot-wall and cold-wall Nusselt numbers
+are the same number measured at opposite ends), and **monotonicity in Ra**.
+⚠ OWED: add the published Nu comparison once someone has the paper.
+
+Live on a native Windows v2512 install: Ra 100 → Nu 1.0022 (conduction limit
+recovered), Ra 1e4 → 2.2459, Ra 1e5 → 4.6053, wall-to-wall imbalance below
+2e-4 throughout.
+
 ## [0.95.1] — 2026-08-10 — the MS-MPI backup is finally read back
 
 ### Fixed
