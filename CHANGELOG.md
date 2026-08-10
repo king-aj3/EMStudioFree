@@ -3,6 +3,73 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.95.1] — 2026-08-10 — the MS-MPI backup is finally read back
+
+### Fixed
+* **`pstream_repair()` wrote a backup that nothing ever restored**, so
+  installing MS-MPI after EMStudio installed OpenFOAM left the machine
+  silently serial while the UI said parallel had been restored. Found on a
+  work machine while verifying the native tier: `emstudio-backup-msmpi`
+  appeared in exactly two places in the whole tree — the line that creates it
+  and a gate asserting it exists. Three faults compounded:
+  the function had no reverse swap at all (with MS-MPI present it returned
+  `msmpi-present` and did nothing); its only production caller was
+  `run_windows_native_install`, so **Re-detect never reached it**; and both
+  the user-facing note and the docstring promised the opposite. The only
+  route back to parallel was a 200 MB reinstall.
+
+  `pstream_repair()` now restores the parallel build when MS-MPI is present
+  and the serial dummy is active (`restored-msmpi`), and `find_openfoam()`
+  calls it for native installs *before* probing — the same ordering rule the
+  installer follows — so Re-detect is now the documented, working route.
+  `OpenFoamInfo.pstream` carries the outcome.
+
+### Testing
+The old gate could not see this: it overwrote the active DLL with the msmpi
+bytes and *then* asserted nothing changed, setting up the already-correct
+state. It now tests MS-MPI-present-with-the-dummy-active — what a machine
+actually looks like after the user installs MS-MPI. **4/4 mutations caught**
+(restore deleted, restore copies the dummy, restore silent, restore not
+idempotent). Verified live on a company-controlled Windows box: dummy →
+parallel build via `clear_cache()` + `find_openfoam()`, then a real
+`mpiexec -n 2 simpleFoam -parallel` run — `nProcs : 2`, 20 timesteps, exit 0.
+
+Also verified there, closing the native tier's open question: AppLocker
+allows the unsigned ESI installer, `%LOCALAPPDATA%` execution is permitted,
+and the download needs no TLS workaround on that network. Note for any future
+parallel driving: `mpiexec` is **not** on the shipped MSYS2 shell's PATH and
+`MSMPI_BIN`/`MSMPI_ROOT` are empty there, so it must be resolved absolutely.
+EMStudio drives OpenFOAM serially today, so nothing in the product depends on
+this yet.
+
+## [0.95.0] — 2026-08-08 — the native Windows tier: the installer that existed all along
+
+### Added
+* **OpenFOAM on Windows now installs natively — no elevation at all.** ESI
+  publishes a cross-compiled Windows build after all; we had concluded it did
+  not exist because their wiki advertises an **unversioned** filename that has
+  404'd for years (reported upstream four times before ours,
+  openfoam/core/openfoam#3593). The real artifacts are versioned:
+  `/source/v2512/OpenFOAM-v2512-windows-mingw.exe`. Measured end-to-end on a
+  Windows box: `/S /D=` installs silently, per-user, exit 0, no UAC (the
+  manifest is `asInvoker`), it ships all five required tools **and its own
+  MSYS2 bash**, and the capability probe passes (blockMesh 0, function
+  objects 0). It is now the **preferred** Windows route; WSL2 remains the
+  fallback for what it cannot do — parallel runs and runtime-compiled code
+  (EMStudio's own cases use neither).
+* **`pstream_repair()` — the fix for a trap that makes every solver die
+  silently.** ESI's installer ships `libPstream.dll` in MPI and dummy
+  flavours and is meant to choose between them by whether it can also
+  install MS-MPI (which needs admin). A **silent** install skips that choice
+  and leaves the MPI build active with no `msmpi.dll` on the machine, so
+  every solver exits `0xC0000135` (STATUS_DLL_NOT_FOUND) with no message —
+  and `ldd` calls the closure fully resolved, because it never inspects
+  libPstream's own imports. EMStudio now detects this and swaps in the
+  serial build, keeping the MPI one as a backup. *(That backup was never
+  read back — "installing MS-MPI later restores parallel" was not true
+  until 0.95.1; see below.)* Proven by negative control, then gated (13 checks,
+  4 mutations caught).
+
 ## [0.94.0] — 2026-08-07 — the Currents tab scrubs too, and no more console flashes
 
 ### Added
@@ -74,33 +141,6 @@ regression, caller's-lambda regression, wrong label, unterminated table).
 Verified against real output both ways: the v0.90 single-frequency file parses
 byte-identically, and yesterday's 91-block file returns the full-size helix at
 every requested frequency.
-
-## [0.95.0] — 2026-08-08 — the native Windows tier: the installer that existed all along
-
-### Added
-* **OpenFOAM on Windows now installs natively — no elevation at all.** ESI
-  publishes a cross-compiled Windows build after all; we had concluded it did
-  not exist because their wiki advertises an **unversioned** filename that has
-  404'd for years (reported upstream four times before ours,
-  openfoam/core/openfoam#3593). The real artifacts are versioned:
-  `/source/v2512/OpenFOAM-v2512-windows-mingw.exe`. Measured end-to-end on a
-  Windows box: `/S /D=` installs silently, per-user, exit 0, no UAC (the
-  manifest is `asInvoker`), it ships all five required tools **and its own
-  MSYS2 bash**, and the capability probe passes (blockMesh 0, function
-  objects 0). It is now the **preferred** Windows route; WSL2 remains the
-  fallback for what it cannot do — parallel runs and runtime-compiled code
-  (EMStudio's own cases use neither).
-* **`pstream_repair()` — the fix for a trap that makes every solver die
-  silently.** ESI's installer ships `libPstream.dll` in MPI and dummy
-  flavours and is meant to choose between them by whether it can also
-  install MS-MPI (which needs admin). A **silent** install skips that choice
-  and leaves the MPI build active with no `msmpi.dll` on the machine, so
-  every solver exits `0xC0000135` (STATUS_DLL_NOT_FOUND) with no message —
-  and `ldd` calls the closure fully resolved, because it never inspects
-  libPstream's own imports. EMStudio now detects this and swaps in the
-  serial build, keeping the MPI one as a backup so installing MS-MPI later
-  restores parallel. Proven by negative control, then gated (13 checks,
-  4 mutations caught).
 
 ## [0.93.0] — 2026-08-06 — scrub the band: sliders, frequency cursors, and a scrubber on the viewport
 

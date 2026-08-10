@@ -221,11 +221,25 @@ def main():
             check("the swap is EXPLAINED, not silent", bool(said))
             check("re-running is idempotent",
                   of.pstream_repair(td) == "already-serial")
-            # ...and it must NOT touch a machine that really has MS-MPI.
+
+            # THE RESTORE. This is the half that shipped MISSING in v0.95.0,
+            # and the reason the old gate could not see it: it overwrote
+            # `active` with the msmpi bytes FIRST and only then asserted that
+            # nothing changed — setting up the already-correct state and
+            # checking it stayed correct. The state that actually matters is
+            # MS-MPI present WITH THE DUMMY STILL ACTIVE, which is precisely
+            # what a machine looks like after the user installs MS-MPI. Do
+            # not "simplify" this back by writing `active` before the call.
             of._msmpi_present = lambda: True
-            with open(active, "wb") as fh:
-                fh.write(msmpi_b)
-            check("with MS-MPI present, the msmpi build is LEFT ALONE",
+            said2 = []
+            res2 = of.pstream_repair(td, said2.append)
+            check("MS-MPI appearing later RESTORES the parallel build",
+                  res2 == "restored-msmpi", res2)
+            check("the active Pstream is the msmpi build again",
+                  os.path.getsize(active) == len(msmpi_b))
+            check("the restore is EXPLAINED, not silent", bool(said2))
+            # ...and it must NOT keep rewriting a machine already parallel.
+            check("with the msmpi build active, it is LEFT ALONE",
                   of.pstream_repair(td) == "msmpi-present"
                   and os.path.getsize(active) == len(msmpi_b))
         finally:

@@ -165,6 +165,11 @@ class OpenFoamInfo:
     source: str = ""          # apt-esi|source|apt-foundation|distro|app|pref|env|wsl:<distro>|win-native:<root>
     wsl_distro: str = ""      # Windows only: distro the install lives in
     native_root: str = ""     # Windows only: root of a native (mingw) install
+    #: Windows native only: what pstream_repair did on this detect —
+    #: "" (not a native install) | "msmpi-present" | "restored-msmpi" |
+    #: "swapped-to-dummy" | "already-serial" | "no-pstream" | "failed: ...".
+    #: "already-serial" is the one that means SINGLE-PROCESS runs.
+    pstream: str = ""
     missing_required: tuple = ()
     missing_wanted: tuple = ()
     #: "" = not probed; "ok"; "defective-sha1" (the known Ubuntu packaging
@@ -450,8 +455,16 @@ def pstream_repair(install_root, say=None):
 
     So: when MS-MPI is absent and the active Pstream is the msmpi build, swap
     in the dummy (keeping a backup). Serial-only — which is all a no-admin
-    install could offer anyway — and installing MS-MPI later restores
-    parallel by putting the backup back.
+    install could offer anyway.
+
+    And the REVERSE, which this function shipped without for the whole of
+    v0.95.0: when MS-MPI is present and the dummy is the active build, put
+    the parallel one back. The backup was written and never read by anything
+    (measured on the work box 2026-08-10 — ``emstudio-backup-msmpi`` appeared
+    in exactly two places, the line that creates it and a gate asserting it
+    exists), so a machine that gained MS-MPI *after* EMStudio installed
+    OpenFOAM stayed silently serial while this function's own note promised
+    the opposite. A backup nothing restores is not a backup; it is a claim.
     """
     def note(msg):
         if say:
@@ -461,15 +474,30 @@ def pstream_repair(install_root, say=None):
     active = os.path.join(bindir, "libPstream.dll")
     dummy = active + "-dummy"
     msmpi = active + "-msmpi"
+    backup = active + ".emstudio-backup-msmpi"
     if not os.path.isfile(active) or not os.path.isfile(dummy):
         return "no-pstream"          # layout changed; leave it alone
     if _msmpi_present():
-        return "msmpi-present"       # parallel is genuinely available
+        # Size is the discriminator throughout this function: the dummy is
+        # 36864 bytes and the msmpi build 172544, so "active matches dummy"
+        # means we (or the vendor) left the serial build in place.
+        if os.path.getsize(active) != os.path.getsize(dummy):
+            return "msmpi-present"   # the parallel build is already active
+        source = next((p for p in (backup, msmpi) if os.path.isfile(p)), "")
+        if not source:
+            return "msmpi-present"   # serial, and nothing to restore from
+        try:
+            shutil.copy2(source, active)
+        except OSError as exc:
+            return "failed: {0}".format(exc)
+        note("Microsoft MPI is installed, so the parallel build of "
+             "libPstream.dll has been restored — runs are no longer limited "
+             "to a single process.")
+        return "restored-msmpi"
     try:
         if os.path.isfile(msmpi) and os.path.getsize(active) \
                 != os.path.getsize(msmpi):
             return "already-serial"  # dummy (or something else) already in
-        backup = active + ".emstudio-backup-msmpi"
         if not os.path.exists(backup):
             shutil.copy2(active, backup)
         shutil.copy2(dummy, active)
@@ -722,6 +750,17 @@ def find_openfoam(refresh=False):
     if best.source.startswith("win-native:"):
         info.native_root = best.source.split(":", 1)[1]
         info.prefix = info.native_root
+        # Repair BEFORE the probe, for the same reason the installer does
+        # (see pstream_repair): a tree whose Pstream cannot load makes the
+        # probe report `broken` and teaches nothing about the install.
+        #
+        # This call is what makes "install MS-MPI, then Re-detect" true.
+        # pstream_repair used to run ONLY from run_windows_native_install, so
+        # a box that gained MS-MPI after the install had no path back to the
+        # parallel build short of a 200 MB reinstall. Re-detect lands here.
+        # It writes at most one file, and only when the two builds disagree
+        # with what the machine can actually load.
+        info.pstream = pstream_repair(info.native_root)
 
     # 2) runtime probe — ESI candidates only. Sourcing a Foundation bashrc
     #    just to watch our probe fail teaches nothing we don't already know.
