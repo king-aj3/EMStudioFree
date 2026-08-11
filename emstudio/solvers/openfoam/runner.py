@@ -28,12 +28,14 @@ import subprocess
 from emstudio import procutil
 from emstudio.setup import openfoam as _setup
 from emstudio.solvers.base import SolverError
+from emstudio.solvers.openfoam.cylinder import CylinderCase, write_cylinder
 from emstudio.solvers.openfoam.parser import (latest_time_dir,
+                                              nusselt_cylinder_from_field,
                                               nusselt_from_field,
                                               read_internal_field)
 from emstudio.solvers.openfoam.writer import CavityCase, L, write_cavity
 
-__all__ = ["run_chain", "run_cavity"]
+__all__ = ["run_chain", "run_cavity", "run_cylinder"]
 
 #: The meshing + solving chain for the cavity. blockMesh only — no
 #: snappyHexMesh, which is what keeps this runnable as a gate.
@@ -96,7 +98,14 @@ def run_chain(case_dir, info=None, steps=CAVITY_STEPS, timeout=3600):
         if os.path.isfile(log):
             with open(log, encoding="utf-8", errors="replace") as fh:
                 tail = fh.read()[-3000:]
-        report["steps"].append({"step": step, "rc": rc, "tail": tail})
+        # ⚠ rc == 0 means the binary exited cleanly, NOT that the solve
+        # converged: SIMPLE exits 0 just as happily when it runs out of
+        # iterations with its residuals still falling. Recorded separately so
+        # a caller can tell "finished" from "finished converging" — which
+        # cost a 34 %-wrong Nusselt number before it was recorded here.
+        report["steps"].append({"step": step, "rc": rc, "tail": tail,
+                                "converged": "SIMPLE solution converged"
+                                             in tail})
         if rc != 0:
             report.update(ok=False, failed_at=step)
             return report
@@ -133,3 +142,97 @@ def run_cavity(case_dir, case=None, info=None, timeout=3600):
         return report, None
     report["nu_avg"] = result.nu_avg
     return report, result
+
+
+#: Identical to CAVITY_STEPS by coincidence, not by sharing: the two cases are
+#: independent on purpose (see cylinder.py's "third case writer" note), so a
+#: future snappyHexMesh step on one must not silently appear in the other.
+CYLINDER_STEPS = ("blockMesh", "checkMesh", "buoyantBoussinesqSimpleFoam")
+
+
+def run_cylinder(case_dir, case=None, info=None, timeout=3600):
+    """Write, run and read a cylinder case. Returns (report, CylinderNusselt|None).
+
+    ``None`` whenever the chain did not get far enough to produce a reading —
+    never a zero, for the same reason as :func:`run_cavity`: a zero Nu is a
+    physical claim and "nothing ran" is not.
+    """
+    case = write_cylinder(case_dir, case or CylinderCase())
+    report = run_chain(case_dir, info=info, steps=CYLINDER_STEPS,
+                       timeout=timeout)
+    report["case"] = {"ra_d": case.ra_d, "pr": case.pr, "d_m": case.d_m,
+                      "mode": case.mode, "radius_ratio": case.radius_ratio,
+                      "n_r": case.n_r, "n_theta": case.n_theta,
+                      "grading": case.grading,
+                      "first_cell_m": case.first_cell_m,
+                      "ra_written": case.ra_written}
+    if not report["ok"]:
+        return report, None
+
+    time_dir = latest_time_dir(case_dir)
+    if not time_dir:
+        report.update(ok=False, failed_at="write",
+                      error="the solver exited 0 but wrote no time directory")
+        return report, None
+    report["time_dir"] = time_dir
+
+    try:
+        values = read_internal_field(os.path.join(case_dir, time_dir, "T"))
+        # The outer wall is only a wall in annulus mode; passing its geometry
+        # in far-field mode would compute a "balance" against an open boundary,
+        # which is a number with no meaning.
+        extra = ({"last_cell_m": case.last_cell_m, "r_out": case.r_out}
+                 if case.mode == "annulus" else {})
+        result = nusselt_cylinder_from_field(
+            values, case.n_r, case.n_theta, case.t_wall, case.t_amb,
+            case.d_m, case.first_cell_m, **extra)
+    except (OSError, ValueError) as exc:
+        report.update(ok=False, failed_at="read", error=str(exc))
+        return report, None
+    report["nu_d"] = result.nu_d
+    solve = [s for s in report["steps"] if s["step"].startswith("buoyant")]
+    report["converged"] = bool(solve and solve[0]["converged"])
+
+    # ⚠ residualControl is the WRONG convergence test for the open domain.
+    # Measured: a far-field case at Ra 1e4 held Nu at 4.821 +-0.01 % from
+    # iteration 2500 all the way to 30000 while its residuals sat around 1e-3
+    # and the control (1e-6/1e-7) never fired. The residual floor comes from
+    # the open boundary; the quantity of interest had long since settled.
+    # So when intermediate snapshots exist, the honest test is that Nu itself
+    # stopped moving — reported here rather than left for each caller to
+    # reinvent. It costs nothing: the snapshots are from the same run.
+    report["nu_drift"] = None
+    times = sorted(
+        (t for t in (_as_time(n) for n in os.listdir(case_dir)
+                     if os.path.isdir(os.path.join(case_dir, n))) if t),
+        key=lambda p: p[0])
+    if len(times) >= 2:
+        try:
+            prev = read_internal_field(
+                os.path.join(case_dir, times[-2][1], "T"))
+            earlier = nusselt_cylinder_from_field(
+                prev, case.n_r, case.n_theta, case.t_wall, case.t_amb,
+                case.d_m, case.first_cell_m)
+            if earlier.nu_d:
+                report["nu_drift"] = abs(result.nu_d - earlier.nu_d) \
+                                     / abs(earlier.nu_d)
+                report["nu_d_previous"] = earlier.nu_d
+                report["previous_time"] = times[-2][1]
+        except (OSError, ValueError):
+            pass                      # a snapshot we cannot read is not a claim
+
+    if not report["converged"] and report["nu_drift"] is None:
+        result.warnings.append(
+            "residualControl never fired in %d iterations and no intermediate "
+            "snapshot was written, so nothing here establishes convergence — "
+            "set write_interval to get a drift measurement" % case.iterations)
+    return report, result
+
+
+def _as_time(name):
+    """(value, name) if `name` is a positive time directory, else None."""
+    try:
+        value = float(name)
+    except ValueError:
+        return None
+    return (value, name) if value > 0 else None

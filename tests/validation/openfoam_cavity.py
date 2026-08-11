@@ -35,11 +35,8 @@ to land inside it, whereas none of the following can:
   Rayleigh number, so a case cannot quietly sit at Ra 9.4e4 while the report
   says 1e5.
 
-The published comparison IS now here (`DE_VAHL_DAVIS` below) — sourced, with
-its provenance recorded, after the values were located rather than recalled.
-It sits alongside the citation-free anchors rather than replacing them: a
-literature band can be satisfied by a wrong solve that happens to land inside
-it, whereas the conduction limit and the wall-to-wall balance cannot.
+⚠ Not covered, and deliberately: the 1e3 and 1e6 table entries below are NOT
+exercised — the live sweep is 1e2/1e4/1e5.
 """
 
 from __future__ import annotations

@@ -3,6 +3,87 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+* **`emstudio/solvers/openfoam/cylinder.py` — natural convection from a
+  horizontal cylinder, the ampacity ANCHOR case.** `wire/thermal.py` takes its
+  film coefficient from Churchill-Chu, which is right for an isolated cylinder
+  and wrong for a bundle in an enclosure; the plan is to replace it with a
+  solved `h`. This is the rung that makes that meaningful — if the CFD cannot
+  reproduce the correlation for a lone cylinder, nothing it later says about a
+  bundle is interpretable. Two modes: `annulus` (closed, and the mode that
+  carries the exact conduction anchor) and `farfield` (open, comparable to the
+  correlations). A THIRD case writer beside the cavity, deliberately not a
+  generalisation of it.
+* **No snappyHexMesh — the decision's cost note is corrected.** A cylinder in
+  a concentric far field is an O-grid and `blockMesh` does arc edges: 3200
+  cells, `checkMesh` "Mesh OK", max non-orthogonality 1.5e-6, skewness 0.095,
+  about a second, volume within 0.1 % of the analytic annulus. snappy is
+  deferred to the bundle, which genuinely needs it.
+* **`run_chain` now records CONVERGENCE separately from exit code**, and
+  `run_cylinder` reports `nu_drift` between snapshots. Both exist because
+  `rc == 0` is not convergence — see Fixed.
+
+### Testing
+* **`tests/validation/openfoam_cylinder.py`** (SOLVER tier, requires
+  OpenFOAM) — 60 offline checks plus the live physics. Anchors, weakest last:
+  the exact annulus conduction limit **Nu_D = 2/ln(r_o/r_i)** (live: 2.888547
+  vs 2.885390 exact, **+0.11 %**, and Ra-independent across four decades,
+  which is what proves it is a conduction limit and not a coincidence); a
+  closed-form prediction of what the ESTIMATOR must return on an exact
+  logarithmic field, matched to ~1e-14, which is what proves the O-grid cell
+  indexing; first-order convergence of that estimator onto a value it does not
+  know; radius-weighted energy conservation between the two walls.
+* **Gated on the ENVELOPE of both published correlations, not on one.**
+  Churchill-Chu and Morgan disagree by 4–17 % over the cable regime (measured:
+  17.4 % at Ra 1e2, 8.9 % at 1e4, 4.2 % at 1e6), and `thermal.py` already
+  records that Churchill-Chu reads low. A solve cannot be validated to better
+  than the literature disagrees with itself. Measured at RR 20: Ra 1e2 → 1.9197,
+  1e3 → 3.0000, 1e4 → 4.8207, 1e5 → 7.9788 — inside the envelope at three of
+  four and 0.43 % over Morgan at the fourth. Tightened by a distance-from-
+  envelope-midpoint check (measured +4.05 / +4.78 / +5.10 / −2.18 %, gated at
+  8 %), because the envelope alone is 4–17 % wide.
+  ⚠ A "sits nearer Morgan at every Ra" check was written first and was **wrong**
+  — true at Ra 1e2/1e3/1e4, false at 1e5 (2.59 % from Churchill-Chu vs 6.52 %
+  from Morgan). The CFD's position inside the envelope MOVES with Ra, so there
+  is no directional invariant to gate on. The gate caught the overclaim.
+* **Mutations: 8/8 caught**, each breaking a different and relevant check —
+  the conduction closed form, the grading/wall distance, the O-grid cell index
+  (caught by the machine-precision estimator check written for exactly that),
+  `pRefCell`, `inletOutlet`, the arc edges, the radius-weighted balance (live)
+  and the convergence detector itself (live).
+  ⚠ The FIRST harness reported 8/8 and was worthless — one mutation caught
+  eight times, because monkeypatches leaked through `sys.modules` across gate
+  reloads. Every mutation failing the IDENTICAL checks was the tell. See
+  PROJECT_MEMORY: controls must run after EVERY mutation, and `from x import y`
+  means patching `x.y` reaches nothing.
+* **The domain is PINNED at RR 20**, with a measured sensitivity under 1 % —
+  after a method error worth remembering. Growing the radius ratio at fixed
+  `n_r` also coarsens the wall cell 4x, which read **+4.04 %** at RR 80 and
+  attributed to the domain what was mostly resolution. With the wall spacing
+  held constant (n_r 126 / 254): **+0.41 % at RR 40, +0.87 % at RR 80**.
+  *A convergence study that moves two things at once measures neither.*
+
+### Fixed
+* **`rc == 0` is not convergence, and it cost a 34 %-wrong answer.** An
+  800-iteration annulus run exited cleanly and returned Nu 34 % high; the
+  energy-balance check caught it, nothing else would have. `run_chain` now
+  records whether `residualControl` actually fired, and the gate contains a
+  check that deliberately under-iterates and asserts the detector notices —
+  a check that must FAIL to converge, so the detector cannot rot silently.
+* **`residualControl` is the wrong test for the open domain.** Measured: Nu
+  held at 4.821 ±0.01 % from iteration 2500 to 30000 while residuals sat near
+  1e-3 and the control (1e-6/1e-7) never fired — the floor comes from the open
+  boundary. Convergence is now judged on the quantity of interest via
+  `nu_drift`, which also cut the gate's far-field cost from 40000 iterations
+  to 6000.
+* `radial_centres` renamed **`radial_layer_centres`**: it returns layer
+  mid-heights, never centroid radii. The mesh is faceted, so the wall-normal
+  distance is to the CHORD — the trapezoid centroid predicts 1.0023948e-2
+  against a measured 1.002395e-2, while the layer mid-height is 1.0031658e-2.
+  Reading it as a radius is what made a correct `first_cell_height` look broken.
+
 ## [0.96.0] — 2026-08-10 — EMStudio can finally SOLVE something with OpenFOAM
 
 ### Added

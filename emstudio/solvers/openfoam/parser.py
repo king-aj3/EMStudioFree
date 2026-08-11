@@ -41,7 +41,7 @@ import re
 from dataclasses import dataclass, field as _field
 
 __all__ = ["NusseltResult", "read_internal_field", "nusselt_from_field",
-           "latest_time_dir"]
+           "latest_time_dir", "CylinderNusselt", "nusselt_cylinder_from_field"]
 
 _NONUNIFORM = re.compile(r"internalField\s+nonuniform\s+List<scalar>\s*\n?\s*(\d+)\s*\(",
                          re.S)
@@ -161,4 +161,104 @@ def nusselt_from_field(values, cells, t_wall, t_cold, length=1.0):
         res.warnings.append(
             "negative Nu — heat is flowing INTO the hot wall, so the wall "
             "temperatures or the field ordering are not what this assumed")
+    return res
+
+
+# ---------------------------------------------------------------------------
+# The O-grid cylinder (see emstudio/solvers/openfoam/cylinder.py)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CylinderNusselt:
+    """Circumferentially-averaged Nu_D on the cylinder, and its workings."""
+
+    nu_d: float = 0.0
+    t_first: tuple = ()              # wall-adjacent cell temperatures
+    first_cell_m: float = 0.0
+    wall_cells: int = 0
+    q_in_w_per_k: float = 0.0        # inner-wall heat rate / k, per unit length
+    q_out_w_per_k: float = 0.0       # outer wall — annulus mode only, else 0
+    warnings: list = _field(default_factory=list)
+
+    @property
+    def imbalance(self):
+        """|q_in - q_out| / q_in across the annulus. Energy conservation.
+
+        ⚠ Meaningful in ANNULUS mode only. In far-field mode there is no outer
+        wall to balance against and this returns ``inf`` — deliberately, so a
+        caller cannot read a reassuring zero off a check that was never made.
+        The far-field mode's anchors are the correlation and domain-size
+        convergence instead.
+        """
+        if not self.q_out_w_per_k or not self.q_in_w_per_k:
+            return float("inf")
+        return (abs(self.q_in_w_per_k - self.q_out_w_per_k)
+                / abs(self.q_in_w_per_k))
+
+
+def nusselt_cylinder_from_field(values, n_r, n_theta, t_wall, t_amb, d_m,
+                                first_cell_m, last_cell_m=None, r_out=None):
+    """Nu_D on the cylinder wall of the four-block O-grid.
+
+    ``values`` is the internal field in blockMesh order. The mesh is four
+    blocks of ``(n_r, n_theta, 1)``; blockMesh numbers cells x1-fastest WITHIN
+    a block and blocks in declaration order, so
+
+        global = block * n_r * n_theta + i_r + n_r * i_theta
+
+    and the wall-adjacent cells are ``i_r = 0``. That indexing is the one real
+    assumption in this function, which is why the gate proves it on a synthetic
+    conduction field rather than asserting it in a comment.
+
+        Nu_D = D / dT * < (T_wall - T_first) / (first_cell/2) >
+
+    FIRST ORDER, and — unlike the cavity's linear profile — **not exact even in
+    the conduction limit**, because conduction across an annulus is
+    logarithmic. The gate handles that by predicting what this estimator must
+    return for an exact log field and checking the refinement converges on
+    2/ln(r_o/r_i), which is a stronger statement than a single tolerance.
+
+    Pass ``last_cell_m`` and ``r_out`` to also measure the OUTER wall, which
+    turns on the annulus energy balance. ⚠ The two gradients are compared
+    RADIUS-WEIGHTED (q' = k r dT/dr per radian): the raw gradients differ by
+    the radius ratio even for a perfect solve, so an unweighted comparison
+    would fail on a correct answer.
+    """
+    n_r, n_theta = int(n_r), int(n_theta)
+    if n_r < 2 or n_theta < 1:
+        raise ValueError("need at least 2 radial and 1 circumferential cell")
+    expect = 4 * n_r * n_theta
+    if len(values) != expect:
+        raise ValueError("expected %d cells for a 4x(%d x %d) O-grid, got %d"
+                         % (expect, n_r, n_theta, len(values)))
+    dt = float(t_wall) - float(t_amb)
+    if dt == 0:
+        raise ValueError("wall and ambient are at the same temperature; "
+                         "Nusselt number is undefined")
+    if first_cell_m <= 0:
+        raise ValueError("first cell height must be positive")
+
+    first = [values[b * n_r * n_theta + n_r * j]
+             for b in range(4) for j in range(n_theta)]
+    grads = [(float(t_wall) - t) / (first_cell_m / 2.0) for t in first]
+    mean_grad = sum(grads) / len(grads)
+    nu_d = float(d_m) / dt * mean_grad
+
+    r_in = float(d_m) / 2.0
+    q_in = r_in * mean_grad          # per radian, per unit length, divided by k
+    q_out = 0.0
+    if last_cell_m and r_out:
+        last = [values[b * n_r * n_theta + n_r * j + (n_r - 1)]
+                for b in range(4) for j in range(n_theta)]
+        og = [(t - float(t_amb)) / (float(last_cell_m) / 2.0) for t in last]
+        q_out = float(r_out) * (sum(og) / len(og))
+
+    res = CylinderNusselt(nu_d=nu_d, t_first=tuple(first),
+                          first_cell_m=float(first_cell_m),
+                          wall_cells=len(first), q_in_w_per_k=q_in,
+                          q_out_w_per_k=q_out)
+    if nu_d < 0:
+        res.warnings.append(
+            "negative Nu — heat is flowing INTO the cylinder, so the wall "
+            "temperature or the cell ordering is not what this assumed")
     return res

@@ -24,13 +24,21 @@ from __future__ import annotations
 from emstudio.solvers.openfoam.writer import (      # noqa: F401
     CavityCase, rayleigh, write_cavity,
 )
+from emstudio.solvers.openfoam.cylinder import (    # noqa: F401
+    CylinderCase, conduction_nusselt, first_cell_height, radial_layer_centres,
+    rayleigh_d, write_cylinder,
+)
 from emstudio.solvers.openfoam.parser import (      # noqa: F401
-    NusseltResult, read_internal_field, nusselt_from_field,
+    CylinderNusselt, NusseltResult, read_internal_field,
+    nusselt_cylinder_from_field, nusselt_from_field,
 )
 from emstudio.solvers.openfoam.runner import (      # noqa: F401
-    run_cavity, run_chain,
+    run_cavity, run_chain, run_cylinder,
 )
 
 __all__ = ["CavityCase", "rayleigh", "write_cavity",
-           "NusseltResult", "read_internal_field", "nusselt_from_field",
-           "run_cavity", "run_chain"]
+           "CylinderCase", "conduction_nusselt", "first_cell_height",
+           "radial_layer_centres", "rayleigh_d", "write_cylinder",
+           "NusseltResult", "CylinderNusselt", "read_internal_field",
+           "nusselt_from_field", "nusselt_cylinder_from_field",
+           "run_cavity", "run_chain", "run_cylinder"]
