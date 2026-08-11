@@ -283,8 +283,19 @@ def live_checks():
                  ("solo", dict(centres=[(0.0, 0.0)], box_w=0.20, box_h=0.20)),
                  ("bundle", dict(box_w=0.20, box_h=0.20)))
         for tag, kw in rungs:
-            d, case = _case(base, tag, cells_x=100, iterations=20000,
-                            write_interval=5000, **kw)
+            # ⚠ ITERATIONS ARE MEASURED, NOT GUESSED — and 20000 was
+            # unaffordable. residualControl fired at 3136 (solo) and 6384
+            # (bundle); the anchor never fires it but its Nu is flat to
+            # ±0.15 % from iteration 5000 to 20000. So 8000 preserves all
+            # three measured values while cutting the gate's cost by ~60 %.
+            #
+            # This matters: at 20000 a single rung ran 4376 s on 15k cells and
+            # was killed under concurrent load, which is not a gate — the
+            # SOLVER tier budgets minutes-to-15-minutes per gate, not hours.
+            # The mesh is deliberately UNCHANGED, so the ladder measured at
+            # cells_x=100 still applies; only the iteration budget moved.
+            d, case = _case(base, tag, cells_x=100, iterations=8000,
+                            write_interval=2000, **kw)
             rep, res = ofm.run_bundle(d, case)
             if not check("%s: the chain completes (snappy included)" % tag,
                          rep["ok"], rep.get("failed_at", "") or ""):
