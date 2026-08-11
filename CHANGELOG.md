@@ -66,6 +66,38 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   *A convergence study that moves two things at once measures neither.*
 
 ### Fixed
+* **`run_cavity` now reports convergence, and the cavity gate had NEVER
+  converged.** The flag existed in `run_chain` and was wired into
+  `run_cylinder` — because under-iteration had already produced a 34 %-wrong
+  Nusselt number there — but was never wired through the cavity path. Adding
+  it showed the gate's shipped 1200 iterations converged **nothing**, at any
+  Rayleigh number, while its docstring attributed the residual to
+  discretisation error. Raised to **4000**, chosen from measurement: every Ra
+  fires `residualControl` there and 8000 returns byte-identical Nu, so it has
+  margin rather than sitting on an edge. The gate now asserts convergence per
+  case.
+  The answers barely moved (all under 0.5 %) and every band still held, so
+  nothing shipped wrong — but the quoted v0.96.0 figures were unconverged and
+  are corrected throughout: Ra 1e2 1.0022 → **1.00146**, 1e4 2.2459 →
+  **2.25648**, 1e5 4.6053 → **4.60562**.
+  ⚠ `docs/results/cavity_fields_v0.96.0.json` and the recorded cavity page
+  still carry the unconverged numbers — a dated v0.96.0 record, left alone
+  deliberately rather than silently rewritten.
+* **`imbalance` is necessary for convergence, not sufficient — PROJECT_MEMORY
+  claimed otherwise.** It called the hot/cold wall balance "a convergence check
+  worth more than the residual print". A symmetric half-converged field
+  balances perfectly well, and measurably did: **imbalance 9.7e-5 at Ra 1e4 on
+  a run that had not converged**. Corrected, with the counterexample recorded.
+* **Ra 1e3 is now exercised, and it is the best agreement of the set.** It was
+  tabulated in `DE_VAHL_DAVIS` and never checked. On unconverged runs it looked
+  like a 4.5 % disagreement that *widened* with mesh refinement — which was
+  refinement without a matching iteration budget, not a mesh effect. Converged:
+  **+0.14 %** at 40 cells, +0.08 % at 80.
+* **Ra 1e6 stays ungated, but with a measurement instead of silence.** At the
+  gate's 40x40 it converges and still reads **+6.31 %**; at 80 cells, +1.64 %.
+  The mesh is the binding error there, so a real check needs ≥80 cells and its
+  own budget. Widening the band to ~7 % would gate the coarseness, not the
+  physics.
 * **`rc == 0` is not convergence, and it cost a 34 %-wrong answer.** An
   800-iteration annulus run exited cleanly and returned Nu 34 % high; the
   energy-balance check caught it, nothing else would have. `run_chain` now

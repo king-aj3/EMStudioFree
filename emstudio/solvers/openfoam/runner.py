@@ -118,6 +118,10 @@ def run_cavity(case_dir, case=None, info=None, timeout=3600):
     ``NusseltResult`` is None whenever the chain did not get far enough to
     produce one — never a zero, because a zero Nu is a physical claim and
     "nothing ran" is not.
+
+    ``report["converged"]`` says whether ``residualControl`` actually fired.
+    Read it before reading ``nu_avg``: the two are independent, and a clean
+    exit code establishes neither.
     """
     case = write_cavity(case_dir, case or CavityCase())
     report = run_chain(case_dir, info=info, timeout=timeout)
@@ -141,6 +145,27 @@ def run_cavity(case_dir, case=None, info=None, timeout=3600):
         report.update(ok=False, failed_at="read", error=str(exc))
         return report, None
     report["nu_avg"] = result.nu_avg
+
+    # ⚠ rc == 0 is not convergence — SIMPLE exits 0 just as happily when it
+    # runs out of iterations with residuals still falling. This was recorded
+    # for the cylinder and NOT wired through here, which left the cavity gate
+    # running a fixed 1200 iterations with no way to say whether that was
+    # enough.
+    #
+    # ⚠ And `imbalance` does not close that gap. It is a genuine energy
+    # conservation check — hot-wall and cold-wall Nusselt numbers are the same
+    # number measured at opposite ends — but a partially-converged field that
+    # is still symmetric satisfies it, so a small imbalance is NECESSARY for
+    # convergence and not SUFFICIENT. Treating it as sufficient is how an
+    # under-converged Nu gets read as a physical result.
+    solve = [s for s in report["steps"] if s["step"].startswith("buoyant")]
+    report["converged"] = bool(solve and solve[0]["converged"])
+    if not report["converged"]:
+        result.warnings.append(
+            "residualControl never fired in %d iterations — the run stopped at "
+            "endTime with its residuals still falling, so this Nu is a "
+            "snapshot of an unconverged solve, whatever the imbalance says"
+            % case.iterations)
     return report, result
 
 
