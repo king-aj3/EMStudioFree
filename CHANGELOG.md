@@ -6,6 +6,52 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+* **`emstudio/solvers/openfoam/bundle.py` — the cable BUNDLE in an enclosure,
+  and the first OpenFOAM result that changes a number the product prints.**
+  A fourth case writer (snappyHexMesh, an STL written from parameters, a
+  prescribed-flux boundary condition). Measured ladder, each rung changing ONE
+  variable so confinement and bundling are separated rather than blended:
+
+  | case | cables | box | Nu_D | Ra_D | vs Churchill-Chu |
+  |---|---|---|---|---|---|
+  | anchor | 1 | 0.40 m | 3.9830 | 5021 | +6.99 % |
+  | solo | 1 | 0.20 m | 3.8621 | 5179 | +3.01 % |
+  | bundle | 3 | 0.20 m | 3.1542 | 6341 | **−19.72 %** |
+
+  The single-cable rungs land INSIDE the Churchill-Chu/Morgan envelope, which
+  is what validates the pipeline — snappy mesh, flux BC and patch reader, none
+  of which the structured rungs used. The bundle lands decisively BELOW it:
+  **Churchill-Chu over-predicts a trefoil's film coefficient by ~25 %, in the
+  unsafe direction** (over-predicted cooling → over-predicted ampacity).
+  Confinement alone costs 3 %; the bundle a further 18 %.
+* **A result path that needs no cell indexing and no function objects.**
+  snappy destroys the predictable cell ordering rungs 1–2 relied on, so the
+  boundary condition is inverted: prescribe the wall FLUX (what Joule heating
+  physically gives a cable) and read the surface temperature OpenFOAM writes
+  into the `boundaryField`. `Nu_D = D·(dT/dn)/(T_s − T_amb)` — conductivity
+  cancels. ⚠ Ra becomes an OUTPUT, so correlation comparisons are made at the
+  Ra the solve produced.
+* **The ampacity seam: `bundle_factor` through `surface_h()` /
+  `surface_loss_w_m()` / `solve_steady()`.** A dimensionless correction on
+  Churchill-Chu rather than an absolute `h`, because `solve_steady` bisects and
+  calls `surface_h` ~80 times per answer (an absolute h would discard the
+  correlation's dT behaviour; a callback would mean 80 CFD runs), and because
+  it is the same shape as the `NEC_ADJUSTMENT` table already here — measured
+  for the actual geometry instead of read off conductor counts. Default 1.0 is
+  bit-identical to previous behaviour. Measured effect: a 40 A cable moves
+  **56.55 → 59.75 °C**. ⚠ Ra is not scaled (it describes the flow), and
+  radiation is not scaled (it does not care how air moves), so the temperature
+  shift is smaller than 25 % on `h` alone implies.
+* **`emstudio/assistant/thermal_advice.py` (Pro) — the assistant as the
+  guardrail.** Exposing CFD in a GUI only helps someone who already decided to
+  run it; the user who needs the warning is the one who never opens that dialog
+  and just reads an optimistic ampacity. So the rules fire on the SHAPE OF THE
+  DESIGN, cost nothing, and work before any CFD exists: a bundle sized on the
+  bare correlation, a factor with no provenance, a factor solved for a
+  different arrangement, a factor from an unconverged solve, and — the one most
+  likely to bite — **double-counting a solved factor against NEC 310.15(C)(1)**,
+  since both derate the same physics. A lone cable in free air draws no advice
+  at all; advice that fires when it should not is advice users learn to ignore.
 * **`emstudio/solvers/openfoam/cylinder.py` — natural convection from a
   horizontal cylinder, the ampacity ANCHOR case.** `wire/thermal.py` takes its
   film coefficient from Churchill-Chu, which is right for an isolated cylinder

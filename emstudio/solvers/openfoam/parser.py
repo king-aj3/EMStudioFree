@@ -41,7 +41,8 @@ import re
 from dataclasses import dataclass, field as _field
 
 __all__ = ["NusseltResult", "read_internal_field", "nusselt_from_field",
-           "latest_time_dir", "CylinderNusselt", "nusselt_cylinder_from_field"]
+           "latest_time_dir", "CylinderNusselt", "nusselt_cylinder_from_field",
+           "BundleNusselt", "read_patch_values", "nusselt_from_patch"]
 
 _NONUNIFORM = re.compile(r"internalField\s+nonuniform\s+List<scalar>\s*\n?\s*(\d+)\s*\(",
                          re.S)
@@ -261,4 +262,110 @@ def nusselt_cylinder_from_field(values, n_r, n_theta, t_wall, t_amb, d_m,
         res.warnings.append(
             "negative Nu — heat is flowing INTO the cylinder, so the wall "
             "temperature or the cell ordering is not what this assumed")
+    return res
+
+
+# ---------------------------------------------------------------------------
+# The bundle (see emstudio/solvers/openfoam/bundle.py)
+# ---------------------------------------------------------------------------
+
+_PATCH_NONUNIFORM = re.compile(
+    r"value\s+nonuniform\s+List<scalar>\s*\n?\s*(\d+)\s*\(", re.S)
+_PATCH_UNIFORM = re.compile(r"value\s+uniform\s+([-\deE.+]+)\s*;")
+
+
+@dataclass
+class BundleNusselt:
+    """Nu_D on a flux-heated cable set, and the state it was read from."""
+
+    nu_d: float = 0.0
+    t_surface: float = 0.0           # mean over the patch faces
+    t_min: float = 0.0
+    t_max: float = 0.0
+    faces: int = 0
+    dt: float = 0.0
+    ra_d: float = 0.0                # the Ra that RESULTED, not one requested
+    warnings: list = _field(default_factory=list)
+
+    @property
+    def spread(self):
+        """(t_max - t_min) / dt. How far from isothermal the surface is.
+
+        ⚠ The mean below is UNWEIGHTED across patch faces. snappy's snapped
+        faces are near-uniform in size so that is a good approximation, but it
+        is an approximation: a large spread means face-area weighting would
+        move the answer, and the number should not be used quantitatively
+        without it.
+        """
+        if not self.dt:
+            return float("inf")
+        return (self.t_max - self.t_min) / abs(self.dt)
+
+
+def read_patch_values(path, patch):
+    """The ``value`` list OpenFOAM wrote for one patch of a scalar field.
+
+    ⚠ A patch only HAS a written ``value`` if its boundary condition writes
+    one. ``fixedGradient`` does NOT — it emits ``type`` and ``gradient`` and
+    nothing else, so a result path built on it silently has nothing to read.
+    ``mixed`` (valueFraction 0) is the same condition and does write ``value``.
+    That is measured, not assumed, and it is why this raises rather than
+    returning an empty list.
+    """
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+    m = re.search(r"^\s*%s\s*\n\s*\{(.*?)\n\s*\}" % re.escape(patch),
+                  text, re.S | re.M)
+    if not m:
+        raise ValueError("patch %r is not in %s" % (patch, path))
+    body = m.group(1)
+    nu = _PATCH_NONUNIFORM.search(body)
+    if nu:
+        count = int(nu.group(1))
+        start = nu.end()
+        end = body.index(")", start)
+        values = [float(tok) for tok in body[start:end].split()]
+        if len(values) != count:
+            raise ValueError("patch %r claims %d values but carries %d — the "
+                             "file is truncated" % (patch, count, len(values)))
+        return values
+    un = _PATCH_UNIFORM.search(body)
+    if un:
+        return [float(un.group(1))]
+    raise ValueError(
+        "patch %r has no `value` entry — its boundary condition wrote none "
+        "(fixedGradient does this; use mixed with valueFraction 0)" % patch)
+
+
+def nusselt_from_patch(values, d_m, gradient, t_amb, nu=None, alpha=None,
+                       g=9.81, t_ref=300.0):
+    """Nu_D from a prescribed wall gradient and the resulting surface values.
+
+        Nu_D = D * (dT/dn)_wall / (T_surface - T_ambient)
+
+    Dimensionless, so no conductivity is needed — it cancels. Pass ``nu`` and
+    ``alpha`` to also get the Ra that RESULTED from the solved dT; Ra is an
+    output of this case, not an input.
+    """
+    if not values:
+        raise ValueError("no patch values to average")
+    if d_m <= 0:
+        raise ValueError("cable diameter must be positive")
+    if gradient == 0:
+        raise ValueError("a zero wall gradient deposits no heat; Nu undefined")
+    ts = sum(values) / len(values)
+    dt = ts - float(t_amb)
+    if dt == 0:
+        raise ValueError("the surface sits at ambient; Nusselt number is "
+                         "undefined")
+    res = BundleNusselt(nu_d=float(d_m) * float(gradient) / dt, t_surface=ts,
+                        t_min=min(values), t_max=max(values),
+                        faces=len(values), dt=dt)
+    if nu and alpha:
+        res.ra_d = g * (1.0 / t_ref) * abs(dt) * float(d_m) ** 3 / (nu * alpha)
+    if res.nu_d < 0:
+        res.warnings.append(
+            "negative Nu — the surface is COLDER than ambient, so the "
+            "prescribed gradient sign or the ambient value is not what this "
+            "assumed")
     return res

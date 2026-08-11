@@ -223,32 +223,78 @@ def nu_churchill_chu(ra_d, pr):
     return (0.60 + 0.387 * (ra_d / f) ** (1.0 / 6.0)) ** 2
 
 
-def surface_h(d_m, ts_c, tamb_c, props=None):
+#: A CFD-solved correction on Churchill-Chu, dimensionless. 1.0 = the bare
+#: correlation, i.e. exactly the behaviour before this existed.
+#:
+#: WHY A FACTOR AND NOT AN ABSOLUTE h
+#: -----------------------------------
+#: Churchill-Chu is right for an ISOLATED cylinder in unbounded quiescent air
+#: and wrong for a BUNDLE in an ENCLOSURE. But it is right about how h varies
+#: with dT, and that part is worth keeping: ``solve_steady`` bisects on the
+#: surface temperature and calls :func:`surface_h` ~80 times per answer, so a
+#: constant h pinned from one CFD operating point would discard the
+#: temperature dependence AND, if it were a callback, would mean 80 CFD runs
+#: per ampacity number. A dimensionless factor keeps the correlation's dT
+#: behaviour and takes only the confinement/bundling offset from the solve.
+#:
+#: This is the same shape as :data:`NEC_ADJUSTMENT`, the NEC 310.15(C)(1)
+#: bundle derating table already used here — a factor measured for the ACTUAL
+#: geometry rather than read off a table of conductor counts.
+#:
+#: MEASURED (emstudio/solvers/openfoam/bundle.py and its gate): a trefoil of
+#: three 20 mm cables at 30 mm pitch in a 200 mm enclosure gives
+#: h_CFD / h_ChurchillChu = **0.80** — Churchill-Chu over-predicts the film
+#: coefficient by about 25 %, in the UNSAFE direction (over-predicted cooling
+#: means over-predicted ampacity).
+#:
+#: ⚠ A factor is only valid for the geometry it was solved for. It is NOT a
+#: universal bundle constant, and callers must carry its provenance.
+BUNDLE_FACTOR_NONE = 1.0
+
+
+def surface_h(d_m, ts_c, tamb_c, props=None, bundle_factor=BUNDLE_FACTOR_NONE):
     """Free-convection film coefficient h_c (W/m^2K) + diagnostics dict.
 
     ``props`` overrides (k, nu, alpha, Pr) — the worked-example gates inject
     each textbook's own printed film properties (AHTT Ex 8.4 uses v5-era
     values that differ from the v6 table in the 4th digit).
+
+    ``bundle_factor`` scales the correlation's answer (see
+    :data:`BUNDLE_FACTOR_NONE`). ``Ra`` is deliberately NOT scaled: it is a
+    property of the flow, not of the bundling, and scaling it would corrupt
+    the regime diagnostics. ``nu`` and ``h_w_m2k`` are scaled together so the
+    returned dict stays self-consistent (Nu = h D / k).
     """
+    if bundle_factor <= 0:
+        raise ValueError("bundle factor must be positive (1.0 = the bare "
+                         "Churchill-Chu correlation)")
     tf_k = (float(ts_c) + float(tamb_c)) / 2.0 + 273.15
     k, nu, alpha, pr = props if props is not None else air_properties(tf_k)
     dt = abs(float(ts_c) - float(tamb_c))
     ra = G_ACCEL * (1.0 / tf_k) * dt * d_m ** 3 / (nu * alpha)
-    nu_d = nu_churchill_chu(ra, pr)
+    nu_d = nu_churchill_chu(ra, pr) * float(bundle_factor)
     return {
         "h_w_m2k": nu_d * k / d_m,
         "ra": ra,
         "nu": nu_d,
         "t_film_k": tf_k,
+        "bundle_factor": float(bundle_factor),
         "ra_in_range": 1e-6 <= ra <= 1e12,
         "film_in_table": AIR_TABLE[0][0] <= tf_k <= AIR_TABLE[-1][0],
     }
 
 
-def surface_loss_w_m(d_m, ts_c, tamb_c, emissivity, tsur_c=None, props=None):
-    """Convective + radiative dissipation per metre off the finished surface."""
+def surface_loss_w_m(d_m, ts_c, tamb_c, emissivity, tsur_c=None, props=None,
+                     bundle_factor=BUNDLE_FACTOR_NONE):
+    """Convective + radiative dissipation per metre off the finished surface.
+
+    ⚠ ``bundle_factor`` scales the CONVECTIVE term only. Radiation is a
+    surface-to-surroundings exchange and is not affected by how the air moves,
+    so a 20 % error in h is LESS than a 20 % error in total dissipation — the
+    ampacity consequence is smaller than the convection number alone suggests.
+    """
     tsur = tamb_c if tsur_c is None else tsur_c
-    sh = surface_h(d_m, ts_c, tamb_c, props=props)
+    sh = surface_h(d_m, ts_c, tamb_c, props=props, bundle_factor=bundle_factor)
     q_conv = sh["h_w_m2k"] * math.pi * d_m * (ts_c - tamb_c)
     q_rad = (emissivity * SIGMA_SB * math.pi * d_m
              * ((ts_c + 273.15) ** 4 - (tsur + 273.15) ** 4))
@@ -282,7 +328,8 @@ def _stack(d_cond_m, layers):
 
 
 def solve_steady(i_a, d_cond_m, layers, rdc20_ohm_m, material="Cu",
-                 rac_factor=1.0, tamb_c=30.0, emissivity=0.92, tsur_c=None):
+                 rac_factor=1.0, tamb_c=30.0, emissivity=0.92, tsur_c=None,
+                 bundle_factor=BUNDLE_FACTOR_NONE, bundle_provenance=""):
     """Steady temperatures of a horizontal insulated conductor in free air.
 
     ``layers``: [{"name", "t_m", "rho_t"?, "qv"?}, ...] from the conductor
@@ -299,13 +346,24 @@ def solve_steady(i_a, d_cond_m, layers, rdc20_ohm_m, material="Cu",
     con = CONDUCTORS[material]
     stack, d_surf = _stack(d_cond_m, layers)
     sum_t = sum(s[5] for s in stack)
+    _bundle_note = []
+    if bundle_factor != BUNDLE_FACTOR_NONE:
+        _bundle_note.append(
+            "convection scaled by a bundle factor of {0:.4g} "
+            "(Churchill-Chu alone would read {1:+.1f} % on h){2}".format(
+                bundle_factor, 100.0 * (1.0 / bundle_factor - 1.0),
+                " — " + bundle_provenance if bundle_provenance else
+                " — NO PROVENANCE RECORDED; a factor is only valid for the "
+                "geometry it was solved for"))
     r20f = float(rdc20_ohm_m) * float(rac_factor) * float(i_a) ** 2
     alpha = con["alpha20"]
     warnings = []
 
+    warnings.extend(_bundle_note)
+
     denom = 1.0 - r20f * alpha * sum_t
     if denom <= 0.0:
-        return {"runaway": True, "warnings": [
+        return {"runaway": True, "warnings": _bundle_note + [
             "thermal runaway: I²R(T) growth exceeds the insulation's "
             "conductive capability (denominator {0:.3f} <= 0)".format(denom)],
             "d_surface_m": d_surf}
@@ -314,7 +372,8 @@ def solve_steady(i_a, d_cond_m, layers, rdc20_ohm_m, material="Cu",
         return r20f * (1.0 + alpha * (ts_c - 20.0)) / denom
 
     def residual(ts_c):
-        sl = surface_loss_w_m(d_surf, ts_c, tamb_c, emissivity, tsur_c)
+        sl = surface_loss_w_m(d_surf, ts_c, tamb_c, emissivity, tsur_c,
+                              bundle_factor=bundle_factor)
         return q_gen(ts_c) - sl["q_total_w_m"]
 
     # bracket from BELOW ambient when the radiative surroundings are colder
@@ -484,6 +543,13 @@ def heating_curve(i_a, d_cond_m, layers, rdc20_ohm_m, material="Cu",
     con = CONDUCTORS[material]
     stack, d_surf = _stack(d_cond_m, layers)
     sum_t = sum(s[5] for s in stack)
+    # ⚠ NO bundle factor here, deliberately. `heating_curve` is the TRANSIENT
+    # lump; threading a convection correction through it means re-deriving the
+    # lumped capacitance and the time constant against it, which is a separate
+    # piece of work. The steady solve carries the factor; this one does not,
+    # and saying so is better than a factor that silently applies to half the
+    # model. (It got one here by accident: the anchor text this was patched
+    # against occurs in BOTH functions and str.replace() takes them all.)
     r20f = float(rdc20_ohm_m) * float(rac_factor) * float(i_a) ** 2
     rep0 = {"stack": stack, "q_w_m": 1.0}   # shape for _c_th_j_m_k
     c_th = _c_th_j_m_k(rep0, d_cond_m, material, a_cond_m2)

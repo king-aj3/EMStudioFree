@@ -175,6 +175,57 @@ def main():
           24.0 <= h1 <= 34.0 and 5.0 <= h50 <= 6.5 and 60.0 <= h012 <= 180.0,
           "{0:.1f} / {1:.2f} / {2:.0f}".format(h1, h50, h012))
 
+    # ============ B2. the CFD bundle factor ============
+    # Churchill-Chu is exact for an ISOLATED cylinder and wrong for a BUNDLE in
+    # an ENCLOSURE. emstudio/solvers/openfoam/bundle.py measures that error;
+    # this is the seam that carries it into the ampacity answer.
+    h_bare = th.surface_h(0.02, 60.0, 30.0)
+    h_bund = th.surface_h(0.02, 60.0, 30.0, bundle_factor=0.80)
+    check("the bundle factor scales h exactly, and defaults to a no-op",
+          abs(h_bund["h_w_m2k"] / h_bare["h_w_m2k"] - 0.80) < 1e-12
+          and h_bare["bundle_factor"] == 1.0,
+          "%.6f -> %.6f" % (h_bare["h_w_m2k"], h_bund["h_w_m2k"]))
+    # ⚠ Ra describes the FLOW, not the bundling. Scaling it would corrupt the
+    # regime diagnostics (ra_in_range) while looking harmless.
+    check("Ra is NOT scaled by the bundle factor — it is a property of the "
+          "flow, not of the arrangement",
+          abs(h_bund["ra"] - h_bare["ra"]) < 1e-9)
+    check("Nu and h stay self-consistent under scaling (Nu = h D / k)",
+          abs(h_bund["nu"] / h_bare["nu"] - 0.80) < 1e-12)
+    for bad in (0.0, -0.5):
+        try:
+            th.surface_h(0.02, 60.0, 30.0, bundle_factor=bad)
+            check("a non-positive bundle factor (%g) is rejected" % bad, False)
+        except ValueError:
+            check("a non-positive bundle factor (%g) is rejected" % bad, True)
+    # The factor must reach the ANSWER, not just the film coefficient.
+    _lay = [{"name": "PVC", "t_m": 0.001}]
+    s_bare = th.solve_steady(40.0, 0.0026, _lay, 3.3e-3, tamb_c=30.0)
+    s_bund = th.solve_steady(40.0, 0.0026, _lay, 3.3e-3, tamb_c=30.0,
+                             bundle_factor=0.80,
+                             bundle_provenance="OpenFOAM trefoil 3x20 mm")
+    check("a bundle factor RAISES the conductor temperature (less cooling), "
+          "and by a sane amount",
+          0.5 < s_bund["t_conductor_c"] - s_bare["t_conductor_c"] < 15.0,
+          "%.2f -> %.2f C" % (s_bare["t_conductor_c"], s_bund["t_conductor_c"]))
+    # ⚠ radiation is NOT scaled, so the temperature shift is smaller than the
+    # 25 % error in h alone would imply. A gate that expected the full 25 %
+    # would be encoding a misunderstanding.
+    check("the rise is SMALLER than scaling every loss term would give — "
+          "radiation is unaffected by how the air moves",
+          s_bund["t_conductor_c"] - s_bare["t_conductor_c"]
+          < 0.25 * (s_bare["t_conductor_c"] - 30.0))
+    check("the default path is untouched (no bundle note when factor is 1.0)",
+          not any("bundle factor" in w for w in s_bare.get("warnings", [])))
+    check("an applied factor is REPORTED to the caller, with its provenance",
+          any("bundle factor" in w and "OpenFOAM trefoil" in w
+              for w in s_bund.get("warnings", [])))
+    # A derated number nobody can trace is worse than an underated one.
+    s_anon = th.solve_steady(40.0, 0.0026, _lay, 3.3e-3, tamb_c=30.0,
+                             bundle_factor=0.80)
+    check("a factor with NO provenance says so, rather than passing quietly",
+          any("NO PROVENANCE" in w for w in s_anon.get("warnings", [])))
+
     # ============ C. steady solve + ampacity bands ============
     # AWG-10 / PVC 105 C hookup (UL1015-class): Multicable row 58 A +-25%
     d10 = 2.588e-3

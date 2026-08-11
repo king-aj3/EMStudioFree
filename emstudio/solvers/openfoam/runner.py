@@ -28,14 +28,17 @@ import subprocess
 from emstudio import procutil
 from emstudio.setup import openfoam as _setup
 from emstudio.solvers.base import SolverError
+from emstudio.solvers.openfoam.bundle import BundleCase, write_bundle
 from emstudio.solvers.openfoam.cylinder import CylinderCase, write_cylinder
 from emstudio.solvers.openfoam.parser import (latest_time_dir,
                                               nusselt_cylinder_from_field,
                                               nusselt_from_field,
-                                              read_internal_field)
+                                              nusselt_from_patch,
+                                              read_internal_field,
+                                              read_patch_values)
 from emstudio.solvers.openfoam.writer import CavityCase, L, write_cavity
 
-__all__ = ["run_chain", "run_cavity", "run_cylinder"]
+__all__ = ["run_chain", "run_cavity", "run_cylinder", "run_bundle"]
 
 #: The meshing + solving chain for the cavity. blockMesh only — no
 #: snappyHexMesh, which is what keeps this runnable as a gate.
@@ -261,3 +264,80 @@ def _as_time(name):
     except ValueError:
         return None
     return (value, name) if value > 0 else None
+
+
+#: The bundle needs a MESHING chain the structured cases do not: an STL, its
+#: feature edges, and snappyHexMesh. checkMesh stays in, because a snapped mesh
+#: can be invalid in ways a blockMesh one cannot.
+BUNDLE_STEPS = ("blockMesh", "surfaceFeatureExtract", "snappyHexMesh -overwrite",
+                "checkMesh", "buoyantBoussinesqSimpleFoam")
+
+
+def run_bundle(case_dir, case=None, info=None, timeout=7200):
+    """Write, mesh, run and read a bundle case. Returns (report, BundleNusselt|None).
+
+    ``None`` whenever the chain did not reach a reading — never a zero, for the
+    same reason as the other two runners: a zero Nu is a physical claim and
+    "nothing ran" is not.
+
+    ⚠ Ra is an OUTPUT here. The wall FLUX is prescribed and the surface
+    temperature is solved for, so ``result.ra_d`` is what the solve produced
+    and any correlation comparison must be made at THAT Ra.
+    """
+    case = write_bundle(case_dir, case or BundleCase())
+    report = run_chain(case_dir, info=info, steps=BUNDLE_STEPS, timeout=timeout)
+    nu_f, alpha_f = case.properties
+    report["case"] = {"cables": case.n_cables, "d_cable": case.d_cable,
+                      "box": (case.box_w, case.box_h),
+                      "gradient": case.gradient, "cells_x": case.cells_x,
+                      "cable_area_m2": case.cable_area_m2,
+                      "fluid_volume_m3": case.fluid_volume_m3}
+    if not report["ok"]:
+        return report, None
+
+    time_dir = latest_time_dir(case_dir)
+    if not time_dir:
+        report.update(ok=False, failed_at="write",
+                      error="the solver exited 0 but wrote no time directory")
+        return report, None
+    report["time_dir"] = time_dir
+
+    try:
+        values = read_patch_values(os.path.join(case_dir, time_dir, "T"),
+                                   "cables")
+        result = nusselt_from_patch(values, case.d_cable, case.gradient,
+                                    case.t_amb, nu=nu_f, alpha=alpha_f)
+    except (OSError, ValueError) as exc:
+        report.update(ok=False, failed_at="read", error=str(exc))
+        return report, None
+    report["nu_d"] = result.nu_d
+    report["ra_d"] = result.ra_d
+
+    solve = [s for s in report["steps"] if s["step"].startswith("buoyant")]
+    report["converged"] = bool(solve and solve[0]["converged"])
+
+    # Same lesson as the cylinder: residualControl may be unreachable, so the
+    # honest convergence test is that Nu itself stopped moving.
+    report["nu_drift"] = None
+    times = sorted(
+        (t for t in (_as_time(n) for n in os.listdir(case_dir)
+                     if os.path.isdir(os.path.join(case_dir, n))) if t),
+        key=lambda p: p[0])
+    if len(times) >= 2:
+        try:
+            prev = read_patch_values(
+                os.path.join(case_dir, times[-2][1], "T"), "cables")
+            earlier = nusselt_from_patch(prev, case.d_cable, case.gradient,
+                                         case.t_amb)
+            if earlier.nu_d:
+                report["nu_drift"] = abs(result.nu_d - earlier.nu_d) \
+                                     / abs(earlier.nu_d)
+                report["nu_d_previous"] = earlier.nu_d
+        except (OSError, ValueError):
+            pass
+    if not report["converged"] and report["nu_drift"] is None:
+        result.warnings.append(
+            "residualControl never fired in %d iterations and no intermediate "
+            "snapshot exists, so nothing here establishes convergence"
+            % case.iterations)
+    return report, result

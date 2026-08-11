@@ -58,7 +58,7 @@ FAST = {
 }
 
 SOLVER = [
-    "amr_palace", "antenna_from_selection", "openfoam_cavity", "openfoam_cylinder",
+    "amr_palace", "antenna_from_selection", "openfoam_bundle", "openfoam_cavity", "openfoam_cylinder",
     "bh_elmer", "cavity_palace", "circwaveguide_palace",
     "coax_palace", "coil_inductance_elmer", "curved_wire_nec2",
     "cylcavity_palace", "dipole_nec2",
@@ -113,6 +113,7 @@ def _tier_audit():
 SOLVER_REQS = {
     "openfoam_cavity": "openfoam",
     "openfoam_cylinder": "openfoam",
+    "openfoam_bundle": "openfoam",
     "patch_openems": "openems_python",
     "msl_notch_openems": "openems_python",
     "patch_auto_openems": "openems_python",
