@@ -29,16 +29,19 @@ from emstudio import procutil
 from emstudio.setup import openfoam as _setup
 from emstudio.solvers.base import SolverError
 from emstudio.solvers.openfoam.bundle import BundleCase, write_bundle
+from emstudio.solvers.openfoam.wind import WindCase, write_wind
 from emstudio.solvers.openfoam.cylinder import CylinderCase, write_cylinder
 from emstudio.solvers.openfoam.parser import (latest_time_dir,
                                               nusselt_cylinder_from_field,
                                               nusselt_from_field,
                                               nusselt_from_patch,
                                               read_internal_field,
-                                              read_patch_values)
+                                              read_patch_values,
+                                              forces_from_log)
 from emstudio.solvers.openfoam.writer import CavityCase, L, write_cavity
 
-__all__ = ["run_chain", "run_cavity", "run_cylinder", "run_bundle"]
+__all__ = ["run_chain", "run_cavity", "run_cylinder", "run_bundle",
+           "run_wind"]
 
 #: The meshing + solving chain for the cavity. blockMesh only — no
 #: snappyHexMesh, which is what keeps this runnable as a gate.
@@ -340,4 +343,49 @@ def run_bundle(case_dir, case=None, info=None, timeout=7200):
             "residualControl never fired in %d iterations and no intermediate "
             "snapshot exists, so nothing here establishes convergence"
             % case.iterations)
+    return report, result
+
+
+WIND_STEPS = ("blockMesh", "checkMesh", "simpleFoam")
+
+
+def run_wind(case_dir, case=None, info=None, timeout=3600):
+    """Write, run and read a cross-flow case. Returns (report, WindForces|None).
+
+    ⚠ The forces come from the SOLVER LOG, not from ``postProcessing``:
+    measured on v2512 this function object reports to the log and writes no
+    files under this configuration. The report therefore carries the log tail
+    that produced the numbers, so a reader can check them by eye.
+    """
+    case = write_wind(case_dir, case or WindCase())
+    report = run_chain(case_dir, info=info, steps=WIND_STEPS, timeout=timeout)
+    report["case"] = {"reynolds": case.reynolds, "d_ref": case.d_ref,
+                      "u_inf": case.u_inf, "q_ref": case.q_ref,
+                      "radius_ratio": case.radius_ratio,
+                      "steady_is_valid": case.steady_is_valid}
+    # ⚠ Surfaced whether or not it is asked for: a drag number produced above
+    # the shedding onset is not a wind load, and the caller must not have to
+    # know that to be told.
+    note = case.validity_note()
+    if note:
+        report["validity"] = note
+    if not report["ok"]:
+        return report, None
+
+    solve = [s for s in report["steps"] if s["step"] == "simpleFoam"]
+    report["converged"] = bool(solve and solve[0]["converged"])
+    try:
+        result = forces_from_log(solve[0]["tail"] if solve else "", case.q_ref)
+    except (IndexError, ValueError) as exc:
+        # the tail is only the last 3000 chars; fall back to the whole log
+        try:
+            with open(os.path.join(case_dir, "log.simpleFoam"),
+                      encoding="utf-8", errors="replace") as fh:
+                result = forces_from_log(fh.read(), case.q_ref)
+        except (OSError, ValueError):
+            report.update(ok=False, failed_at="read", error=str(exc))
+            return report, None
+    if note:
+        result.warnings.append(note)
+    report["cd"], report["cl"] = result.cd, result.cl
     return report, result

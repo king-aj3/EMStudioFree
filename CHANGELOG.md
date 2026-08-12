@@ -5,6 +5,41 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+* **`emstudio/solvers/openfoam/wind.py` — wind loading, the MECHANICAL axis.**
+  Every other OpenFOAM case here is thermal. This one asks what force the wind
+  puts on a structure so it can be sized to survive: `simpleFoam` + the
+  `forces` function object on an open O-grid, reusing geometry the document
+  already holds and producing loads FreeCAD's FEM workbench can consume.
+* **Anchored at Re 20–40, deliberately NOT at the familiar Cd ~1.2.** Above
+  Re ~47 a cylinder sheds vortices and a STEADY solve produces a symmetric
+  wake that under-reads drag — gating on Cd ~1.2 at Re 1e5 would gate on a
+  number this method cannot produce. Measured, live: **Cd 2.0646 at Re 20 and
+  1.5448 at Re 40**, with |Cl|/|Cd| ~2e-7 (zero lift by symmetry — exact,
+  citation-free, and the sharpest check that force integration is oriented
+  right), pressure + viscous == total, and the viscous SHARE of drag falling
+  40.3 % → 34.9 % because skin friction matters more at low Re.
+  The classical benchmark values (~2.05 / ~1.54) are printed as CONTEXT and
+  **not gated on** — they are quoted from memory, not verified from a primary
+  source, and hard-coding a remembered reference is the mistake the cavity
+  gate exists to avoid.
+* **The case refuses to be misread.** `validity_note()` fires above the
+  shedding onset and `run_wind` surfaces it whether or not the caller asks.
+  ⚠ Real antenna loading is Re 1e5–1e6, well above this: what is built is the
+  pipeline, its anchor and the guard. Structural loads at real wind speeds
+  need an unsteady solve (`pimpleFoam`) or a validated turbulence model.
+* ⚠ **First result path in this package to use a FUNCTION OBJECT.** The
+  thermal cases avoid them (`wallHeatFlux` aborts on Ubuntu's 1912 build);
+  forces would otherwise mean reconstructing face areas and normals from
+  polyMesh. Defensible because discovery's probe already REQUIRES a function
+  object to pass — but it makes this case depend on that probe.
+  ⚠ And measured: on v2512 `forces` reports to the **log** and writes no
+  `postProcessing` files under this configuration, so `forces_from_log()`
+  matches the Total/Pressure/Viscous block STRUCTURALLY and raises rather than
+  returning zeros — a zero force is a physical claim, "could not read it" is not.
+  ⚠ `simpleFoam`'s pressure is KINEMATIC, so without `rhoInf` the forces come
+  back short by a factor of rho — plausible-looking and simply wrong. Gated.
+
 ### Fixed
 * **RETRACTED: "`buoyantBoussinesqSimpleFoam` silently ignores `fvOptions`".**
   That finding was wrong and it was load-bearing — it was written up as the

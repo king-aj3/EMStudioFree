@@ -27,6 +27,9 @@ from emstudio.solvers.openfoam.writer import (      # noqa: F401
 from emstudio.solvers.openfoam.bundle import (      # noqa: F401
     BundleCase, TREFOIL, cable_stl, write_bundle,
 )
+from emstudio.solvers.openfoam.wind import (        # noqa: F401
+    WindCase, SHEDDING_RE, write_wind,
+)
 from emstudio.solvers.openfoam.cylinder import (    # noqa: F401
     CylinderCase, conduction_nusselt, first_cell_height, radial_layer_centres,
     rayleigh_d, write_cylinder,
@@ -35,9 +38,10 @@ from emstudio.solvers.openfoam.parser import (      # noqa: F401
     BundleNusselt, CylinderNusselt, NusseltResult, read_internal_field,
     nusselt_cylinder_from_field, nusselt_from_field,
     nusselt_from_patch, read_patch_values,
+    WindForces, forces_from_log,
 )
 from emstudio.solvers.openfoam.runner import (      # noqa: F401
-    run_bundle, run_cavity, run_chain, run_cylinder,
+    run_bundle, run_cavity, run_chain, run_cylinder, run_wind,
 )
 
 __all__ = ["CavityCase", "rayleigh", "write_cavity",
@@ -47,4 +51,7 @@ __all__ = ["CavityCase", "rayleigh", "write_cavity",
            "nusselt_from_field", "nusselt_cylinder_from_field",
            "BundleCase", "TREFOIL", "cable_stl", "write_bundle",
            "BundleNusselt", "nusselt_from_patch", "read_patch_values",
-           "run_bundle", "run_cavity", "run_chain", "run_cylinder"]
+           "WindCase", "SHEDDING_RE", "write_wind", "WindForces",
+           "forces_from_log",
+           "run_bundle", "run_cavity", "run_chain", "run_cylinder",
+           "run_wind"]

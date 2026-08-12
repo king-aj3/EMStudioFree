@@ -42,7 +42,8 @@ from dataclasses import dataclass, field as _field
 
 __all__ = ["NusseltResult", "read_internal_field", "nusselt_from_field",
            "latest_time_dir", "CylinderNusselt", "nusselt_cylinder_from_field",
-           "BundleNusselt", "read_patch_values", "nusselt_from_patch"]
+           "BundleNusselt", "read_patch_values", "nusselt_from_patch",
+           "WindForces", "forces_from_log"]
 
 _NONUNIFORM = re.compile(r"internalField\s+nonuniform\s+List<scalar>\s*\n?\s*(\d+)\s*\(",
                          re.S)
@@ -367,5 +368,75 @@ def nusselt_from_patch(values, d_m, gradient, t_amb, nu=None, alpha=None,
         res.warnings.append(
             "negative Nu — the surface is COLDER than ambient, so the "
             "prescribed gradient sign or the ambient value is not what this "
+            "assumed")
+    return res
+
+
+# ---------------------------------------------------------------------------
+# Wind loading (see emstudio/solvers/openfoam/wind.py)
+# ---------------------------------------------------------------------------
+
+_FORCE_BLOCK = re.compile(
+    r"Sum of forces\s*\n\s*Total\s*:\s*\(([^)]*)\)\s*\n"
+    r"\s*Pressure\s*:\s*\(([^)]*)\)\s*\n\s*Viscous\s*:\s*\(([^)]*)\)")
+
+
+@dataclass
+class WindForces:
+    """Force on the body, split the way the solver computed it."""
+
+    total: tuple = (0.0, 0.0, 0.0)
+    pressure: tuple = (0.0, 0.0, 0.0)
+    viscous: tuple = (0.0, 0.0, 0.0)
+    cd: float = 0.0
+    cl: float = 0.0
+    warnings: list = _field(default_factory=list)
+
+    @property
+    def split_exact(self):
+        """pressure + viscous == total, componentwise. A conservation check
+        on the function object's own arithmetic, free of any reference value."""
+        return all(abs((p + v) - t) <= 1e-9 * max(1.0, abs(t))
+                   for t, p, v in zip(self.total, self.pressure, self.viscous))
+
+    @property
+    def lift_to_drag(self):
+        """|Cl|/|Cd|. For a symmetric body at zero incidence this must be ~0 —
+        an EXACT expectation needing no citation, and the sharpest check
+        available on whether the force integration is oriented correctly."""
+        if not self.cd:
+            return float("inf")
+        return abs(self.cl) / abs(self.cd)
+
+
+def forces_from_log(text, q_ref):
+    """Parse the LAST force report out of a solver log.
+
+    ⚠ Read from the LOG, not from ``postProcessing/forces``: measured on
+    v2512, this function object reports to the log and writes no files under
+    the configuration used here. Parsing the log is version-fragile, so the
+    block is matched STRUCTURALLY (Total/Pressure/Viscous triplet) rather than
+    by line offsets, and an unparsable log raises instead of returning zeros —
+    a zero force is a physical claim and "could not read it" is not.
+    """
+    blocks = _FORCE_BLOCK.findall(text or "")
+    if not blocks:
+        raise ValueError(
+            "no 'Sum of forces' block in the solver log — the forces function "
+            "object did not report. Check it was constructed (the log names it "
+            "at startup) and that the patch name matches.")
+    if q_ref <= 0:
+        raise ValueError("reference dynamic pressure must be positive")
+    tot, pre, vis = [tuple(float(x) for x in b.split()) for b in blocks[-1]]
+    res = WindForces(total=tot, pressure=pre, viscous=vis,
+                     cd=tot[0] / q_ref, cl=tot[1] / q_ref)
+    if not res.split_exact:
+        res.warnings.append(
+            "pressure + viscous does not equal the total force — the log was "
+            "misread or the function object reported inconsistently")
+    if res.cd <= 0:
+        res.warnings.append(
+            "non-positive drag: the body is being pushed UPSTREAM, so the "
+            "freestream direction or the force orientation is not what this "
             "assumed")
     return res
