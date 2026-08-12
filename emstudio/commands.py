@@ -537,10 +537,15 @@ class _Convection:
         res = getattr(dlg, "result_obj", None)
         if res is None:
             return
-        # ⚠ A mixed-diameter bundle has one factor PER SIZE, so it is stored
-        # through a different door: `store_factor` would have to read `.factor`,
-        # which a MixedBundleFactor refuses to have.
-        if hasattr(res, "by_size"):
+        # ⚠ A mixed bundle has one factor PER GROUP, so it is stored through a
+        # different door: `store_factor` would have to read `.factor`, which a
+        # MixedBundleFactor refuses to have.
+        #
+        # ⚠ Detect on `by_group`, NOT `by_size`. `by_size` is a property that
+        # raises ValueError when one diameter carries several groups, and
+        # `hasattr` only swallows AttributeError — so `hasattr(res, "by_size")`
+        # would propagate on exactly the arrangement this branch exists for.
+        if hasattr(res, "by_group"):
             solver.Proxy.store_mixed_factors(solver, res)
             headline = "per-size factors %s" % \
                 solver.Proxy.format_size_factors(res)

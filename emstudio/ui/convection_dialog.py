@@ -42,19 +42,27 @@ REFERENCE_TEXT = ("Measured reference: a trefoil of three 20 mm cables in a "
 
 
 def as_cables(geometry, d_cable=None):
-    """Normalise ``[(x, y)]`` + a diameter, or ``[(x, y, d)]``, to the latter.
+    """Normalise the accepted geometry shapes to ``(x, y, d[, gradient])``.
 
-    The dialog and the command both hand geometry straight to the solver, so
-    one shape here is what stops a mixed bundle being described with a single
-    diameter it does not have.
+    Accepts ``[(x, y)]`` with a separate diameter, ``[(x, y, d)]``, or
+    ``[(x, y, d, gradient)]``. The dialog and the command both hand geometry
+    straight to the solver, so one shape here is what stops a mixed bundle
+    being described with a single diameter it does not have.
+
+    ⚠ A 4-tuple's gradient is PRESERVED, not dropped. Two cables of one size on
+    different fluxes are different thermal cables, and a normaliser that
+    quietly flattened them would make the dialog describe a bundle that is not
+    the one being solved.
     """
     out = []
     for c in geometry:
-        if len(c) == 3:
+        if len(c) == 4:
+            out.append((float(c[0]), float(c[1]), float(c[2]), float(c[3])))
+        elif len(c) == 3:
             out.append((float(c[0]), float(c[1]), float(c[2])))
         elif d_cable is None:
-            raise ValueError("a cable is (x, y, diameter), or (x, y) with a "
-                             "diameter given separately")
+            raise ValueError("a cable is (x, y, diameter[, gradient]), or "
+                             "(x, y) with a diameter given separately")
         else:
             out.append((float(c[0]), float(c[1]), float(d_cable)))
     return out
@@ -63,9 +71,28 @@ def as_cables(geometry, d_cable=None):
 def size_counts(cables):
     """``[(d, n)]``, largest diameter first."""
     counts = {}
-    for _x, _y, d in cables:
-        counts[round(float(d), 12)] = counts.get(round(float(d), 12), 0) + 1
+    for c in cables:
+        d = round(float(c[2]), 12)
+        counts[d] = counts.get(d, 0) + 1
     return sorted(counts.items(), reverse=True)
+
+
+def group_counts(cables):
+    """``[((d, gradient), n)]`` — the units that each get their own factor.
+
+    A group is one diameter at one wall flux, because that is what one snappy
+    patch carries. Equals :func:`size_counts` whenever the loading is uniform,
+    which is every bundle the Cable Designer can build today — the table has no
+    per-member current column yet, so mixed LOADING is an API-level capability
+    yet. Counted here regardless, so the guidance is right the day it is.
+    """
+    counts = {}
+    for c in cables:
+        k = (round(float(c[2]), 12),
+             round(float(c[3]), 12) if len(c) > 3 else None)
+        counts[k] = counts.get(k, 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[0][0],
+                                                  -(kv[0][1] or 0.0)))
 
 
 def describe_plan(geometry, d_cable=None, box_w=None, box_h=None):
@@ -95,7 +122,7 @@ def describe_plan(geometry, d_cable=None, box_w=None, box_h=None):
 
 
 def advice_for(n_cables, enclosed, factor=1.0, provenance="", converged=None,
-               nec_adjustment_applied=False, sizes=1):
+               nec_adjustment_applied=False, sizes=1, groups=None):
     """Guardrail notes, from the Pro assistant when present.
 
     ⚠ Falls back to the SAME warning in plainer words rather than going silent.
@@ -103,12 +130,14 @@ def advice_for(n_cables, enclosed, factor=1.0, provenance="", converged=None,
     assistant noticing on the user's behalf. Silence would turn a tier
     boundary into a correctness difference, which it must never be.
     """
+    n_groups = int(groups if groups is not None else sizes)
     try:
         from emstudio.assistant import thermal_advice
         return thermal_advice.convection_advice(
             n_cables=n_cables, enclosed=enclosed, bundle_factor=factor,
             provenance=provenance, converged=converged,
-            nec_adjustment_applied=nec_adjustment_applied, sizes=sizes)
+            nec_adjustment_applied=nec_adjustment_applied, sizes=sizes,
+            groups=n_groups)
     except ImportError:
         notes = []
         if abs(factor - 1.0) < 1e-12 and (n_cables > 1 or enclosed):
@@ -124,6 +153,17 @@ def advice_for(n_cables, enclosed, factor=1.0, provenance="", converged=None,
                 "factor to that size; a single number for the whole bundle "
                 "either under-rates the sizes that cool well or over-rates "
                 "the one that does not." % (sizes, sizes))
+        # ⚠ The free tier must carry this too, and it is the note most easily
+        # lost: a bundle of ONE diameter has sizes == 1, so the note above
+        # never fires, and the design looks uniform while its cables have
+        # different factors.
+        if n_groups > sizes:
+            notes.append(
+                "Some cables here are the same SIZE but carry different "
+                "losses, so this bundle has %d factors across %d diameter%s. "
+                "Cables of one size stop being thermally interchangeable once "
+                "their currents differ. Rate each by its own size AND loss."
+                % (n_groups, sizes, "" if sizes == 1 else "s"))
         if abs(factor - 1.0) > 1e-12 and not provenance:
             notes.append("This factor carries no provenance and cannot be "
                          "re-checked.")
@@ -137,30 +177,40 @@ def summarise(result):
     """The solved factor as a sentence a cable engineer would write.
 
     Handles both a single :class:`~emstudio.wire.bundle_convection.BundleFactor`
-    and a per-size :class:`~emstudio.wire.bundle_convection.MixedBundleFactor`.
+    and a per-group :class:`~emstudio.wire.bundle_convection.MixedBundleFactor`.
+
+    ⚠ Detects the mixed case on ``by_group``, never on ``by_size``: the latter
+    is a property that RAISES when one diameter carries several groups, and
+    ``getattr(obj, name, default)`` only swallows AttributeError — a ValueError
+    would escape straight through a "safe" lookup.
     """
-    by_size = getattr(result, "by_size", None)
-    if by_size is None:
+    by_group = getattr(result, "by_group", None)
+    if by_group is None:
         return ("Bundle factor %.4f — Churchill-Chu over-predicts the film "
                 "coefficient by %+.1f %%. Solved Nu %.4f against the "
                 "correlation's %.4f at Ra %.4g."
                 % (result.factor, result.correlation_error_pct,
                    result.nu_solved, result.nu_correlation, result.ra_d))
-    lines = ["This bundle has %d cable sizes, so it has %d factors — one per "
-             "size, all solved together in the same enclosure:"
-             % (len(by_size), len(by_size))]
-    for d in result.sizes:
-        f = by_size[d]
+    n_sizes = len(result.sizes)
+    what = ("%d cable sizes" % n_sizes if len(by_group) == n_sizes
+            else "%d groups across %d cable sizes (some sizes carry different "
+                 "losses)" % (len(by_group), n_sizes))
+    lines = ["This bundle has %s, so it has %d factors — all solved together "
+             "in the same enclosure:" % (what, len(by_group))]
+    for f in by_group.values():
+        # ⚠ Name the FLUX as well as the size. On a bundle with two same-size
+        # groups the diameter alone does not say which line is which.
         lines.append(
-            "  %.1f mm (%d off): factor %.4f — Churchill-Chu over-predicts "
-            "by %+.1f %%. Nu %.4f vs %.4f at Ra %.4g."
-            % (1000.0 * d, f.n_cables, f.factor, f.correlation_error_pct,
-               f.nu_solved, f.nu_correlation, f.ra_d))
+            "  %.1f mm at %.4g K/m (%d off): factor %.4f — Churchill-Chu "
+            "over-predicts by %+.1f %%. Nu %.4f vs %.4f at Ra %.4g."
+            % (1000.0 * f.d_cable, f.gradient, f.n_cables, f.factor,
+               f.correlation_error_pct, f.nu_solved, f.nu_correlation, f.ra_d))
+    w = result.worst
     lines.append(
-        "Rate each size with its own factor. If you must use ONE, use %.4f "
-        "(the %.1f mm size) — it is the most pessimistic, and anything less "
-        "conservative over-rates that cable."
-        % (result.worst.factor, 1000.0 * result.worst.d_cable))
+        "Rate each cable with its own factor. If you must use ONE, use %.4f "
+        "(the %.1f mm at %.4g K/m) — it is the most pessimistic, and anything "
+        "less conservative over-rates that cable."
+        % (w.factor, 1000.0 * w.d_cable, w.gradient))
     return "\n".join(lines)
 
 

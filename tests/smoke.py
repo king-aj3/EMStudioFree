@@ -1528,26 +1528,37 @@ def _analysis_roundtrip():
     assert solver_of.SizeFactors == "",         "a uniform bundle has ONE factor; the per-size field must stay empty "         "rather than restating it as a one-entry map"
     assert abs(_of_proxy.factor_for(solver_of, 0.020) - 0.8028) < 1e-9,         "on a uniform bundle every size gets the single stored factor"
 
-    # ⚠ MIXED diameters: one factor PER SIZE. The scalar BundleFactor is set
-    # to the WORST size deliberately — something will read it without knowing
-    # the bundle is mixed, and under-rating the sizes that cool well is the
-    # safe way to be wrong.
+    # ⚠ MIXED bundles: one factor PER GROUP, where a group is one diameter at
+    # one wall flux. The scalar BundleFactor is set to the WORST group
+    # deliberately — something will read it without knowing the bundle is
+    # mixed, and under-rating the cables that cool well is the safe way to be
+    # wrong.
+    def _grp(d, grad, factor):
+        return type("F", (), {"d_cable": d, "gradient": grad,
+                              "factor": factor})()
+
     class _StoredMixed:
-        by_size = {0.020: type("F", (), {"factor": 0.8017,
-                                         "d_cable": 0.020})(),
-                   0.010: type("F", (), {"factor": 0.8360,
-                                         "d_cable": 0.010})()}
-        sizes = [0.020, 0.010]
-        geometry, converged = "mixed-key", True
-        provenance = "OpenFOAM mixed bundle: 20 mm -> 0.8017; 10 mm -> 0.8360"
+        def __init__(self, by_group, provenance="OpenFOAM mixed bundle"):
+            self.by_group = by_group
+            self.geometry, self.converged = "mixed-key", True
+            self.provenance = provenance
+
+        @property
+        def sizes(self):
+            return sorted({f.d_cable for f in self.by_group.values()},
+                          reverse=True)
 
         @property
         def worst(self):
-            return self.by_size[0.020]
-    _mixed = _StoredMixed()
-    _of_proxy.store_mixed_factors(solver_of, _mixed)
-    assert abs(solver_of.BundleFactor - 0.8017) < 1e-9,         "the scalar factor on a mixed bundle must be the WORST size's — the "         "unsafe direction is over-predicting cooling"
+            return min(self.by_group.values(), key=lambda f: f.factor)
+
+    _of_proxy.store_mixed_factors(solver_of, _StoredMixed(
+        {"g0": _grp(0.020, 400.0, 0.8017), "g1": _grp(0.010, 400.0, 0.8360)}))
+    assert abs(solver_of.BundleFactor - 0.8017) < 1e-9,         "the scalar factor on a mixed bundle must be the WORST group's — the "         "unsafe direction is over-predicting cooling"
     assert "conservative floor" in solver_of.FactorProvenance,         "the scalar must SAY it is a floor, not the bundle's factor"
+    # ⚠ unambiguous sizes keep the BARE key, so documents written before groups
+    # existed still read back identically
+    assert "@" not in solver_of.SizeFactors,         "a bundle with one group per size must not gain flux keys it does not "         "need: {0!r}".format(solver_of.SizeFactors)
     _round = _of_proxy.parse_size_factors(solver_of.SizeFactors)
     assert sorted(_round) == [0.010, 0.020],         "per-size factors must round-trip through the document property: "         "{0!r}".format(solver_of.SizeFactors)
     assert abs(_of_proxy.factor_for(solver_of, 0.010) - 0.8360) < 1e-6,         "each size must read back ITS OWN factor, not the floor"
@@ -1561,12 +1572,43 @@ def _analysis_roundtrip():
         pass
     try:
         _of_proxy.parse_size_factors("20.0:0.80; garbage")
-        raise AssertionError("an unreadable per-size string must raise rather "
+        raise AssertionError("an unreadable per-group string must raise rather "
                              "than return a partial map")
     except ValueError:
         pass
+
+    # ⚠ MIXED LOADING: two groups of ONE diameter, on different fluxes. Keyed
+    # by size this silently lost a group; the document format therefore carries
+    # the flux, and reading it back by size alone must REFUSE rather than pick.
+    _of_proxy.store_mixed_factors(solver_of, _StoredMixed(
+        {"g0": _grp(0.020, 400.0, 0.9453), "g1": _grp(0.020, 100.0, 0.9812),
+         "g2": _grp(0.010, 400.0, 0.8439)}))
+    assert "20@400:" in solver_of.SizeFactors         and "20@100:" in solver_of.SizeFactors,         "a diameter carrying two groups must key them by flux: {0!r}".format(
+            solver_of.SizeFactors)
+    assert "10:" in solver_of.SizeFactors,         "...while the unambiguous 10 mm keeps the bare key: {0!r}".format(
+            solver_of.SizeFactors)
+    _groups = _of_proxy.parse_group_factors(solver_of.SizeFactors)
+    assert len(_groups) == 3,         "all three groups must round-trip, not two: {0!r}".format(_groups)
+    assert abs(_of_proxy.factor_for(solver_of, 0.020, gradient=100.0)
+               - 0.9812) < 1e-6,         "a same-size group must read back by its own flux"
+    assert abs(_of_proxy.factor_for(solver_of, 0.010) - 0.8439) < 1e-6,         "an unambiguous size must still answer without a flux"
+    for _bad, _why in (
+            (lambda: _of_proxy.factor_for(solver_of, 0.020),
+             "an AMBIGUOUS diameter must refuse rather than pick a group"),
+            (lambda: _of_proxy.factor_for(solver_of, 0.020, gradient=250.0),
+             "a flux that was never solved must refuse, not nearest-match"),
+            (lambda: _of_proxy.parse_size_factors(solver_of.SizeFactors),
+             "keying by SIZE must refuse when a diameter carries two groups — "
+             "the v0.97.0 collision")):
+        try:
+            _bad()
+            raise AssertionError(_why)
+        except ValueError:
+            pass
+    assert abs(solver_of.BundleFactor - 0.8439) < 1e-9,         "the floor must be the worst group across ALL groups"
+
     _of_proxy.store_factor(solver_of, _StoredFactor)
-    assert solver_of.SizeFactors == "",         "re-solving as a UNIFORM bundle must clear the stale per-size map — "         "leaving it would rate sizes against a geometry no longer solved"
+    assert solver_of.SizeFactors == "",         "re-solving as a UNIFORM bundle must clear the stale per-group map — "         "leaving it would rate cables against a geometry no longer solved"
 
     coil_obj = coil.makeCoil(doc, obj, turns=42, current_a=2.5)
     # transmission line (v0.61, LPDA feeder): maker args land; LineLength

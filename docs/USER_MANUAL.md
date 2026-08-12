@@ -372,6 +372,31 @@ cable beside two 10 mm ones:
 own factor. If your workflow forces a single value, use the smallest; anything
 less conservative over-rates the size the correlation flatters least.
 
+**Same size, different current, different factor.** A "group" is one diameter
+at one heat load, because that is what the solver can give its own surface to.
+Two identical cables carrying different currents run at different temperatures
+and do not share a factor. Measured, two 20 mm cables in one enclosure with a
+4:1 difference in load:
+
+| cable | Nu_D | factor | vs Churchill-Chu |
+|---|---|---|---|
+| 20 mm, heavily loaded | 3.7322 | **0.9876** | −1.24 % |
+| 20 mm, lightly loaded | 2.5228 | **0.8346** | −16.54 % |
+
+**18.3 % apart — a bigger spread than the diameter mix above.** And note which
+way it goes: the **lightly loaded cable is the worse cooled**. Its own
+temperature rise is small, and it sits in its neighbour's warm air, so the
+correlation flatters it most. The cable you would worry about least is the one
+the textbook answer is most wrong about.
+
+⚠ **This is API-level today.** The bundle table has no per-member current
+column, so the dialog cannot yet build such a case; reach it through
+`emstudio.wire.bundle_convection.solve_mixed_bundle_factor` with per-cable
+`(x, y, diameter, gradient)` tuples or a per-cable `joule_w_per_m` list. Ask
+for a result by size *and* load — `factor_for(d, gradient=...)`. Asking by size
+alone is refused when that size has two answers, rather than being given one of
+them.
+
 **Things to know before you press it**
 
 - ⚠ **It takes minutes, not milliseconds**, and needs OpenFOAM installed

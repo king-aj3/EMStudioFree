@@ -98,6 +98,12 @@ group (equal flux DENSITY, not equal loss per metre) and the provenance says
 so; pass per-cable gradients — or per-cable ``joule_w_per_m`` through
 :mod:`emstudio.wire.bundle_convection` — to drive each size by its own I²R.
 
+⚠ **A group is (diameter, flux), not just diameter.** Two cables of ONE size on
+different fluxes are two groups and two patches, because a patch carries one
+boundary condition and their surfaces settle at different temperatures. Their
+patch names differ only by the group INDEX, which is what stops snappy being
+handed the same name twice.
+
 ⚠ **Smaller cables are refined HARDER, on purpose.** snappy's levels are
 relative to the background cell, so at one level a 10 mm cable gets half the
 faces of a 20 mm one and its boundary layer is resolved half as well — the

@@ -46,12 +46,21 @@ apply ONE factor to a whole bundle, and it is the most pessimistic size on
 purpose — but it is a stated conservatism, not a bundle factor, and it says so
 in its own provenance.
 
-⚠ **Mixed DIAMETERS, not mixed LOADING.** The result is keyed by size, so two
-surfaces of the same diameter on different wall fluxes cannot be told apart by
-it and the solve is REFUSED rather than silently dropping one. The case writer
-below it handles that split correctly — cables of one size at different fluxes
-really are different patches — so this is a limit of the per-size factor, and
-lifting it means keying the result by patch, not re-meshing anything.
+**MIXED LOADING within one diameter, too.** A group is one diameter at one wall
+flux, because that is what a single snappy patch can carry — so two same-size
+cables dissipating different losses are two groups with two factors, and the
+result is keyed by **patch**, not by diameter.
+
+⚠ This was keyed by SIZE in v0.97.0, which meant a same-size pair collided and
+one was silently dropped; it had to REFUSE the arrangement instead. Nothing
+about the mesh changed to fix it — the case writer had always split those
+cables onto separate patches correctly. It was bookkeeping, and the bug it
+caused was the dangerous kind: a lost group is a cable rated on somebody else's
+number.
+
+``factor_for(d)`` still answers directly whenever a diameter is unambiguous —
+the common case did not get harder. It refuses, naming the fluxes, only when
+one diameter really does carry several groups.
 
 ⚠ **This runs a CFD solve — minutes, not milliseconds.** It must never be
 called from a property edit or an interactive redraw. `solve_steady` bisects
@@ -132,6 +141,13 @@ class BundleFactor:
     ra_d: float = 0.0
     d_cable: float = 0.0
     n_cables: int = 0
+    #: Wall gradient (K/m) this group was solved at. Together with ``d_cable``
+    #: it IDENTIFIES the group: one diameter can carry several, because
+    #: same-size cables on different losses run at different temperatures.
+    #: 0.0 on a uniform bundle, where there is nothing to disambiguate.
+    gradient: float = 0.0
+    #: The snappy patch this came off, when there was more than one.
+    patch: str = ""
     converged: bool = False
     drift: float = float("nan")
     geometry: str = ""
@@ -163,68 +179,134 @@ class BundleFactor:
 
 @dataclass
 class MixedBundleFactor:
-    """One :class:`BundleFactor` per cable SIZE, from a single solve.
+    """One :class:`BundleFactor` per solved GROUP, from a single solve.
 
-    The sizes were solved TOGETHER — they share an enclosure and heat each
-    other, which is the whole reason a per-size factor is not the same as
-    solving each size in its own bundle.
+    The groups were solved TOGETHER — they share an enclosure and heat each
+    other, which is the whole reason a per-group factor is not the same as
+    solving each group in its own bundle.
+
+    A group is one diameter at one wall flux, because that is what one snappy
+    patch can carry. So this is keyed by PATCH, not by diameter: two cables of
+    the same size dissipating different losses run at different temperatures
+    and genuinely have different factors, and keying by size would have made
+    one of them silently overwrite the other. That is not hypothetical — the
+    first version of this class was keyed by size and had to REFUSE the case
+    rather than lose a group.
+
+    Most bundles have one group per size, so :attr:`by_size` and
+    ``factor_for(d)`` still answer directly; they refuse only when a diameter
+    is genuinely ambiguous.
     """
 
-    by_size: dict = _field(default_factory=dict)      # d_cable (m) -> BundleFactor
+    by_group: dict = _field(default_factory=dict)     # patch -> BundleFactor
     geometry: str = ""
     converged: bool = False
     drift: float = float("nan")
     warnings: list = _field(default_factory=list)
 
     @property
+    def groups(self):
+        """Patch names, in solve order — largest diameter, hottest first."""
+        return list(self.by_group)
+
+    @property
     def sizes(self):
-        """Diameters in metres, largest first."""
-        return sorted(self.by_size, reverse=True)
+        """Distinct diameters in metres, largest first."""
+        return sorted({f.d_cable for f in self.by_group.values()}, reverse=True)
+
+    @property
+    def by_size(self):
+        """``{diameter: BundleFactor}`` — the common case, keyed by size.
+
+        ⚠ RAISES when one diameter carries more than one group, rather than
+        dropping one. A bundle where two same-size cables run at different
+        losses has two answers for that size and no way to key them apart by
+        diameter; ask :meth:`factor_for` with the gradient, or read
+        :attr:`by_group`.
+        """
+        out = {}
+        for f in self.by_group.values():
+            if f.d_cable in out:
+                raise ValueError(
+                    "%.4g mm carries %d groups at different wall fluxes "
+                    "(%s K/m), so this bundle cannot be keyed by size. Use "
+                    "factor_for(d, gradient=...) or by_group."
+                    % (1000.0 * f.d_cable,
+                       sum(1 for g in self.by_group.values()
+                           if g.d_cable == f.d_cable),
+                       ", ".join("%.4g" % g.gradient
+                                 for g in self.by_group.values()
+                                 if g.d_cable == f.d_cable)))
+            out[f.d_cable] = f
+        return out
 
     @property
     def factor(self):
         raise ValueError(
-            "this bundle mixes %d cable sizes and has %d factors, not one: "
-            "%s. Ask for the size you are rating with factor_for(d), or take "
-            "`.worst` if you must apply a single conservative number."
-            % (len(self.by_size), len(self.by_size),
-               ", ".join("%.4g mm -> %.4f" % (1000.0 * d, f.factor)
-                         for d, f in sorted(self.by_size.items(),
-                                            reverse=True))))
+            "this bundle has %d solved groups and %d factors, not one: %s. "
+            "Ask for the cable you are rating with factor_for(d[, gradient]), "
+            "or take `.worst` if you must apply a single conservative number."
+            % (len(self.by_group), len(self.by_group),
+               ", ".join("%.4g mm @ %.4g K/m -> %.4f"
+                         % (1000.0 * f.d_cable, f.gradient, f.factor)
+                         for f in self.by_group.values())))
 
-    def factor_for(self, d_cable, tol=1e-9):
-        """The factor for the size being rated. Refuses a size not solved.
+    def factor_for(self, d_cable, gradient=None, tol=1e-9):
+        """The factor for the cable being rated.
 
-        ⚠ Deliberately not nearest-match. Interpolating between solved sizes
-        would hand back a factor for a cable that was never in the enclosure,
-        and it would look exactly like one that was.
+        ``gradient`` is only needed when one diameter carries several groups —
+        i.e. same-size cables on different losses. Without it, an ambiguous
+        diameter RAISES and names the fluxes rather than picking one.
+
+        ⚠ Deliberately not nearest-match on either axis. Interpolating would
+        hand back a factor for a cable that was never in the enclosure, and it
+        would look exactly like one that was.
         """
-        for d, f in self.by_size.items():
-            if abs(d - float(d_cable)) <= tol:
-                return f
-        raise ValueError(
-            "no factor was solved for a %.4g mm cable; this bundle carries %s"
-            % (1000.0 * float(d_cable),
-               ", ".join("%.4g mm" % (1000.0 * d) for d in self.sizes)))
+        hits = [f for f in self.by_group.values()
+                if abs(f.d_cable - float(d_cable)) <= tol]
+        if not hits:
+            raise ValueError(
+                "no factor was solved for a %.4g mm cable; this bundle carries "
+                "%s" % (1000.0 * float(d_cable),
+                        ", ".join("%.4g mm" % (1000.0 * d) for d in self.sizes)))
+        if gradient is not None:
+            exact = [f for f in hits
+                     if abs(f.gradient - float(gradient)) <= 1e-9]
+            if not exact:
+                raise ValueError(
+                    "no %.4g mm group was solved at %.4g K/m; that size was "
+                    "solved at %s K/m"
+                    % (1000.0 * float(d_cable), float(gradient),
+                       ", ".join("%.4g" % f.gradient for f in hits)))
+            return exact[0]
+        if len(hits) > 1:
+            raise ValueError(
+                "%.4g mm carries %d groups, solved at %s K/m — say which with "
+                "factor_for(d, gradient=...). Same-size cables on different "
+                "losses run at different temperatures and do not share a "
+                "factor."
+                % (1000.0 * float(d_cable), len(hits),
+                   ", ".join("%.4g" % f.gradient for f in hits)))
+        return hits[0]
 
     @property
     def worst(self):
-        """The most pessimistic size's factor — for a caller needing ONE.
+        """The most pessimistic group's factor — for a caller needing ONE.
 
         ⚠ This is a stated conservatism, not the bundle's factor. Applying it
-        to a size that solved better under-rates that cable; applying anything
-        else to the worst size over-rates it, which is the unsafe direction.
+        to a group that solved better under-rates that cable; applying anything
+        else to the worst group over-rates it, which is the unsafe direction.
         """
-        return min(self.by_size.values(), key=lambda f: f.factor)
+        return min(self.by_group.values(), key=lambda f: f.factor)
 
     @property
     def spread_pct(self):
-        """How far apart the sizes' factors are, as a percentage of the worst.
+        """How far apart the groups' factors are, as a percentage of the worst.
 
-        Small means one number would do; large means the sizes genuinely cool
+        Small means one number would do; large means the groups genuinely cool
         differently and a single factor throws that away.
         """
-        vals = [f.factor for f in self.by_size.values()]
+        vals = [f.factor for f in self.by_group.values()]
         if not vals or min(vals) <= 0:
             return float("nan")
         return 100.0 * (max(vals) - min(vals)) / min(vals)
@@ -234,14 +316,18 @@ class MixedBundleFactor:
         state = "converged" if self.converged else "NOT CONVERGED"
         drift = ("drift %.1e" % self.drift) if self.drift == self.drift \
             else "drift unknown"
+        # ⚠ The flux is named per group, not just the diameter. On a bundle
+        # with two same-size groups the diameter alone does not identify which
+        # answer is which, and a provenance that cannot be traced back to one
+        # cable is the thing this whole class exists to avoid.
         return ("OpenFOAM mixed bundle %s (%s, %s): %s"
                 % (self.geometry, state, drift,
                    "; ".join(
-                       "%.4g mm -> factor %.4f (Nu %.4f vs Churchill-Chu "
-                       "%.4f at Ra %.4g)"
-                       % (1000.0 * d, f.factor, f.nu_solved, f.nu_correlation,
-                          f.ra_d)
-                       for d, f in sorted(self.by_size.items(), reverse=True))))
+                       "%.4g mm @ %.4g K/m -> factor %.4f (Nu %.4f vs "
+                       "Churchill-Chu %.4f at Ra %.4g)"
+                       % (1000.0 * f.d_cable, f.gradient, f.factor,
+                          f.nu_solved, f.nu_correlation, f.ra_d)
+                       for f in self.by_group.values())))
 
 
 def geometry_key(centres, d_cable, box_w, box_h):
@@ -256,18 +342,32 @@ def geometry_key(centres, d_cable, box_w, box_h):
 
 
 def cables_key(cables, box_w, box_h):
-    """Geometry key for a possibly-mixed set of ``(x, y, d)`` cables.
+    """Geometry key for ``(x, y, d)`` or ``(x, y, d, gradient)`` cables.
 
     ⚠ A UNIFORM set produces the byte-identical string :func:`geometry_key`
     always produced, so adding mixed support does not silently stale every
-    factor already cached in a user's document.
+    factor already cached in a user's document. A set that differs only in
+    DIAMETER keeps the diameter-keyed form for the same reason.
+
+    ⚠ The gradients enter the key as soon as they differ. Which cable carries
+    which loss changes every group's answer, and a "100..400 K/m" summary in
+    the provenance cannot distinguish an arrangement from its mirror — a
+    staleness check that cannot see a change is not a staleness check.
     """
-    ds = {round(float(d), 12) for _x, _y, d in cables}
+    norm = [(float(c[0]), float(c[1]), float(c[2]),
+             float(c[3]) if len(c) > 3 else None) for c in cables]
+    ds = {round(d, 12) for _x, _y, d, _g in norm}
+    gs = {round(g, 12) for _x, _y, _d, g in norm if g is not None}
+    if len(gs) > 1:
+        pts = ",".join("%.6g:%.6g:%.6g:%.6g" % (d, g, x, y)
+                       for d, g, x, y in sorted((d, g, x, y)
+                                                for x, y, d, g in norm))
+        return "mixedload/box%.6gx%.6g/[%s]" % (box_w, box_h, pts)
     if len(ds) == 1:
-        return geometry_key([(x, y) for x, y, _d in cables], ds.pop(),
+        return geometry_key([(x, y) for x, y, _d, _g in norm], ds.pop(),
                             box_w, box_h)
     pts = ",".join("%.6g:%.6g:%.6g" % (d, x, y)
-                   for d, x, y in sorted((d, x, y) for x, y, d in cables))
+                   for d, x, y in sorted((d, x, y) for x, y, d, _g in norm))
     return "mixed/box%.6gx%.6g/[%s]" % (box_w, box_h, pts)
 
 
@@ -381,12 +481,18 @@ def solve_bundle_factor(centres, d_cable, box_w=None, box_h=None,
                         "%s | %s" % (key, driven_by), report)
 
 
-def _factor_from(result, d_cable, n_cables, geometry, report):
+def _factor_from(result, d_cable, n_cables, geometry, report,
+                 gradient=0.0, patch=""):
     """Nu_solved / Churchill-Chu(Ra_resulting), with the same refusals.
 
-    Shared by the uniform and the per-size paths so a mixed bundle's factors
+    Shared by the uniform and the per-group paths so a mixed bundle's factors
     are formed by exactly the expression a uniform one's is — two copies would
     eventually disagree, and the disagreement would be invisible.
+
+    ``gradient``/``patch`` identify the group on a mixed bundle. They default
+    to empty because a uniform bundle has nothing to disambiguate, which keeps
+    the single-diameter path's result byte-comparable with what it returned
+    before groups existed.
     """
     ra = result.ra_d
     if ra <= 0:
@@ -397,7 +503,8 @@ def _factor_from(result, d_cable, n_cables, geometry, report):
     out = BundleFactor(
         factor=result.nu_d / nu_corr, nu_solved=result.nu_d,
         nu_correlation=nu_corr, ra_d=ra, d_cable=d_cable,
-        n_cables=n_cables, converged=bool(report.get("converged")),
+        n_cables=n_cables, gradient=float(gradient), patch=str(patch),
+        converged=bool(report.get("converged")),
         drift=report.get("nu_drift", float("nan")), geometry=geometry)
     if not out.converged and not (out.drift == out.drift and out.drift < 5e-3):
         out.warnings.append(
@@ -412,12 +519,17 @@ def _factor_from(result, d_cable, n_cables, geometry, report):
     return out
 
 
-def _per_cable_gradients(cables, gradient, joule_w_per_m, t_film_k):
+def _per_cable_gradients(cables, gradient, joule_w_per_m, t_film_k,
+                         explicit=None):
     """(gradients, description) for ``[(x, y, d)]`` — the flux each cable sees.
 
-    ``joule_w_per_m`` may be ``None`` (use the typed gradient on every cable),
-    a scalar (every cable dissipates the SAME loss per metre, so the thinner
-    one sees the higher flux density), or one value per cable.
+    ``explicit`` is a per-cable gradient list taken straight from 4-tuple
+    input and wins over everything: the caller has already said what each
+    cable dissipates.
+
+    Otherwise ``joule_w_per_m`` may be ``None`` (use the typed gradient on
+    every cable), a scalar (every cable dissipates the SAME loss per metre, so
+    the thinner one sees the higher flux density), or one value per cable.
 
     ⚠ A scalar GRADIENT on a mixed bundle is equal flux DENSITY, which means
     the fat cable is dissipating proportionally more W/m. That is a real case
@@ -425,6 +537,16 @@ def _per_cable_gradients(cables, gradient, joule_w_per_m, t_film_k):
     the provenance carries it.
     """
     n = len(cables)
+    if explicit is not None:
+        if joule_w_per_m is not None:
+            raise ValueError(
+                "per-cable gradients were given in the cable list AND a "
+                "joule_w_per_m; they set the same thing and there is no "
+                "defensible order of precedence. Pass one or the other")
+        lo, hi = min(explicit), max(explicit)
+        return list(explicit), ("gradient %.4g K/m on every cable" % lo
+                                if lo == hi else
+                                "per-cable gradient %.4g..%.4g K/m" % (lo, hi))
     if joule_w_per_m is None:
         return [float(gradient)] * n, "gradient %.4g K/m on every size" % gradient
     scalar = not hasattr(joule_w_per_m, "__len__")
@@ -462,12 +584,32 @@ def solve_mixed_bundle_factor(cables, box_w=None, box_h=None,
     """
     if not cables:
         raise ValueError("no cables to solve")
-    cables = [(float(x), float(y), float(d)) for x, y, d in cables]
+    # ⚠ (x, y, d) or (x, y, d, gradient) — the SAME two shapes BundleCase
+    # takes, so a caller does not have to learn a second convention to say
+    # that two same-size cables carry different losses.
+    explicit, norm = [], []
+    for c in cables:
+        if len(c) == 4:
+            norm.append((float(c[0]), float(c[1]), float(c[2])))
+            explicit.append(float(c[3]))
+        elif len(c) == 3:
+            norm.append((float(c[0]), float(c[1]), float(c[2])))
+        else:
+            raise ValueError("a cable is (x, y, diameter) or "
+                             "(x, y, diameter, gradient); got %d values"
+                             % len(c))
+    if explicit and len(explicit) != len(norm):
+        raise ValueError(
+            "some cables carry a gradient and some do not; give every cable "
+            "one or none, because a default silently applied to half a bundle "
+            "is worse than no default")
+    cables = norm
     for _x, _y, d in cables:
         if d <= 0:
             raise ValueError("cable diameter must be positive")
     grads, driven_by = _per_cable_gradients(cables, gradient, joule_w_per_m,
-                                            t_film_k)
+                                            t_film_k,
+                                            explicit=explicit or None)
     if box_w is None or box_h is None:
         side = _enclosure_for(cables, 0.0, clearance_ratio)
         box_w = box_w or side
@@ -486,7 +628,12 @@ def solve_mixed_bundle_factor(cables, box_w=None, box_h=None,
                                 for (x, y, d), g in zip(cables, grads)],
                         box_w=box_w, box_h=box_h, gradient=gradient, **case_kw)
     report, result = runner(case_dir, case)
-    key = cables_key(cables, box_w, box_h)
+    # ⚠ The key is built from the RESOLVED gradients, not the raw input, so a
+    # Joule-driven solve and a typed-gradient one that happen to produce the
+    # same fluxes share a cached factor — which is correct, they solved the
+    # same case — while any change in who carries what stales it.
+    key = cables_key([(x, y, d, g) for (x, y, d), g in zip(cables, grads)],
+                     box_w, box_h)
     if not report.get("ok") or result is None:
         raise ValueError(
             "the convection solve did not complete (%s); no factor was "
@@ -499,45 +646,48 @@ def solve_mixed_bundle_factor(cables, box_w=None, box_h=None,
         geometry=geometry, converged=bool(report.get("converged")),
         drift=report.get("nu_drift", float("nan")))
     # A uniform set comes back as a plain BundleNusselt, exactly as it always
-    # did; a mixed one carries a reading per patch.
+    # did; a mixed one carries a reading per patch. ⚠ The key is the PATCH, not
+    # the diameter: one diameter can carry several groups when same-size cables
+    # run at different losses, and keying by size dropped one of them silently
+    # until this was fixed.
     per_patch = getattr(result, "by_patch", None)
     if per_patch is None:
-        counts = {round(cables[0][2], 12): len(cables)}
-        readings = {round(cables[0][2], 12): result}
+        readings = [("cables", round(cables[0][2], 12), grads[0], result)]
     else:
         diam = getattr(result, "diameter", {})
-        readings, counts = {}, {}
-        for patch, res in per_patch.items():
-            d = round(float(diam.get(patch, 0.0)), 12)
-            # ⚠ THIS RESULT IS KEYED BY SIZE, so two patches of the SAME
-            # diameter would collide and one would be silently dropped. The
-            # case writer supports that split — cables of one size on
-            # different fluxes are legitimately different patches — but
-            # "mixed loading within a size" is a second axis this factor API
-            # does not model, and dropping a group quietly is exactly the
-            # class of failure this module exists to avoid.
-            if d in readings:
-                raise ValueError(
-                    "this solve produced two surfaces of the same %.4g mm "
-                    "diameter (different wall fluxes), and a per-SIZE factor "
-                    "cannot key them apart. Mixed DIAMETERS are supported; "
-                    "mixed LOADING within one diameter is not. Give the "
-                    "cables of each size the same loss, or solve the "
-                    "differently-loaded ones as their own bundle."
-                    % (1000.0 * d))
-            readings[d] = res
-            counts[d] = sum(1 for c in cables if abs(c[2] - d) <= 1e-9)
-    for d, res in readings.items():
-        out.by_size[d] = _factor_from(res, d, counts.get(d, 0), geometry,
-                                      report)
-    for d, f in out.by_size.items():
+        grad_of = getattr(result, "gradient", {})
+        readings = [(patch, round(float(diam.get(patch, 0.0)), 12),
+                     float(grad_of.get(patch, 0.0)), res)
+                    for patch, res in per_patch.items()]
+    for patch, d, grad, res in readings:
+        n = sum(1 for (x, y, dc), g in zip(cables, grads)
+                if abs(dc - d) <= 1e-9 and abs(g - grad) <= 1e-9)
+        out.by_group[patch] = _factor_from(res, d, n, geometry, report,
+                                           gradient=grad, patch=patch)
+    for patch, f in out.by_group.items():
         for w in f.warnings:
-            note = "%.4g mm: %s" % (1000.0 * d, w)
+            note = "%.4g mm @ %.4g K/m: %s" % (1000.0 * f.d_cable,
+                                               f.gradient, w)
             if note not in out.warnings:
                 out.warnings.append(note)
-    if len(out.by_size) > 1 and out.spread_pct > 5.0:
+    if len(out.by_group) > 1 and out.spread_pct > 5.0:
         out.warnings.append(
-            "the sizes' factors differ by %.1f %%, so ONE factor cannot "
-            "describe this bundle — rate each size with its own"
+            "the groups' factors differ by %.1f %%, so ONE factor cannot "
+            "describe this bundle — rate each cable with its own"
             % out.spread_pct)
+    # ⚠ Same size, different loss is a REAL arrangement and it is now solved
+    # rather than refused — but it is also the case a reader is most likely to
+    # collapse back into "the 20 mm factor", so say it out loud.
+    dupes = sorted({f.d_cable for f in out.by_group.values()
+                    if sum(1 for g in out.by_group.values()
+                           if g.d_cable == f.d_cable) > 1})
+    for d in dupes:
+        same = [f for f in out.by_group.values() if f.d_cable == d]
+        out.warnings.append(
+            "%.4g mm carries %d groups on different wall fluxes (%s K/m -> "
+            "factors %s). They are the same SIZE and not the same cable "
+            "thermally; do not quote one of them as \"the %.4g mm factor\""
+            % (1000.0 * d, len(same),
+               ", ".join("%.4g" % f.gradient for f in same),
+               ", ".join("%.4f" % f.factor for f in same), 1000.0 * d))
     return out

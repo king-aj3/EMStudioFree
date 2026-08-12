@@ -5,6 +5,71 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.98.0] — 2026-08-12 — same size, different current, different factor
+
+The v0.97.0 per-size result was keyed by DIAMETER, so two cables of one size on
+different losses collided and the solve had to be refused. The key was simply
+wrong — a group is *(diameter, wall flux)* — and fixing it turned out to expose
+the bigger of the two effects: **18.3 % between two identical cables**, against
+12.3 % for a 20/10 mm diameter mix.
+
+### Added
+* **MIXED LOADING within one diameter — two same-size cables on different
+  losses now get their own factors instead of being refused.** v0.97.0 keyed
+  the per-size result by DIAMETER, so a same-size pair collided and one was
+  silently dropped; it had to refuse the arrangement rather than lose a group.
+  A group is really **(diameter, wall flux)** — that is what one snappy patch
+  can carry — so the result is now keyed by **patch**. Nothing about the mesh
+  changed: the case writer had always split those cables onto separate patches
+  correctly. It was bookkeeping, and the bug it caused was the dangerous kind,
+  because a lost group is a cable rated on somebody else's number.
+* **MEASURED — and it is a bigger effect than the diameter mix.** Two 20 mm
+  cables, same size, same 0.20 m enclosure, only the flux differs:
+
+      20 mm @ 400 K/m   dT 2.14349   Nu 3.7322 @ Ra 5359   factor 0.9876
+      20 mm @ 100 K/m   dT 0.79277   Nu 2.5228 @ Ra 1982   factor 0.8346
+
+  **18.3 % apart for two cables of the SAME SIZE** — against 12.3 % for the
+  20/10 mm diameter mix. The LIGHTLY loaded cable is the worse cooled: its own
+  driving dT is small and it sits in its neighbour's warm field, so the
+  correlation flatters it most. Quoting "the 20 mm factor" for that bundle is
+  wrong by 18 % for one of them.
+  ⚠ The dT ratio is **2.70 for a 4:1 flux ratio** — neither the 1.0 a shared
+  boundary condition would give nor the ~3.0 of two uncoupled cables. That is
+  what two cables genuinely heating each other in one enclosure looks like,
+  and it is the gate's proof that this is ONE coupled solve.
+* `factor_for(d)` still answers directly whenever a diameter is unambiguous, so
+  the common case did not get harder; it refuses, **naming the fluxes**, only
+  when one diameter really does carry several groups. `by_size` likewise
+  refuses rather than dropping a group. `SizeFactors` keys ambiguous sizes as
+  `<mm>@<K/m>` and leaves unambiguous ones bare, so documents written by
+  v0.97.0 read back identically.
+* ⚠ **The staleness key now sees the loading.** Which cable carries which loss
+  changes every group's answer, and the provenance's "100..400 K/m" range
+  summary cannot tell an arrangement from its mirror. A staleness check that
+  cannot see a change is not a staleness check.
+* **The assistant gained the rule that would otherwise have gone silent.** A
+  bundle of ONE diameter has `sizes == 1`, so the mixed-diameter note never
+  fires — and yet its cables have different factors. `thermal_advice` rule 6b
+  fires on GROUPS, before any CFD, and the free tier carries the same warning
+  in plainer words.
+* ⚠ **API-level for now.** The Cable Designer's bundle table has no per-member
+  current column, so the UI cannot yet build a mixed-loading case; the dialog
+  and the advice already handle it for the day it can.
+* **Gated**: `openfoam_bundle` grows a live `load` rung — two 20 mm cables,
+  identical geometry, only the flux differing, which makes it the sharpest
+  attribution test here (the mixed-DIAMETER rung cannot say this, because
+  there D and the flux both change at once). 12 488 cells, **175 s**.
+  Equal face counts are an EQUALITY, not a band. `thermal` covers the per-group
+  arithmetic and every refusal in the FAST tier; `assistant` covers rule 6b;
+  `smoke` covers the `@`-keyed document round-trip.
+  **Mutations: 25/25 caught with 25 DISTINCT failure signatures.**
+  ⚠ Two harness faults found and fixed on the way, both of which had scored
+  real mutations as survivors: the harness ran only ONE of the two gates, and
+  it read `_FAILED` when the thermal gate accumulates into `FAILURES`. It now
+  runs both and **refuses to score a gate that produced no check output** —
+  a green from a gate that never ran is not a green.
+
 ## [0.97.0] — 2026-08-12 — a CFD number for the bundle you actually have
 
 Three OpenFOAM slices land together: the **mixed-diameter bundle** (the one

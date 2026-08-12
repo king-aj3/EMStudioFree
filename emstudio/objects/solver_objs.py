@@ -596,28 +596,64 @@ class SolverOpenFOAM(_SolverBase):
 
     @staticmethod
     def format_size_factors(mixed):
-        """``'20.0:0.8017; 10.0:0.8360'`` from a ``MixedBundleFactor``."""
-        return "; ".join("%.4g:%.6f" % (1000.0 * d, mixed.by_size[d].factor)
-                         for d in mixed.sizes)
+        """The solved groups as text: ``'20:0.947900; 10:0.843800'``.
+
+        ⚠ A diameter carrying more than one group gets its WALL FLUX in the
+        key — ``'20@400:0.947900; 20@100:0.981200'`` — because same-size cables
+        on different losses have different factors and the diameter alone
+        cannot tell them apart. Sizes that are unambiguous keep the bare form,
+        so documents written before groups existed still read back identically.
+        """
+        counts = {}
+        for f in mixed.by_group.values():
+            counts[f.d_cable] = counts.get(f.d_cable, 0) + 1
+        parts = []
+        for f in mixed.by_group.values():
+            key = ("%.4g" % (1000.0 * f.d_cable) if counts[f.d_cable] == 1
+                   else "%.4g@%.6g" % (1000.0 * f.d_cable, f.gradient))
+            parts.append("%s:%.6f" % (key, f.factor))
+        return "; ".join(parts)
 
     @staticmethod
-    def parse_size_factors(text):
-        """``{diameter_m: factor}`` from what :meth:`format_size_factors` wrote.
+    def parse_group_factors(text):
+        """``[(diameter_m, gradient_or_None, factor)]`` — every solved group.
 
         ⚠ Raises on anything it cannot read rather than returning a partial
-        map. A silently-short mapping would hand the caller the bare
-        correlation for a size that was actually solved.
+        list. A silently-short reading would hand the caller the bare
+        correlation for a cable that was actually solved.
         """
-        out = {}
+        out = []
         for part in (p.strip() for p in str(text or "").split(";")):
             if not part:
                 continue
             try:
-                d_mm, f = part.split(":")
-                out[float(d_mm) / 1000.0] = float(f)
+                key, f = part.split(":")
+                if "@" in key:
+                    d_mm, grad = key.split("@")
+                    out.append((float(d_mm) / 1000.0, float(grad), float(f)))
+                else:
+                    out.append((float(key) / 1000.0, None, float(f)))
             except ValueError:
                 raise ValueError(
-                    "cannot read %r as a '<diameter mm>:<factor>' pair" % part)
+                    "cannot read %r as a '<diameter mm>[@<K/m>]:<factor>' "
+                    "entry" % part)
+        return out
+
+    @classmethod
+    def parse_size_factors(cls, text):
+        """``{diameter_m: factor}`` — the common case, keyed by size.
+
+        ⚠ RAISES when one diameter carries several groups, rather than losing
+        one. Use :meth:`parse_group_factors` there.
+        """
+        out = {}
+        for d, grad, f in cls.parse_group_factors(text):
+            if d in out:
+                raise ValueError(
+                    "%.4g mm carries more than one solved group, so this "
+                    "cannot be keyed by size — read parse_group_factors()"
+                    % (1000.0 * d))
+            out[d] = f
         return out
 
     def store_factor(self, obj, factor):
@@ -629,44 +665,70 @@ class SolverOpenFOAM(_SolverBase):
         obj.SizeFactors = ""
 
     def store_mixed_factors(self, obj, mixed):
-        """Record a solved ``MixedBundleFactor`` — one factor per cable size.
+        """Record a solved ``MixedBundleFactor`` — one factor per solved GROUP.
 
-        ⚠ ``BundleFactor`` is set to the WORST size's factor, deliberately.
+        A group is one diameter at one wall flux, so a bundle where two
+        same-size cables run at different losses has two entries for that size
+        and ``SizeFactors`` keys them by ``<mm>@<K/m>``.
+
+        ⚠ ``BundleFactor`` is set to the WORST group's factor, deliberately.
         Something will read that scalar without knowing the bundle is mixed,
-        and of the two ways to be wrong, under-rating the sizes that cool well
-        is the safe one — over-rating the size that does not is how a cable
+        and of the two ways to be wrong, under-rating the cables that cool well
+        is the safe one — over-rating the one that does not is how a cable
         runs hot. The provenance says out loud that it is a floor, not the
         bundle's factor, and ``SizeFactors`` carries the real answers.
         """
         obj.BundleFactor = float(mixed.worst.factor)
         obj.FactorProvenance = (
-            "%s || the scalar BundleFactor above is the WORST size's "
-            "(%.4g mm), applied as a conservative floor — the per-size "
-            "factors in SizeFactors are the answers"
-            % (mixed.provenance, 1000.0 * mixed.worst.d_cable))
+            "%s || the scalar BundleFactor above is the WORST group's "
+            "(%.4g mm at %.4g K/m), applied as a conservative floor — the "
+            "per-group factors in SizeFactors are the answers"
+            % (mixed.provenance, 1000.0 * mixed.worst.d_cable,
+               mixed.worst.gradient))
         obj.SolvedGeometry = str(mixed.geometry)
         obj.FactorConverged = bool(mixed.converged)
         obj.SizeFactors = self.format_size_factors(mixed)
 
-    def factor_for(self, obj, d_cable, tol=1e-9):
-        """The cached factor for one cable SIZE.
+    def factor_for(self, obj, d_cable, gradient=None, tol=1e-9):
+        """The cached factor for one cable.
 
         Falls through to the single ``BundleFactor`` when the bundle was
-        uniform. On a mixed bundle it REFUSES a size that was not solved
+        uniform. On a mixed bundle it REFUSES a cable that was not solved
         rather than handing back the conservative floor dressed as that
-        size's own measurement.
+        cable's own measurement — and refuses an ambiguous diameter rather
+        than picking one of its groups.
         """
-        sizes = self.parse_size_factors(getattr(obj, "SizeFactors", ""))
-        if not sizes:
+        groups = self.parse_group_factors(getattr(obj, "SizeFactors", ""))
+        if not groups:
             return float(obj.BundleFactor)
-        for d, f in sizes.items():
-            if abs(d - float(d_cable)) <= tol:
-                return f
-        raise ValueError(
-            "no factor was solved for a %.4g mm cable; this bundle carries %s"
-            % (1000.0 * float(d_cable),
-               ", ".join("%.4g mm" % (1000.0 * d) for d in sorted(sizes,
-                                                                  reverse=True))))
+        hits = [g for g in groups if abs(g[0] - float(d_cable)) <= tol]
+        if not hits:
+            raise ValueError(
+                "no factor was solved for a %.4g mm cable; this bundle "
+                "carries %s"
+                % (1000.0 * float(d_cable),
+                   ", ".join("%.4g mm" % (1000.0 * d)
+                             for d in sorted({g[0] for g in groups},
+                                             reverse=True))))
+        if gradient is not None:
+            exact = [g for g in hits
+                     if g[1] is not None and abs(g[1] - float(gradient)) <= 1e-9]
+            if not exact:
+                raise ValueError(
+                    "no %.4g mm group was solved at %.4g K/m; that size was "
+                    "solved at %s"
+                    % (1000.0 * float(d_cable), float(gradient),
+                       ", ".join("%.4g K/m" % g[1] if g[1] is not None
+                                 else "an unrecorded flux" for g in hits)))
+            return exact[0][2]
+        if len(hits) > 1:
+            raise ValueError(
+                "%.4g mm carries %d solved groups (%s K/m) — say which with "
+                "factor_for(obj, d, gradient=...). Same-size cables on "
+                "different losses do not share a factor."
+                % (1000.0 * float(d_cable), len(hits),
+                   ", ".join("%.4g" % g[1] for g in hits if g[1] is not None)))
+        return hits[0][2]
 
     def factor_stale(self, obj, geometry_key):
         """True when the cached factor was solved for a DIFFERENT design.

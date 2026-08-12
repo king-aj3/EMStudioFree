@@ -167,9 +167,14 @@ Pick the top-level **Construction** first — **Litz / stranded**, **Coax**, or
   all solved together in the same enclosure because the sizes cool each other.
   Measured for 1 × 20 mm with 2 × 10 mm: **0.9479 and 0.8438 — 12.3 % apart**,
   which is why there is no single number. Rate each size with its own; if you
-  must use one, use the smallest (the most pessimistic). ⚠ Do **not** apply a
-  solved factor *and* the NEC 310.15(C)(1) adjustment — both derate the same
-  physics and using both derates twice.
+  must use one, use the smallest (the most pessimistic).
+  ⚠ **Same size, different current, different factor too.** Two 20 mm cables at
+  a 4:1 load difference measure **0.9876 and 0.8346 — 18.3 % apart**, and the
+  *lightly* loaded one is the worse cooled: small temperature rise of its own,
+  sitting in its neighbour's warm air. (API-level today — the member table has
+  no per-member current column yet.)
+  ⚠ Do **not** apply a solved factor *and* the NEC 310.15(C)(1) adjustment —
+  both derate the same physics and using both derates twice.
 - **Litz / stranded** (below):
 
 Type (1–9, New England Wire taxonomy) → strand size (AWG/mm/mil) → operations table:

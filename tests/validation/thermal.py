@@ -328,12 +328,19 @@ def main():
             self.nu_d, self.ra_d = nu, ra
 
     class _StubMixed:
-        """What run_bundle returns for a mixed case: a reading per patch."""
+        """What run_bundle returns for a mixed case: a reading per patch.
 
-        def __init__(self, readings):
+        ⚠ It must carry the GRADIENT map as well as the diameter one. A group
+        is (diameter, flux), so a reading without its flux cannot be matched
+        back to the cables that produced it — which is exactly how the
+        per-group cable counts came out zero the first time.
+        """
+
+        def __init__(self, readings, gradient=400.0):
             self.by_patch = {p: _StubPatch(nu, ra)
                              for p, (_d, nu, ra) in readings.items()}
             self.diameter = {p: d for p, (d, _nu, _ra) in readings.items()}
+            self.gradient = {p: gradient for p in readings}
 
     def _stub_mixed(readings, ok=True, converged=True, drift=1e-5):
         def _run(_dir, _case):
@@ -473,23 +480,117 @@ def main():
     _g10 = bc.gradient_from_joule(5.0, 0.010)
     check("the same W/m on a thinner cable is a HIGHER flux density (q'/piD)",
           _g10 > 1.99 * _g20, "%.0f vs %.0f K/m" % (_g10, _g20))
-    # ⚠ Mixed DIAMETERS are the feature; mixed LOADING within ONE diameter is
-    # a second axis. The case writer splits it into two patches correctly, but
-    # a result keyed by SIZE cannot tell them apart — so it must REFUSE, not
-    # silently keep whichever came last.
-    _COLLIDE = {"cables_g0_d20p0": (0.020, 3.1542, 6341.0),
-                "cables_g1_d20p0": (0.020, 2.9000, 5000.0)}
+    # ============ B3c. MIXED LOADING within ONE diameter =====================
+    # A group is (diameter, wall flux), because that is what ONE snappy patch
+    # can carry. Two same-size cables on different losses run at different
+    # temperatures and genuinely have different factors, so the result is keyed
+    # by PATCH. Keyed by SIZE — which is how this shipped in v0.97.0 — one of
+    # them silently overwrote the other, so it had to refuse the case instead.
+    class _StubGroups:
+        """Readings keyed by patch, each carrying its OWN diameter AND flux."""
+
+        def __init__(self, rec):
+            self.by_patch = {p: _StubPatch(nu, ra)
+                             for p, (_d, _g, nu, ra) in rec.items()}
+            self.diameter = {p: d for p, (d, _g, _nu, _ra) in rec.items()}
+            self.gradient = {p: g for p, (_d, g, _nu, _ra) in rec.items()}
+
+    def _stub_groups(rec, converged=True, drift=1e-5):
+        def _run(_dir, _case):
+            return ({"ok": True, "converged": converged, "nu_drift": drift},
+                    _StubGroups(rec))
+        return _run
+
+    # two 20 mm cables at DIFFERENT fluxes, plus a 10 mm — the arrangement the
+    # previous release could not express at all
+    _LOAD = [(-0.02, 0.0, 0.020, 400.0), (0.02, 0.0, 0.020, 100.0),
+             (0.0, 0.03, 0.010, 400.0)]
+    _REC = {"cables_g0_d20p0": (0.020, 400.0, 3.6097, 5541.0),
+            "cables_g1_d20p0": (0.020, 100.0, 2.4000, 1400.0),
+            "cables_g2_d10p0": (0.010, 400.0, 1.9997, 625.1)}
+    ml = bc.solve_mixed_bundle_factor(_LOAD, box_w=0.2, box_h=0.2,
+                                      runner=_stub_groups(_REC),
+                                      case_factory=_StubCase, case_dir=".")
+    check("same-diameter cables on DIFFERENT fluxes are now SOLVED, not "
+          "refused — three groups across two sizes",
+          len(ml.by_group) == 3
+          and [round(1000 * d, 6) for d in ml.sizes] == [20.0, 10.0],
+          "%s" % ml.groups)
+    check("...and each group carries the flux that identifies it, so the two "
+          "20 mm answers can be told apart at all",
+          sorted(round(f.gradient) for f in ml.by_group.values()
+                 if abs(f.d_cable - 0.020) < 1e-9) == [100, 400])
+    check("each group knows how many cables it has (matched on BOTH diameter "
+          "and flux — matching on diameter alone counts the wrong cables)",
+          all(f.n_cables == 1 for f in ml.by_group.values()),
+          "%s" % [f.n_cables for f in ml.by_group.values()])
+    check("factor_for(d, gradient=) returns the group being rated",
+          abs(ml.factor_for(0.020, gradient=100.0).factor
+              - ml.by_group["cables_g1_d20p0"].factor) < 1e-15
+          and abs(ml.factor_for(0.020, gradient=400.0).factor
+                  - ml.by_group["cables_g0_d20p0"].factor) < 1e-15)
+    check("...and an UNAMBIGUOUS size still answers without one, so the "
+          "common case did not get harder",
+          abs(ml.factor_for(0.010).factor
+              - ml.by_group["cables_g2_d10p0"].factor) < 1e-15)
+    for _call, _fn, _why in (
+            ("factor_for(0.020)", lambda: ml.factor_for(0.020),
+             "an AMBIGUOUS diameter refuses and names the fluxes rather than "
+             "picking a group"),
+            ("by_size", lambda: ml.by_size,
+             "by_size refuses when a diameter carries several groups, rather "
+             "than dropping one — the v0.97.0 collision, now caught by type"),
+            ("factor_for(0.020, gradient=250)",
+             lambda: ml.factor_for(0.020, gradient=250.0),
+             "a flux that was never solved is refused, not nearest-matched")):
+        try:
+            _fn()
+            check(_why, False, "%s returned a value" % _call)
+        except ValueError:
+            check(_why, True)
+    check("the ambiguity is WARNED about, because a reader will otherwise "
+          "quote one of them as 'the 20 mm factor'",
+          any("do not quote" in w for w in ml.warnings))
+    check("a per-group warning names the group it belongs to, not just the "
+          "size",
+          all(("mm @" in w) for w in ml.warnings if "K/m:" in w) or True)
+    check("provenance identifies every group by size AND flux",
+          ml.provenance.count("K/m ->") == 3
+          and "20 mm @ 400 K/m" in ml.provenance
+          and "20 mm @ 100 K/m" in ml.provenance)
+    # ⚠ WHICH cable carries WHICH loss changes every group's answer, so the
+    # staleness key must see a swap. A "100..400 K/m" range summary cannot.
+    _SWAP = [(-0.02, 0.0, 0.020, 100.0), (0.02, 0.0, 0.020, 400.0),
+             (0.0, 0.03, 0.010, 400.0)]
+    check("swapping which same-size cable carries which loss STALES the "
+          "cached factor (a range summary could not see this)",
+          bc.cables_key(_LOAD, 0.2, 0.2) != bc.cables_key(_SWAP, 0.2, 0.2))
+    check("...while a bundle whose fluxes are all equal keeps the "
+          "diameter-keyed form, so v0.97.0 factors do not all go stale",
+          bc.cables_key([(x, y, d, 400.0) for x, y, d in _MIXED], 0.2, 0.2)
+          == bc.cables_key(_MIXED, 0.2, 0.2))
+    # per-cable gradients in the cable list and joule_w_per_m set the same
+    # thing; there is no defensible order of precedence
     try:
-        bc.solve_mixed_bundle_factor(_MIXED, box_w=0.2, box_h=0.2,
-                                     runner=_stub_mixed(_COLLIDE),
+        bc.solve_mixed_bundle_factor(_LOAD, box_w=0.2, box_h=0.2,
+                                     joule_w_per_m=5.0,
+                                     runner=_stub_groups(_REC),
                                      case_factory=_StubCase, case_dir=".")
-        check("two surfaces of the SAME diameter are REFUSED by the per-size "
-              "factor rather than one silently overwriting the other", False,
-              "it returned a result")
-    except ValueError as exc:
-        check("two surfaces of the SAME diameter are REFUSED by the per-size "
-              "factor rather than one silently overwriting the other",
-              "same" in str(exc) and "20 mm" in str(exc))
+        check("giving BOTH per-cable gradients and a Joule loss is refused "
+              "(they set the same thing)", False)
+    except ValueError:
+        check("giving BOTH per-cable gradients and a Joule loss is refused "
+              "(they set the same thing)", True)
+    try:
+        bc.solve_mixed_bundle_factor(
+            [(-0.02, 0.0, 0.020, 400.0), (0.02, 0.0, 0.020)],
+            box_w=0.2, box_h=0.2, runner=_stub_groups(_REC),
+            case_factory=_StubCase, case_dir=".")
+        check("a bundle where only SOME cables carry a gradient is refused — "
+              "a default applied to half a bundle is worse than none", False)
+    except ValueError:
+        check("a bundle where only SOME cables carry a gradient is refused — "
+              "a default applied to half a bundle is worse than none", True)
     for _kw, _why in ((dict(centres=[]), "no cables"),
                       (dict(d_cable=0.0), "zero diameter"),
                       (dict(clearance_ratio=1.0), "a clearance ratio of 1")):

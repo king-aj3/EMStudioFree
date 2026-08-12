@@ -298,6 +298,17 @@ def mixed_offline_checks():
           "%d group(s)" % len(gg))
     check("...ordered hottest-first within a size, so the order is stable",
           [g.gradient for g in gg] == [400.0, 100.0])
+    # ⚠ Two groups of ONE diameter must still get DISTINCT patch names. The
+    # size alone cannot separate them, so the index in the name is doing real
+    # work here — without it snappy would see one name twice.
+    check("...and their patch names are distinct even though the size is "
+          "identical (the group INDEX is what separates them)",
+          len({g.patch for g in gg}) == 2
+          and all("d20p0" in g.patch for g in gg),
+          "%s" % [g.patch for g in gg])
+    check("...and neither is refined more than the other, since the diameters "
+          "are equal — the bump is about SIZE, not flux",
+          gg[0].refine_max == gg[1].refine_max)
 
     print(" smaller cables are refined harder, so their Nu is not a mesh "
           "artifact:")
@@ -800,6 +811,124 @@ def live_mixed_checks(base, got):
               "is coarser): 3 x 20 mm Nu %.4f -> the 20 mm cable with two "
               "10 mm neighbours Nu 3.6097 (+14.4 %%). This rung reads %.4f."
               % (nu_uniform, r_big.nu_d))
+
+    live_load_checks(base)
+
+
+def live_load_checks(base):
+    """MIXED LOADING within one diameter — the sharpest attribution test here.
+
+    Two 20 mm cables, same size, same enclosure, and ONLY the wall flux differs
+    (400 vs 100 K/m). With the diameters equal, nothing but the boundary
+    condition can separate the two answers, so a shared or swapped BC is
+    unmissable — which the mixed-DIAMETER rung cannot say, because there D and
+    the flux both change at once.
+
+    MEASURED at this setting (12 488 cells, 175 s):
+
+        20 mm @ 400 K/m   dT 2.14349   Nu 3.7322 @ Ra 5359   factor 0.9876
+        20 mm @ 100 K/m   dT 0.79277   Nu 2.5228 @ Ra 1982   factor 0.8346
+
+    **18.3 % apart for two cables of the SAME SIZE.** The lightly-loaded one is
+    the WORSE cooled: its own driving dT is small and it sits in its
+    neighbour's warm field, so the correlation flatters it most. Quoting "the
+    20 mm factor" for this bundle is wrong by 18 % for one of them.
+    """
+    tag = "load"
+    d = os.path.join(base, tag)
+    os.makedirs(d)
+    case = B.BundleCase(cells_x=50, iterations=1500, write_interval=500,
+                        box_w=0.20, box_h=0.20,
+                        cables=[(-0.025, 0.0, 0.020, 400.0),
+                                (0.025, 0.0, 0.020, 100.0)])
+    hot, cool = case.groups
+    rep, res = ofm.run_bundle(d, case)
+    if not check("load: the chain completes with two SAME-SIZE surfaces on "
+                 "different fluxes", rep["ok"], rep.get("failed_at", "") or ""):
+        return
+    mesh = [s for s in rep["steps"] if s["step"] == "checkMesh"]
+    check("load: checkMesh reports Mesh OK",
+          bool(mesh) and "Mesh OK" in mesh[0]["tail"])
+    if not check("load: two patches of ONE diameter came back separately — "
+                 "the group INDEX, not the size, is what keeps them apart",
+                 set(res.patches) == {hot.patch, cool.patch}
+                 and all(r.faces > 0 for r in res.by_patch.values()),
+                 ", ".join("%s %d faces" % (p, r.faces)
+                           for p, r in res.by_patch.items())):
+        return
+    rh, rc = res.by_patch[hot.patch], res.by_patch[cool.patch]
+
+    # ⚠ Identical geometry, so identical face counts. On the mixed-DIAMETER
+    # rung this had to be a normalised band; here it is an EQUALITY, and that
+    # makes it a much sharper statement that the two surfaces really are the
+    # same cable meshed the same way.
+    check("load: the two patches carry the SAME number of faces — same "
+          "diameter, same refinement, so anything else means the surfaces are "
+          "not what they claim", rh.faces == rc.faces,
+          "%d vs %d" % (rh.faces, rc.faces))
+
+    # ⚠ THE ATTRIBUTION CHECK. A swapped or shared boundary condition inverts
+    # or collapses this, and nothing else in the gate can catch that.
+    check("load: the 400 K/m cable is decisively HOTTER than the 100 K/m one "
+          "— a swapped BC inverts this, a shared one collapses it",
+          rh.dt > 1.5 * rc.dt,
+          "dT %.5f vs %.5f K (surface %.4f vs %.4f K)"
+          % (rh.dt, rc.dt, rh.t_surface, rc.t_surface))
+    for tag2, grp, r in (("hot", hot, rh), ("cool", cool, rc)):
+        check("load %s: Nu = D grad / dT against ITS OWN gradient, exactly"
+              % tag2,
+              abs(r.nu_d - grp.d_cable * grp.gradient / r.dt) < 1e-9,
+              "%.4g K/m -> Nu %.4f at Ra %.4g" % (grp.gradient, r.nu_d, r.ra_d))
+
+    # ⚠ The best check in this rung. A SHARED BC would give a dT ratio of 1;
+    # two UNCOUPLED cables would give ~4^0.8 = 3.0 (dT ~ flux^4/5 through the
+    # Ra^1/4 correlation). Measured 2.70 — strictly between, which is what two
+    # cables genuinely heating each other in one enclosure looks like, and
+    # what proves this is ONE coupled solve rather than two independent ones.
+    ratio = rh.dt / rc.dt
+    check("load: the temperature ratio is neither 1 (a shared BC) nor the "
+          "~3.0 of two UNCOUPLED cables at a 4:1 flux ratio — they are heating "
+          "each other, in one solve", 1.2 < ratio < 3.8,
+          "dT ratio %.4f for a flux ratio of %.4g"
+          % (ratio, hot.gradient / cool.gradient))
+    check("load: hottest() names the high-flux group — ampacity binds on "
+          "temperature", res.hottest()[0] == hot.patch)
+
+    drifts = rep.get("nu_drift_by_patch") or {}
+    check("load: drift is reported per group here too",
+          set(drifts) == {hot.patch, cool.patch},
+          "%s" % {k: "%.2e" % v for k, v in drifts.items()})
+
+    # --- and the factor the user gets --------------------------------------
+    from emstudio.wire import bundle_convection as bc
+    mf = bc.solve_mixed_bundle_factor(
+        [(-0.025, 0.0, 0.020, 400.0), (0.025, 0.0, 0.020, 100.0)],
+        box_w=0.20, box_h=0.20, runner=lambda _d, _c: (rep, res),
+        case_factory=lambda **kw: case, case_dir=d)
+    check("load: ONE diameter yields TWO factors — the arrangement the "
+          "previous release had to refuse",
+          len(mf.by_group) == 2 and mf.sizes == [0.020],
+          "; ".join("%.4g K/m -> %.4f" % (f.gradient, f.factor)
+                    for f in mf.by_group.values()))
+    check("load: the LIGHTLY loaded cable is the WORSE cooled — its own "
+          "driving dT is small and it sits in its neighbour's warm field, so "
+          "the correlation flatters it most",
+          mf.worst.gradient == cool.gradient,
+          "worst %.4f at %.4g K/m, spread %.1f %%"
+          % (mf.worst.factor, mf.worst.gradient, mf.spread_pct))
+    check("load: ...and the two factors are far enough apart that quoting one "
+          "as \"the 20 mm factor\" would be a real error",
+          mf.spread_pct > 5.0, "%.1f %%" % mf.spread_pct)
+    try:
+        mf.factor_for(0.020)
+        check("load: asking by SIZE alone is refused, because this bundle has "
+              "two answers for 20 mm", False, "it returned one")
+    except ValueError:
+        check("load: asking by SIZE alone is refused, because this bundle has "
+              "two answers for 20 mm", True)
+    check("load: ...and asking with the flux answers",
+          abs(mf.factor_for(0.020, gradient=100.0).factor
+              - mf.by_group[cool.patch].factor) < 1e-15)
 
 
 def main():
