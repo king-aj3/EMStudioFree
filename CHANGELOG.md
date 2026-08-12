@@ -5,6 +5,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+* **RETRACTED: "`buoyantBoussinesqSimpleFoam` silently ignores `fvOptions`".**
+  That finding was wrong and it was load-bearing — it was written up as the
+  reason the Joule coupling was blocked and needed a fourth case writer. The
+  probe wrote `system/fvOptions` with **no `FoamFile` header**; OpenFOAM warns
+  on a headerless dictionary, treats it as empty ("No finite volume options
+  present"), and said so in the log. The "decisive" garbage-type test proved
+  only that an EMPTY dict contains no bad types, and the warning was missed by
+  grepping for `FATAL`/`error` — which does not match a **FOAM Warning**.
+  Measured with a header: the garbage type aborts, and a real source moves
+  max T **300.4854 → 315.7984** (Boussinesq) and **316.4405 → 347.1201**
+  (`buoyantSimpleFoam`). No fourth writer is needed for a volumetric source.
+
 ### Added
 * **`emstudio/wire/bundle_convection.py` — the bundle factor now has a SOURCE.**
   The seam existed with nothing producing a factor. This solves the user's own

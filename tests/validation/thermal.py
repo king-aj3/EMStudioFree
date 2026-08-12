@@ -323,6 +323,52 @@ def main():
         except ValueError:
             check("%s is rejected" % _why, True)
 
+    # ============ B4. the EM -> thermal (Joule) coupling ============
+    # The conductor's I²R loss drives the CFD wall flux. ⚠ NOT fvOptions:
+    # snappy carves the cables OUT of the fluid domain, so a volumetric source
+    # would heat the air, not the conductor. The loss enters as what it
+    # physically is at the fluid boundary — a surface flux.
+    q_j = bc.joule_w_per_m(40.0, 3.3e-3, 70.0)
+    # the SAME expression solve_steady uses: I² R20 (1 + alpha (Tc - 20))
+    _expect = 40.0 ** 2 * 3.3e-3 * (1.0 + th.CONDUCTORS["Cu"]["alpha20"] * 50.0)
+    check("Joule loss is I²R(T) and matches the electrical model the ampacity "
+          "answer already uses",
+          abs(q_j - _expect) < 1e-12, "%.4f W/m" % q_j)
+    g_j = bc.gradient_from_joule(q_j, 0.0026)
+    _k = th.air_properties(315.0)[0]
+    check("gradient = q'/(pi D) / k_air, exactly",
+          abs(g_j - (q_j / (math.pi * 0.0026)) / _k) < 1e-9,
+          "%.1f K/m" % g_j)
+    # ⚠ the k must be AIR's, not copper's — the gradient is taken in the FLUID.
+    # Copper's k is ~400 vs air's ~0.027, so the wrong one is 4 orders out and
+    # would still look like a plausible number in the dictionary.
+    check("...and the conductivity used is AIR's (~0.027), not the "
+          "conductor's (~400) — 4 orders of magnitude, and plausible-looking "
+          "either way", 0.02 < _k < 0.05, "k = %.4f W/mK" % _k)
+    check("a bigger cable spreads the SAME loss over more perimeter, so the "
+          "flux falls",
+          bc.gradient_from_joule(q_j, 0.0052) < g_j / 1.9,
+          "%.0f -> %.0f K/m" % (g_j, bc.gradient_from_joule(q_j, 0.0052)))
+    for _bad, _why in ((0.0, "zero Joule loss"), (-1.0, "negative loss")):
+        try:
+            bc.gradient_from_joule(_bad, 0.0026)
+            check("%s is rejected" % _why, False)
+        except ValueError:
+            check("%s is rejected" % _why, True)
+    # driving the solve by Joule loss must be visible in the provenance —
+    # "solved at 400 K/m" and "solved at this cable's loss" are different claims
+    f_j = bc.solve_bundle_factor(_TREFOIL, 0.020, box_w=0.2, box_h=0.2,
+                                 joule_w_per_m=5.0, runner=_stub_run(),
+                                 case_factory=_StubCase, case_dir=".")
+    check("a Joule-driven solve records WHICH drove the flux, so it cannot be "
+          "mistaken for a typed gradient",
+          "Joule" in f_j.provenance and "W/m" in f_j.provenance)
+    f_g = bc.solve_bundle_factor(_TREFOIL, 0.020, box_w=0.2, box_h=0.2,
+                                 runner=_stub_run(), case_factory=_StubCase,
+                                 case_dir=".")
+    check("...and a gradient-driven one says so instead",
+          "gradient" in f_g.provenance and "Joule" not in f_g.provenance)
+
     # ============ C. steady solve + ampacity bands ============
     # AWG-10 / PVC 105 C hookup (UL1015-class): Multicable row 58 A +-25%
     d10 = 2.588e-3

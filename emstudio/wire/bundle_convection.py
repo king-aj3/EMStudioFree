@@ -39,9 +39,57 @@ from dataclasses import dataclass, field as _field
 from emstudio.wire.thermal import nu_churchill_chu
 
 __all__ = ["BundleFactor", "geometry_key", "centres_from_bundle",
-           "solve_bundle_factor"]
+           "solve_bundle_factor", "gradient_from_joule", "joule_w_per_m"]
 
 PR_AIR = 0.71
+
+
+def joule_w_per_m(i_a, rdc20_ohm_m, t_cond_c, material="Cu", rac_factor=1.0):
+    """I²R(T) per metre — the same loss `thermal.solve_steady` computes.
+
+    Shared rather than re-derived so the CFD case is fed by the SAME electrical
+    model the ampacity answer uses. Two independent loss expressions would
+    eventually disagree, and the CFD would then be solving a cable the product
+    is not rating.
+    """
+    from emstudio.wire.thermal import CONDUCTORS
+    con = CONDUCTORS[material]
+    r_t = float(rdc20_ohm_m) * float(rac_factor) * (
+        1.0 + con["alpha20"] * (float(t_cond_c) - 20.0))
+    return float(i_a) ** 2 * r_t
+
+
+def gradient_from_joule(q_w_per_m, d_cable, t_film_k=315.0):
+    """Wall temperature gradient (K/m) equivalent to a Joule loss per metre.
+
+    THIS is the EM -> thermal coupling on this geometry, and it is NOT
+    ``fvOptions``. snappy CARVES THE CABLES OUT of the fluid domain, so there
+    is no solid region in the mesh: a volumetric source would heat the AIR, not
+    the conductor. The conductor's loss enters as what it physically is at the
+    fluid boundary — a surface heat flux.
+
+        q'' = q' / (pi D)          W/m^2, spread over the wetted perimeter
+        dT/dn = q'' / k_air        K/m, the prescribed-gradient BC
+
+    ⚠ ``k`` is the AIR conductivity at the film temperature, because the
+    gradient is taken in the fluid. Using the conductor's k here would be a
+    factor of ~10^4 wrong and would look plausible in the dictionary.
+
+    ⚠ A true SOLID-side Joule source — conduction inside the conductor, with
+    the loss distributed through its cross-section — needs
+    ``chtMultiRegionFoam`` and a meshed solid region. That is a fidelity
+    upgrade, not a correction: for a good conductor the cross-section is very
+    nearly isothermal, which is the assumption IEC 60287 already makes.
+    """
+    from emstudio.wire.thermal import air_properties
+    if d_cable <= 0:
+        raise ValueError("cable diameter must be positive")
+    if q_w_per_m <= 0:
+        raise ValueError("a non-positive Joule loss deposits no heat; the "
+                         "convection problem would be undefined")
+    k_air = air_properties(float(t_film_k))[0]
+    q_flux = float(q_w_per_m) / (math.pi * float(d_cable))
+    return q_flux / k_air
 
 
 @dataclass
@@ -139,8 +187,15 @@ def _enclosure_for(centres, d_cable, clearance_ratio):
 
 def solve_bundle_factor(centres, d_cable, box_w=None, box_h=None,
                         clearance_ratio=5.0, gradient=400.0, runner=None,
-                        case_factory=None, case_dir=None, **case_kw):
+                        case_factory=None, case_dir=None,
+                        joule_w_per_m=None, t_film_k=315.0, **case_kw):
     """Solve the arrangement and return its :class:`BundleFactor`.
+
+    Pass ``joule_w_per_m`` to drive the wall flux from the cable's ACTUAL I²R
+    loss instead of a typed gradient — the EM -> thermal coupling. It overrides
+    ``gradient`` and the provenance records which was used, because "solved at
+    400 K/m" and "solved at this cable's 5.3 W/m" are different claims and a
+    reader must be able to tell them apart.
 
     ``runner`` / ``case_factory`` are injectable so the offline gate can drive
     this with a stub — the arithmetic and the refusals are testable without a
@@ -150,6 +205,12 @@ def solve_bundle_factor(centres, d_cable, box_w=None, box_h=None,
         raise ValueError("no cable centres to solve")
     if d_cable <= 0:
         raise ValueError("cable diameter must be positive")
+    driven_by = "gradient %.4g K/m" % gradient
+    if joule_w_per_m is not None:
+        gradient = gradient_from_joule(joule_w_per_m, d_cable,
+                                       t_film_k=t_film_k)
+        driven_by = ("Joule %.4g W/m -> gradient %.4g K/m"
+                     % (joule_w_per_m, gradient))
     if box_w is None or box_h is None:
         side = _enclosure_for(centres, d_cable, clearance_ratio)
         box_w = box_w or side
@@ -185,7 +246,7 @@ def solve_bundle_factor(centres, d_cable, box_w=None, box_h=None,
         factor=result.nu_d / nu_corr, nu_solved=result.nu_d,
         nu_correlation=nu_corr, ra_d=ra, d_cable=d_cable,
         n_cables=len(centres), converged=bool(report.get("converged")),
-        drift=report.get("nu_drift", float("nan")), geometry=key)
+        drift=report.get("nu_drift", float("nan")), geometry="%s | %s" % (key, driven_by))
     if not out.converged and not (out.drift == out.drift and out.drift < 5e-3):
         out.warnings.append(
             "this factor came from a solve that neither converged nor showed "
