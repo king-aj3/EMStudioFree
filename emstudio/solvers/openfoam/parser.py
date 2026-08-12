@@ -42,8 +42,8 @@ from dataclasses import dataclass, field as _field
 
 __all__ = ["NusseltResult", "read_internal_field", "nusselt_from_field",
            "latest_time_dir", "CylinderNusselt", "nusselt_cylinder_from_field",
-           "BundleNusselt", "read_patch_values", "nusselt_from_patch",
-           "WindForces", "forces_from_log"]
+           "BundleNusselt", "MixedBundleNusselt", "read_patch_values",
+           "nusselt_from_patch", "WindForces", "forces_from_log"]
 
 _NONUNIFORM = re.compile(r"internalField\s+nonuniform\s+List<scalar>\s*\n?\s*(\d+)\s*\(",
                          re.S)
@@ -370,6 +370,67 @@ def nusselt_from_patch(values, d_m, gradient, t_amb, nu=None, alpha=None,
             "prescribed gradient sign or the ambient value is not what this "
             "assumed")
     return res
+
+
+@dataclass
+class MixedBundleNusselt:
+    """Per-SIZE Nusselt numbers on a bundle of unlike cables.
+
+    There is deliberately no single ``nu_d`` here. ``Nu_D`` is built on a
+    diameter, so a bundle of two sizes has two Nusselt numbers and collapsing
+    them into one would be the exact averaging this whole path exists to
+    refuse. Consumers ask for the size they are rating.
+    """
+
+    by_patch: dict = _field(default_factory=dict)     # patch -> BundleNusselt
+    diameter: dict = _field(default_factory=dict)     # patch -> D (m)
+    gradient: dict = _field(default_factory=dict)     # patch -> dT/dn (K/m)
+    warnings: list = _field(default_factory=list)
+
+    @property
+    def patches(self):
+        """Patch names in insertion order — largest cable first."""
+        return list(self.by_patch)
+
+    @property
+    def faces(self):
+        """Total patch faces read, across every size."""
+        return sum(r.faces for r in self.by_patch.values())
+
+    @property
+    def nu_d(self):
+        raise ValueError(
+            "this bundle mixes %d cable sizes, so it has %d Nusselt numbers "
+            "and not one: %s. Nu_D is built on a diameter. Ask for the size "
+            "you are rating — `.by_patch[patch].nu_d` — or use `.only()` if "
+            "you believed this bundle was uniform."
+            % (len(self.by_patch), len(self.by_patch),
+               ", ".join("%s Nu %.4f at D %.4g mm"
+                         % (p, r.nu_d, 1000.0 * self.diameter.get(p, 0.0))
+                         for p, r in self.by_patch.items())))
+
+    def only(self):
+        """The single group's result, or a refusal naming what is there."""
+        if len(self.by_patch) != 1:
+            raise ValueError(
+                "expected one cable size, found %d (%s)"
+                % (len(self.by_patch),
+                   ", ".join("%.4g mm" % (1000.0 * d)
+                             for d in self.diameter.values())))
+        return next(iter(self.by_patch.values()))
+
+    def hottest(self):
+        """(patch, result) for the size running hottest — the binding member.
+
+        ⚠ Hottest is not the same as lowest-Nu. A thin cable can run cool and
+        still transfer far worse than the correlation promises; a fat one can
+        run hot simply because it dissipates more. Ampacity binds on
+        TEMPERATURE, so this is the one to show a user, and
+        `wire.bundle_convection` reports the worst FACTOR separately.
+        """
+        if not self.by_patch:
+            raise ValueError("no groups were read")
+        return max(self.by_patch.items(), key=lambda kv: kv[1].t_surface)
 
 
 # ---------------------------------------------------------------------------

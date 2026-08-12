@@ -31,7 +31,8 @@ from emstudio.solvers.base import SolverError
 from emstudio.solvers.openfoam.bundle import BundleCase, write_bundle
 from emstudio.solvers.openfoam.wind import WindCase, write_wind
 from emstudio.solvers.openfoam.cylinder import CylinderCase, write_cylinder
-from emstudio.solvers.openfoam.parser import (latest_time_dir,
+from emstudio.solvers.openfoam.parser import (MixedBundleNusselt,
+                                              latest_time_dir,
                                               nusselt_cylinder_from_field,
                                               nusselt_from_field,
                                               nusselt_from_patch,
@@ -277,7 +278,9 @@ BUNDLE_STEPS = ("blockMesh", "surfaceFeatureExtract", "snappyHexMesh -overwrite"
 
 
 def run_bundle(case_dir, case=None, info=None, timeout=7200):
-    """Write, mesh, run and read a bundle case. Returns (report, BundleNusselt|None).
+    """Write, mesh, run and read a bundle case.
+
+    Returns ``(report, BundleNusselt | MixedBundleNusselt | None)``.
 
     ``None`` whenever the chain did not reach a reading — never a zero, for the
     same reason as the other two runners: a zero Nu is a physical claim and
@@ -286,6 +289,11 @@ def run_bundle(case_dir, case=None, info=None, timeout=7200):
     ⚠ Ra is an OUTPUT here. The wall FLUX is prescribed and the surface
     temperature is solved for, so ``result.ra_d`` is what the solve produced
     and any correlation comparison must be made at THAT Ra.
+
+    ⚠ A MIXED-diameter bundle returns :class:`MixedBundleNusselt` — one reading
+    per size patch, and NO single ``nu_d``. A uniform bundle returns the same
+    :class:`BundleNusselt` it always did, from the same single ``cables``
+    patch, so the measured ladder still describes exactly this path.
     """
     case = write_bundle(case_dir, case or BundleCase())
     report = run_chain(case_dir, info=info, steps=BUNDLE_STEPS, timeout=timeout)
@@ -294,7 +302,12 @@ def run_bundle(case_dir, case=None, info=None, timeout=7200):
                       "box": (case.box_w, case.box_h),
                       "gradient": case.gradient, "cells_x": case.cells_x,
                       "cable_area_m2": case.cable_area_m2,
-                      "fluid_volume_m3": case.fluid_volume_m3}
+                      "fluid_volume_m3": case.fluid_volume_m3,
+                      "mixed": case.mixed,
+                      "groups": [{"patch": g.patch, "d_cable": g.d_cable,
+                                  "gradient": g.gradient, "n": g.n_cables,
+                                  "refine": (g.refine_min, g.refine_max)}
+                                 for g in case.groups]}
     if not report["ok"]:
         return report, None
 
@@ -305,22 +318,48 @@ def run_bundle(case_dir, case=None, info=None, timeout=7200):
         return report, None
     report["time_dir"] = time_dir
 
+    def read_all(tdir):
+        """One BundleNusselt per size patch, keyed by patch, largest first."""
+        path = os.path.join(case_dir, tdir, "T")
+        out = {}
+        for g in case.groups:
+            out[g.patch] = nusselt_from_patch(
+                read_patch_values(path, g.patch), g.d_cable, g.gradient,
+                case.t_amb, nu=nu_f, alpha=alpha_f)
+        return out
+
     try:
-        values = read_patch_values(os.path.join(case_dir, time_dir, "T"),
-                                   "cables")
-        result = nusselt_from_patch(values, case.d_cable, case.gradient,
-                                    case.t_amb, nu=nu_f, alpha=alpha_f)
+        per_patch = read_all(time_dir)
     except (OSError, ValueError) as exc:
         report.update(ok=False, failed_at="read", error=str(exc))
         return report, None
-    report["nu_d"] = result.nu_d
-    report["ra_d"] = result.ra_d
+
+    if case.mixed:
+        result = MixedBundleNusselt(
+            by_patch=per_patch,
+            diameter={g.patch: g.d_cable for g in case.groups},
+            gradient={g.patch: g.gradient for g in case.groups})
+        report["nu_d"] = None            # there is no single one — by design
+        report["ra_d"] = None
+        report["by_patch"] = {
+            p: {"nu_d": r.nu_d, "ra_d": r.ra_d, "faces": r.faces,
+                "t_surface": r.t_surface, "dt": r.dt, "spread": r.spread,
+                "d_cable": result.diameter[p], "gradient": result.gradient[p]}
+            for p, r in per_patch.items()}
+    else:
+        result = per_patch[case.groups[0].patch]
+        report["nu_d"] = result.nu_d
+        report["ra_d"] = result.ra_d
 
     solve = [s for s in report["steps"] if s["step"].startswith("buoyant")]
     report["converged"] = bool(solve and solve[0]["converged"])
 
     # Same lesson as the cylinder: residualControl may be unreachable, so the
     # honest convergence test is that Nu itself stopped moving.
+    #
+    # ⚠ On a mixed bundle the reported drift is the WORST size's, not a mean.
+    # One settled size says nothing about another, and a mean would let a
+    # settled large cable hide a still-moving small one.
     report["nu_drift"] = None
     times = sorted(
         (t for t in (_as_time(n) for n in os.listdir(case_dir)
@@ -328,14 +367,15 @@ def run_bundle(case_dir, case=None, info=None, timeout=7200):
         key=lambda p: p[0])
     if len(times) >= 2:
         try:
-            prev = read_patch_values(
-                os.path.join(case_dir, times[-2][1], "T"), "cables")
-            earlier = nusselt_from_patch(prev, case.d_cable, case.gradient,
-                                         case.t_amb)
-            if earlier.nu_d:
-                report["nu_drift"] = abs(result.nu_d - earlier.nu_d) \
-                                     / abs(earlier.nu_d)
-                report["nu_d_previous"] = earlier.nu_d
+            earlier = read_all(times[-2][1])
+            drifts = {p: abs(per_patch[p].nu_d - e.nu_d) / abs(e.nu_d)
+                      for p, e in earlier.items() if e.nu_d}
+            if drifts:
+                report["nu_drift"] = max(drifts.values())
+                report["nu_drift_by_patch"] = drifts
+                if not case.mixed:
+                    report["nu_d_previous"] = earlier[
+                        case.groups[0].patch].nu_d
         except (OSError, ValueError):
             pass
     if not report["converged"] and report["nu_drift"] is None:

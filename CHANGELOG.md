@@ -5,7 +5,110 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.97.0] — 2026-08-12 — a CFD number for the bundle you actually have
+
+Three OpenFOAM slices land together: the **mixed-diameter bundle** (the one
+that makes the convection button useful on the shipped default cable mix), the
+**Joule coupling** that drives the wall flux from the conductor's own I²R, and
+**wind loading** — the first mechanical axis this workbench has ever had. Plus
+a retraction: the `fvOptions` blocker was mine, not OpenFOAM's.
+
 ### Added
+* **MIXED-DIAMETER BUNDLES — the convection button no longer refuses on first
+  click.** The shipped default cable mix is mixed, so the feature that landed
+  with phases A+B was honest and useless: `Nu_D` is built on a diameter, a mean
+  of unlike cables has no defensible definition, so it raised. What makes it
+  answerable is that the question was the wrong shape — **a mixed bundle does
+  not need ONE Nusselt number, it needs one per size.**
+  Each size group is written as its own STL solid, becomes its own snappy
+  geometry entry and therefore its own **patch**; the solve reports a separate
+  mean surface temperature per size, and each size gets
+  `Nu_D = D_i (dT/dn)_i / (T_i - T_inf)` against **its own** diameter and its
+  own solved dT. Verified live on v2512: snappy emitted `cables_g0_d20p0` and
+  `cables_g1_d10p0` as two `wall` patches, checkMesh **Mesh OK**.
+  Nothing is averaged across unlike cables at any point.
+* **MEASURED — and the measurement is the argument for the feature.** Fourth
+  rung of the same ladder: same three centres, same 0.20 m enclosure, same
+  400 K/m, two of the three cables shrunk 20 mm -> 10 mm, nothing else moved.
+
+      1 x 20 mm   Nu 3.6097 @ Ra 5541   Churchill-Chu  -5.21 %   factor 0.9479
+      2 x 10 mm   Nu 1.9997 @ Ra  625   Churchill-Chu -15.62 %   factor 0.8438
+
+  **The two sizes' factors are 12.3 % apart** — one factor for this bundle is
+  wrong by 12 % for one of its sizes. Both still sit BELOW their own
+  correlation, so the bundle penalty is per size, not a property of one
+  diameter. And the 20 mm cable recovers most of the penalty when its
+  neighbours shrink: **Nu 3.1542 -> 3.6097 (+14.4 %)**, Churchill-Chu error
+  **-19.72 % -> -5.21 %**, because smaller neighbours dump less heat into the
+  same air. ⚠ `converged` is False on both (residualControl never fires on
+  this domain, as on the cylinder); Nu drift between the last two snapshots is
+  **4.1e-5 and 2.6e-4**, which is the honest test.
+* **`BundleCase(cables=[(x, y, d)])`** beside the original
+  `centres=`/`d_cable=`; **`MixedBundleNusselt`** (per-patch readings, and it
+  REFUSES a single `nu_d`); **`solve_mixed_bundle_factor()` ->
+  `MixedBundleFactor`** with `factor_for(d)`, `worst` and `spread_pct`;
+  `SolverOpenFOAM.SizeFactors` caches the per-size answers on the document.
+* ⚠ **The uniform case is byte-for-byte UNCHANGED, and that is asserted, not
+  assumed.** One size means one group named `cables`, exactly as before. The
+  gate writes the same bundle through both the old `centres`/`d_cable` contract
+  and the new per-cable list and compares **sha256 over all 14 files** — the
+  measured ladder (Nu 3.9826 / 3.8621 / 3.1542) is this gate's only anchor, and
+  a change that quietly re-meshed it would have invalidated every number in the
+  docstring while every other check still passed.
+* ⚠ **Smaller cables are refined HARDER, deliberately.** snappy's levels are
+  relative to the background cell, so at one level a 10 mm cable gets half the
+  faces of a 20 mm one and its boundary layer is resolved half as well — its Nu
+  would carry a discretisation bias the large one does not.
+  `refine_match_perimeter` adds `ceil(log2(d_max/d_i))` levels to the smaller
+  groups. It is on by default; off is a fidelity choice, not a free saving.
+  ⚠ It is not free in cells either: the 20/10/10 case meshes to **52 174 cells
+  against the uniform trefoil's ~15 000**, so a mixed solve costs several times
+  a uniform one.
+* ⚠ **Per-size GRADIENTS, because cables of different sizes rarely carry the
+  same loss.** A scalar gradient is equal flux DENSITY (the fat cable then
+  dissipates proportionally more W/m) and the provenance says so;
+  `joule_w_per_m` accepts one loss per cable so each size is driven by its own
+  I²R. A per-cable list of the wrong length is refused rather than recycled.
+* ⚠ **One fluid, one (nu, alpha)** — fixed from the LARGEST cable's nominal dT.
+  Per-group properties would be a different fluid around each cable, which is
+  not a physical case. Every group's `Ra_D` is then formed from those shared
+  properties with its own D and its own solved dT, and the gate pins that as an
+  exact identity (`Ra_i/Ra_j == dT_i D_i^3 / dT_j D_j^3`) — a shared D would
+  read 8x out on a 2:1 size ratio.
+* ⚠ **No single number is invented.** `MixedBundleFactor.factor` raises and
+  names the sizes; `factor_for()` refuses a diameter that was never in the
+  enclosure rather than nearest-matching (an interpolated factor looks exactly
+  like a solved one). `worst` exists for a caller who must have one number and
+  is the most pessimistic size on purpose — over-rating the size the
+  correlation flatters least is the unsafe direction. `SolverOpenFOAM` stores
+  `worst` in the scalar `BundleFactor` and says in the provenance that it is a
+  floor.
+* **Gated.** `openfoam_bundle` grows ~70 offline checks and a live MIXED rung;
+  `thermal` grows the per-size factor arithmetic and its refusals in the FAST
+  tier, so CI covers them; `smoke` pins the document round-trip (including
+  that re-solving as uniform CLEARS the stale per-size map); and `gui_smoke`
+  now **presses the convection button on a mixed bundle** — a gap that had let
+  this button ship broken once already behind a lazy import.
+  ⚠ The live rung is a MECHANISM check by design and says so: full fidelity
+  costs ~50 min, so the gate runs **cells_x=60 / 3000 it in 542 s** and is
+  PINNED against the recorded full-fidelity Nu at 3 % (measured deviation
+  +0.34 % / +0.90 %; the band comes from the known error mechanism, since
+  coarsening and under-iteration both read high). It is deliberately
+  under-iterated — drift 4.9e-3 and 1.6e-2 — and the gate asserts it does NOT
+  claim convergence it has not earned.
+  ⚠ It is NOT compared against the uniform `bundle` rung: different mesh, and
+  a study that moves two things at once measures neither. The +14.4 % ladder
+  figure is printed with that caveat, not gated.
+  **Mutations: 16/16 caught with 16 DISTINCT failure signatures** (fresh
+  subprocess per mutation and a control after every restore — a leaking
+  harness once scored itself 8/8 here on one mutation caught eight times, and
+  the tell was that every mutation broke the identical checks), plus two
+  targeted ones proving the smoke and gui_smoke additions can fail.
+* **The assistant fires on the SHAPE of the design again** (`thermal_advice`
+  rules 6 and 7): a mixed bundle is warned about before any CFD is run, and
+  after a solve the spread between the sizes is reported — wide means one
+  factor cannot describe the bundle, narrow says so too rather than staying
+  silent. The free tier gets the same warning in plainer words, as always.
 * **`emstudio/solvers/openfoam/wind.py` — wind loading, the MECHANICAL axis.**
   Every other OpenFOAM case here is thermal. This one asks what force the wind
   puts on a structure so it can be sized to survive: `simpleFoam` + the

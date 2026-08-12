@@ -324,6 +324,81 @@ member count. All numbers are gated in `tests/validation/thermal.py`;
 the model is a single horizontal cable in still air at sea level — trays,
 conduit, bundling and solar load need derating on top.
 
+## 6b⁴. Solving the cooling instead of assuming it (OpenFOAM, v0.97)
+
+The paragraph above ends with a caveat: *"a single horizontal cable in still
+air"*. That is Churchill-Chu, and it is exactly right for one cable in
+unbounded quiescent air — and wrong for a bundle in an enclosure, which is the
+case people actually build. The **Convection Designer** replaces the assumption
+with a solve of your own arrangement.
+
+**Where it is.** Cable Designer ▸ **Bundle** page ▸ *Solve convection…* — on the
+page where the bundle exists, because that is where the ampacity elsewhere in
+the dialog starts being optimistic. There is also a document-object route
+(Analysis ▸ *Add Convection (OpenFOAM) Solver*, then *Solve Convection*), which
+caches the result on the document.
+
+**What it gives you.** A dimensionless **bundle factor** on Churchill-Chu —
+1.0 means the bare correlation, below 1 means the correlation over-predicts
+cooling. It is a factor rather than an absolute film coefficient on purpose:
+the correlation gets the temperature dependence right, and the ampacity solver
+evaluates it ~80 times per answer, so only the confinement/bundling offset is
+taken from CFD.
+
+Measured on this project's own gated ladder (20 mm cables, 400 K/m wall flux):
+
+| arrangement | Nu_D | vs Churchill-Chu |
+|---|---|---|
+| 1 cable, 0.40 m enclosure | 3.9826 | +6.99 % |
+| 1 cable, 0.20 m enclosure | 3.8621 | +3.01 % |
+| 3 cables (trefoil), 0.20 m | 3.1542 | **−19.72 %** |
+
+Confinement alone costs 3 %; the bundle a further 18 %. **The error is in the
+unsafe direction** — over-predicted cooling means over-predicted ampacity.
+A 40 A cable moves 56.55 → 59.75 °C once the factor is applied.
+
+**Mixed diameters get one factor per size.** A Nusselt number is built on a
+diameter, so a bundle of unlike cables genuinely has several and EMStudio will
+not average them. Each size is meshed as its own surface and solved in the
+*same* enclosure, because the sizes cool each other. Measured for one 20 mm
+cable beside two 10 mm ones:
+
+| size | Nu_D | factor | vs Churchill-Chu |
+|---|---|---|---|
+| 1 × 20 mm | 3.6097 | **0.9479** | −5.21 % |
+| 2 × 10 mm | 1.9997 | **0.8438** | −15.62 % |
+
+**12.3 % apart** — which is why one number will not do. Rate each size with its
+own factor. If your workflow forces a single value, use the smallest; anything
+less conservative over-rates the size the correlation flatters least.
+
+**Things to know before you press it**
+
+- ⚠ **It takes minutes, not milliseconds**, and needs OpenFOAM installed
+  (Setup ▸ Solver Setup; Windows has a one-click Install). It is never
+  triggered by editing a property.
+- ⚠ **The factor belongs to the geometry it was solved for.** Confinement and
+  spacing are precisely what it measures, so the cached factor reports itself
+  **stale** as soon as the arrangement changes — and an unrecorded geometry
+  counts as stale, because "cannot be shown to match" must not read as
+  "matches".
+- ⚠ **Do not apply a solved factor and the NEC 310.15(C)(1) adjustment
+  together.** Both are legitimate and both derate the same physics; using both
+  derates twice, for a reason nobody can reconstruct later. Pick the solved
+  factor if the geometry is real, the NEC table if the install must be
+  code-compliant.
+- ⚠ **Scope.** 2-D, laminar, no radiation, one operating point. Radiation is
+  *not* scaled by the factor — it does not care how the air moves — so a 25 %
+  error in the film coefficient is less than 25 % in total dissipation.
+  A solve that does not converge is reported as provisional rather than
+  quietly returned.
+- ⚠ **Mixed diameters, not mixed loading.** Cables of one size carrying
+  different losses are refused by the per-size result rather than silently
+  merged.
+
+Gated in `tests/validation/openfoam_bundle.py` (SOLVER tier — it skips
+honestly without OpenFOAM) and `tests/validation/thermal.py`.
+
 ## 6c. Professional PDF reports
 
 The Cable Designer (**PDF Report…**, litz + single-wire pages), every antenna result window, and the

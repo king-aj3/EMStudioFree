@@ -1810,6 +1810,68 @@ def _cable_designer_dialog():
     assert "−-" not in dlg.summary.text() and "--" not in dlg.summary.text(), \
         "double-negative rendering in the diff summary (signed-format bug)"
     dlg.xt_diff.setChecked(False)
+    # --- the convection button, on a MIXED bundle ------------------------
+    # ⚠ This button has been broken twice in ways every headless test passed:
+    # once because `convection_dialog` was missing from the free manifest
+    # behind a LAZY import, and once because it REFUSED the shipped default
+    # mix outright. Both are only visible by pressing it. Nothing is solved —
+    # build_dialog is intercepted, so what is asserted is that the handler
+    # reaches it with the right geometry instead of bailing to a message box.
+    from PySide import QtGui as QtWidgets  # noqa: N813
+
+    from emstudio.ui import convection_dialog as _cvd
+
+    _built, _refused = {}, []
+    _real_build, _real_info = _cvd.build_dialog, QtWidgets.QMessageBox.information
+
+    class _FakeConvDialog(QtWidgets.QDialog):
+        def exec(self):
+            return 0
+        exec_ = exec
+
+    def _fake_build(geometry, d_cable, box_w, box_h, parent=None):
+        _built["cables"] = _cvd.as_cables(geometry, d_cable)
+        _built["box"] = (box_w, box_h)
+        _built["plan"] = _cvd.describe_plan(geometry, d_cable, box_w, box_h)
+        return _FakeConvDialog()
+
+    _cvd.build_dialog = _fake_build
+    QtWidgets.QMessageBox.information = staticmethod(
+        lambda *a, **k: _refused.append(a[2] if len(a) > 2 else ""))
+    try:
+        dlg.bundle_table.setRowCount(0)
+        dlg._bundle_add_row("fat", 20.0, 1, "wire", 16.0)
+        dlg._bundle_add_row("thin", 10.0, 2, "wire", 8.0)
+        dlg._recalc()
+        dlg.conv_clearance.setValue(5.0)
+        dlg._bundle_convection()
+        assert not _refused, \
+            "the convection button REFUSED a mixed bundle: {0!r}".format(
+                _refused[:1])
+        assert "cables" in _built, "the convection dialog was never built"
+        _ds = sorted(round(1000.0 * d, 4) for _x, _y, d in _built["cables"])
+        assert _ds == [10.0, 10.0, 20.0], \
+            "the solve got the wrong geometry: {0}".format(_ds)
+        assert "2 sizes" in _built["plan"] and "20.0 mm" in _built["plan"], (
+            "the plan must name every size, not one diameter the bundle does "
+            "not have: {0!r}".format(_built["plan"]))
+        # the box must clear the FATTEST cable wherever it sits — sizing on
+        # one diameter can build an enclosure an inner cable does not fit
+        _reach = max(_m.hypot(x, y) + d / 2.0 for x, y, d in _built["cables"])
+        assert _built["box"][0] > 2.0 * _reach, \
+            "the enclosure does not contain the bundle it was sized from"
+        # and a UNIFORM bundle must still reach the same door
+        _built.clear()
+        dlg.bundle_table.setRowCount(0)
+        dlg._bundle_add_row("same", 20.0, 3, "wire", 16.0)
+        dlg._recalc()
+        dlg._bundle_convection()
+        assert not _refused and "cables" in _built, \
+            "the uniform path regressed while adding mixed support"
+        assert len({round(d, 9) for _x, _y, d in _built["cables"]}) == 1
+    finally:
+        _cvd.build_dialog = _real_build
+        QtWidgets.QMessageBox.information = _real_info
     # thermal tab (v0.50): wire-page steady/ampacity/transient + the coax
     # RF power curve, headlessly (engine numbers gated in
     # tests/validation/thermal.py — here we guard the tab wiring)

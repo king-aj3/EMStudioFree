@@ -583,6 +583,42 @@ class SolverOpenFOAM(_SolverBase):
             )
             obj.FactorConverged = False
             obj.setEditorMode("FactorConverged", 1)
+        if "SizeFactors" not in props:
+            obj.addProperty(
+                "App::PropertyString", "SizeFactors", _GROUP,
+                "Per-SIZE factors on a mixed-diameter bundle, as "
+                "'<diameter mm>:<factor>' pairs. Empty on a uniform bundle, "
+                "which has only the one factor. Nu_D is built on a diameter, "
+                "so a mixed bundle genuinely has one factor per size",
+            )
+            obj.SizeFactors = ""
+            obj.setEditorMode("SizeFactors", 1)
+
+    @staticmethod
+    def format_size_factors(mixed):
+        """``'20.0:0.8017; 10.0:0.8360'`` from a ``MixedBundleFactor``."""
+        return "; ".join("%.4g:%.6f" % (1000.0 * d, mixed.by_size[d].factor)
+                         for d in mixed.sizes)
+
+    @staticmethod
+    def parse_size_factors(text):
+        """``{diameter_m: factor}`` from what :meth:`format_size_factors` wrote.
+
+        ⚠ Raises on anything it cannot read rather than returning a partial
+        map. A silently-short mapping would hand the caller the bare
+        correlation for a size that was actually solved.
+        """
+        out = {}
+        for part in (p.strip() for p in str(text or "").split(";")):
+            if not part:
+                continue
+            try:
+                d_mm, f = part.split(":")
+                out[float(d_mm) / 1000.0] = float(f)
+            except ValueError:
+                raise ValueError(
+                    "cannot read %r as a '<diameter mm>:<factor>' pair" % part)
+        return out
 
     def store_factor(self, obj, factor):
         """Record a solved :class:`BundleFactor` on the object."""
@@ -590,6 +626,47 @@ class SolverOpenFOAM(_SolverBase):
         obj.FactorProvenance = str(factor.provenance)
         obj.SolvedGeometry = str(factor.geometry)
         obj.FactorConverged = bool(factor.converged)
+        obj.SizeFactors = ""
+
+    def store_mixed_factors(self, obj, mixed):
+        """Record a solved ``MixedBundleFactor`` — one factor per cable size.
+
+        ⚠ ``BundleFactor`` is set to the WORST size's factor, deliberately.
+        Something will read that scalar without knowing the bundle is mixed,
+        and of the two ways to be wrong, under-rating the sizes that cool well
+        is the safe one — over-rating the size that does not is how a cable
+        runs hot. The provenance says out loud that it is a floor, not the
+        bundle's factor, and ``SizeFactors`` carries the real answers.
+        """
+        obj.BundleFactor = float(mixed.worst.factor)
+        obj.FactorProvenance = (
+            "%s || the scalar BundleFactor above is the WORST size's "
+            "(%.4g mm), applied as a conservative floor — the per-size "
+            "factors in SizeFactors are the answers"
+            % (mixed.provenance, 1000.0 * mixed.worst.d_cable))
+        obj.SolvedGeometry = str(mixed.geometry)
+        obj.FactorConverged = bool(mixed.converged)
+        obj.SizeFactors = self.format_size_factors(mixed)
+
+    def factor_for(self, obj, d_cable, tol=1e-9):
+        """The cached factor for one cable SIZE.
+
+        Falls through to the single ``BundleFactor`` when the bundle was
+        uniform. On a mixed bundle it REFUSES a size that was not solved
+        rather than handing back the conservative floor dressed as that
+        size's own measurement.
+        """
+        sizes = self.parse_size_factors(getattr(obj, "SizeFactors", ""))
+        if not sizes:
+            return float(obj.BundleFactor)
+        for d, f in sizes.items():
+            if abs(d - float(d_cable)) <= tol:
+                return f
+        raise ValueError(
+            "no factor was solved for a %.4g mm cable; this bundle carries %s"
+            % (1000.0 * float(d_cable),
+               ", ".join("%.4g mm" % (1000.0 * d) for d in sorted(sizes,
+                                                                  reverse=True))))
 
     def factor_stale(self, obj, geometry_key):
         """True when the cached factor was solved for a DIFFERENT design.

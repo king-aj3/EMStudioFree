@@ -1525,6 +1525,48 @@ def _analysis_roundtrip():
     assert "Nu" in solver_of.FactorProvenance,         "a stored factor must carry its provenance — an untraceable factor "         "is worse than none"
     assert not _of_proxy.factor_stale(solver_of, "trefoil-key")
     assert _of_proxy.factor_stale(solver_of, "different-key"),         "a factor solved for a DIFFERENT arrangement must read stale"
+    assert solver_of.SizeFactors == "",         "a uniform bundle has ONE factor; the per-size field must stay empty "         "rather than restating it as a one-entry map"
+    assert abs(_of_proxy.factor_for(solver_of, 0.020) - 0.8028) < 1e-9,         "on a uniform bundle every size gets the single stored factor"
+
+    # ⚠ MIXED diameters: one factor PER SIZE. The scalar BundleFactor is set
+    # to the WORST size deliberately — something will read it without knowing
+    # the bundle is mixed, and under-rating the sizes that cool well is the
+    # safe way to be wrong.
+    class _StoredMixed:
+        by_size = {0.020: type("F", (), {"factor": 0.8017,
+                                         "d_cable": 0.020})(),
+                   0.010: type("F", (), {"factor": 0.8360,
+                                         "d_cable": 0.010})()}
+        sizes = [0.020, 0.010]
+        geometry, converged = "mixed-key", True
+        provenance = "OpenFOAM mixed bundle: 20 mm -> 0.8017; 10 mm -> 0.8360"
+
+        @property
+        def worst(self):
+            return self.by_size[0.020]
+    _mixed = _StoredMixed()
+    _of_proxy.store_mixed_factors(solver_of, _mixed)
+    assert abs(solver_of.BundleFactor - 0.8017) < 1e-9,         "the scalar factor on a mixed bundle must be the WORST size's — the "         "unsafe direction is over-predicting cooling"
+    assert "conservative floor" in solver_of.FactorProvenance,         "the scalar must SAY it is a floor, not the bundle's factor"
+    _round = _of_proxy.parse_size_factors(solver_of.SizeFactors)
+    assert sorted(_round) == [0.010, 0.020],         "per-size factors must round-trip through the document property: "         "{0!r}".format(solver_of.SizeFactors)
+    assert abs(_of_proxy.factor_for(solver_of, 0.010) - 0.8360) < 1e-6,         "each size must read back ITS OWN factor, not the floor"
+    assert abs(_of_proxy.factor_for(solver_of, 0.020) - 0.8017) < 1e-6
+    try:
+        _of_proxy.factor_for(solver_of, 0.015)
+        raise AssertionError(
+            "a size that was never solved must be REFUSED, not handed the "
+            "conservative floor dressed up as its own measurement")
+    except ValueError:
+        pass
+    try:
+        _of_proxy.parse_size_factors("20.0:0.80; garbage")
+        raise AssertionError("an unreadable per-size string must raise rather "
+                             "than return a partial map")
+    except ValueError:
+        pass
+    _of_proxy.store_factor(solver_of, _StoredFactor)
+    assert solver_of.SizeFactors == "",         "re-solving as a UNIFORM bundle must clear the stale per-size map — "         "leaving it would rate sizes against a geometry no longer solved"
 
     coil_obj = coil.makeCoil(doc, obj, turns=42, current_a=2.5)
     # transmission line (v0.61, LPDA feeder): maker args land; LineLength

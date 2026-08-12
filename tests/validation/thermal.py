@@ -308,9 +308,188 @@ def main():
     try:
         bc.centres_from_bundle(Bundle(members=[BundleMember("A", 0.020),
                                                BundleMember("B", 0.010)]))
-        check("MIXED cable diameters are refused, not averaged", False)
+        check("the single-diameter entry point still refuses a MIXED bundle "
+              "(its contract is one D, and a caller holding it must not be "
+              "handed a bundle it cannot describe)", False)
     except ValueError:
-        check("MIXED cable diameters are refused, not averaged", True)
+        check("the single-diameter entry point still refuses a MIXED bundle "
+              "(its contract is one D, and a caller holding it must not be "
+              "handed a bundle it cannot describe)", True)
+
+    # ============ B3b. MIXED diameters: one factor PER SIZE ==================
+    # Nu_D is built on a diameter, so a bundle of unlike cables has one factor
+    # per size and never an average. Driven with a STUB again — the arithmetic,
+    # the refusals and the conservatism are FAST-tier; only the CFD is not.
+    _MIXED = [(-0.015, -0.00866, 0.020), (0.015, -0.00866, 0.010),
+              (0.0, 0.01732, 0.010)]
+
+    class _StubPatch:
+        def __init__(self, nu, ra):
+            self.nu_d, self.ra_d = nu, ra
+
+    class _StubMixed:
+        """What run_bundle returns for a mixed case: a reading per patch."""
+
+        def __init__(self, readings):
+            self.by_patch = {p: _StubPatch(nu, ra)
+                             for p, (_d, nu, ra) in readings.items()}
+            self.diameter = {p: d for p, (d, _nu, _ra) in readings.items()}
+
+    def _stub_mixed(readings, ok=True, converged=True, drift=1e-5):
+        def _run(_dir, _case):
+            rep = {"ok": ok, "converged": converged, "nu_drift": drift}
+            if not ok:
+                rep["failed_at"] = "snappyHexMesh"
+                return rep, None
+            return rep, _StubMixed(readings)
+        return _run
+
+    _READ = {"cables_g0_d20p0": (0.020, 3.1542, 6341.0),
+             "cables_g1_d10p0": (0.010, 2.1000, 830.0)}
+    mf = bc.solve_mixed_bundle_factor(_MIXED, box_w=0.2, box_h=0.2,
+                                      runner=_stub_mixed(_READ),
+                                      case_factory=_StubCase, case_dir=".")
+    check("a mixed bundle returns one factor per SIZE, largest first",
+          [round(1000 * d, 6) for d in mf.sizes] == [20.0, 10.0],
+          "%s" % mf.sizes)
+    check("each size's factor is Nu_i / Churchill-Chu(Ra_i) — its OWN Ra, not "
+          "a shared one",
+          abs(mf.by_size[0.020].factor
+              - 3.1542 / th.nu_churchill_chu(6341.0, 0.71)) < 1e-12
+          and abs(mf.by_size[0.010].factor
+                  - 2.1000 / th.nu_churchill_chu(830.0, 0.71)) < 1e-12,
+          "%.6f / %.6f" % (mf.by_size[0.020].factor, mf.by_size[0.010].factor))
+    check("...and the 20 mm size's factor is EXACTLY the number the uniform "
+          "path gives for the same Nu and Ra — one expression, not two",
+          abs(mf.by_size[0.020].factor - f.factor) < 1e-15,
+          "%.9f vs %.9f" % (mf.by_size[0.020].factor, f.factor))
+    check("each size knows HOW MANY cables it has",
+          mf.by_size[0.020].n_cables == 1 and mf.by_size[0.010].n_cables == 2)
+    try:
+        mf.factor
+        check("a mixed result REFUSES a single `.factor` rather than picking "
+              "one quietly", False, "it returned one")
+    except ValueError as exc:
+        check("a mixed result REFUSES a single `.factor` rather than picking "
+              "one quietly", "not one" in str(exc))
+    check("factor_for() returns the size being rated",
+          abs(mf.factor_for(0.010).factor - mf.by_size[0.010].factor) < 1e-15)
+    try:
+        mf.factor_for(0.015)
+        check("factor_for() REFUSES a size that was never in the enclosure "
+              "(no nearest-match: an interpolated factor looks exactly like a "
+              "solved one)", False)
+    except ValueError:
+        check("factor_for() REFUSES a size that was never in the enclosure "
+              "(no nearest-match: an interpolated factor looks exactly like a "
+              "solved one)", True)
+    # ⚠ `worst` must be the SMALLEST factor. The unsafe direction is
+    # over-predicting cooling, so a caller forced to use one number must get
+    # the size the correlation flatters least.
+    check("`worst` is the most PESSIMISTIC size, not the largest cable or the "
+          "first one",
+          abs(mf.worst.factor - min(x.factor for x in mf.by_size.values()))
+          < 1e-15 and mf.worst.factor <= mf.by_size[0.010].factor,
+          "%.6f" % mf.worst.factor)
+    check("the spread between the sizes is reported, so a user can see "
+          "whether one number would have done",
+          abs(mf.spread_pct
+              - 100.0 * (max(x.factor for x in mf.by_size.values())
+                         - mf.worst.factor) / mf.worst.factor) < 1e-9,
+          "%.2f %%" % mf.spread_pct)
+    check("provenance names every size with its own Nu, correlation and Ra",
+          all(s in mf.provenance for s in ("20 mm", "10 mm", "Churchill-Chu",
+                                           "Ra", "converged")))
+    # a WIDE spread must say so; a narrow one must not cry wolf
+    _WIDE = {"a": (0.020, 3.1542, 6341.0), "b": (0.010, 1.2000, 830.0)}
+    mw = bc.solve_mixed_bundle_factor(_MIXED, box_w=0.2, box_h=0.2,
+                                      runner=_stub_mixed(_WIDE),
+                                      case_factory=_StubCase, case_dir=".")
+    check("sizes that cool very differently WARN that one factor cannot "
+          "describe the bundle",
+          any("cannot describe" in w for w in mw.warnings),
+          "spread %.1f %%" % mw.spread_pct)
+    _NARROW = {"a": (0.020, 3.1542, 6341.0), "b": (0.010, 2.0135, 830.0)}
+    mn = bc.solve_mixed_bundle_factor(_MIXED, box_w=0.2, box_h=0.2,
+                                      runner=_stub_mixed(_NARROW),
+                                      case_factory=_StubCase, case_dir=".")
+    check("...and sizes that agree do NOT (a warning that always fires is not "
+          "a warning)",
+          not any("cannot describe" in w for w in mn.warnings),
+          "spread %.2f %%" % mn.spread_pct)
+    try:
+        bc.solve_mixed_bundle_factor(_MIXED, box_w=0.2, box_h=0.2,
+                                     runner=_stub_mixed(_READ, ok=False),
+                                     case_factory=_StubCase, case_dir=".")
+        check("a FAILED mixed solve raises rather than returning factors",
+              False)
+    except ValueError:
+        check("a FAILED mixed solve raises rather than returning factors", True)
+    # a UNIFORM set through the MIXED entry point must give the same answer as
+    # the uniform path — the two agree by construction, not by coincidence
+    mu = bc.solve_mixed_bundle_factor([(x, y, 0.020) for x, y in _TREFOIL],
+                                      box_w=0.2, box_h=0.2,
+                                      runner=_stub_run(), case_factory=_StubCase,
+                                      case_dir=".")
+    check("a UNIFORM bundle through the mixed entry point returns ONE factor, "
+          "identical to the single-diameter path",
+          len(mu.by_size) == 1
+          and abs(mu.by_size[0.020].factor - f.factor) < 1e-15)
+    check("...and its geometry key is byte-identical, so adding mixed support "
+          "does not stale every factor already cached in a document",
+          mu.geometry.split(" | ")[0] == f.geometry.split(" | ")[0])
+    check("the mixed geometry key changes with a DIAMETER change, not just a "
+          "position change — which is exactly what the per-size factor "
+          "measures",
+          bc.cables_key(_MIXED, 0.2, 0.2)
+          != bc.cables_key([(x, y, 0.020) for x, y, _d in _MIXED], 0.2, 0.2))
+    check("Bundle geometry feeds the MIXED solve directly, mixed sizes and all",
+          sorted(round(1000 * d, 4) for _x, _y, d in bc.cables_from_bundle(
+              Bundle(members=[BundleMember("A", 0.020),
+                              BundleMember("B", 0.010, qty=2)])))
+          == [10.0, 10.0, 20.0])
+    # per-cable Joule losses: each size driven by its OWN I²R
+    mj = bc.solve_mixed_bundle_factor(_MIXED, box_w=0.2, box_h=0.2,
+                                      joule_w_per_m=[8.0, 2.0, 2.0],
+                                      runner=_stub_mixed(_READ),
+                                      case_factory=_StubCase, case_dir=".")
+    check("per-cable Joule losses are recorded in the provenance as a RANGE, "
+          "so a reader can tell them from one typed gradient",
+          "Joule" in mj.provenance and "per cable" in mj.provenance,
+          mj.provenance.split(" | ")[1].split(" (")[0])
+    try:
+        bc.solve_mixed_bundle_factor(_MIXED, box_w=0.2, box_h=0.2,
+                                     joule_w_per_m=[8.0, 2.0],
+                                     runner=_stub_mixed(_READ),
+                                     case_factory=_StubCase, case_dir=".")
+        check("a per-cable loss list of the WRONG LENGTH is refused (silently "
+              "recycling it would rate a cable at another's loss)", False)
+    except ValueError:
+        check("a per-cable loss list of the WRONG LENGTH is refused (silently "
+              "recycling it would rate a cable at another's loss)", True)
+    # the same scalar loss on unlike cables is a REAL case: the thin one sees
+    # the higher flux density, because the perimeter is smaller
+    _g20 = bc.gradient_from_joule(5.0, 0.020)
+    _g10 = bc.gradient_from_joule(5.0, 0.010)
+    check("the same W/m on a thinner cable is a HIGHER flux density (q'/piD)",
+          _g10 > 1.99 * _g20, "%.0f vs %.0f K/m" % (_g10, _g20))
+    # ⚠ Mixed DIAMETERS are the feature; mixed LOADING within ONE diameter is
+    # a second axis. The case writer splits it into two patches correctly, but
+    # a result keyed by SIZE cannot tell them apart — so it must REFUSE, not
+    # silently keep whichever came last.
+    _COLLIDE = {"cables_g0_d20p0": (0.020, 3.1542, 6341.0),
+                "cables_g1_d20p0": (0.020, 2.9000, 5000.0)}
+    try:
+        bc.solve_mixed_bundle_factor(_MIXED, box_w=0.2, box_h=0.2,
+                                     runner=_stub_mixed(_COLLIDE),
+                                     case_factory=_StubCase, case_dir=".")
+        check("two surfaces of the SAME diameter are REFUSED by the per-size "
+              "factor rather than one silently overwriting the other", False,
+              "it returned a result")
+    except ValueError as exc:
+        check("two surfaces of the SAME diameter are REFUSED by the per-size "
+              "factor rather than one silently overwriting the other",
+              "same" in str(exc) and "20 mm" in str(exc))
     for _kw, _why in ((dict(centres=[]), "no cables"),
                       (dict(d_cable=0.0), "zero diameter"),
                       (dict(clearance_ratio=1.0), "a clearance ratio of 1")):

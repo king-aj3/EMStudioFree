@@ -535,12 +535,21 @@ class _Convection:
             centres, d_cable, side, side, parent=FreeCADGui.getMainWindow())
         dlg.exec()
         res = getattr(dlg, "result_obj", None)
-        if res is not None:
+        if res is None:
+            return
+        # ⚠ A mixed-diameter bundle has one factor PER SIZE, so it is stored
+        # through a different door: `store_factor` would have to read `.factor`,
+        # which a MixedBundleFactor refuses to have.
+        if hasattr(res, "by_size"):
+            solver.Proxy.store_mixed_factors(solver, res)
+            headline = "per-size factors %s" % \
+                solver.Proxy.format_size_factors(res)
+        else:
             solver.Proxy.store_factor(solver, res)
-            doc.recompute()
-            FreeCAD.Console.PrintMessage(
-                "Convection solved: factor %.4f - %s\n"
-                % (res.factor, res.provenance))
+            headline = "factor %.4f" % res.factor
+        doc.recompute()
+        FreeCAD.Console.PrintMessage(
+            "Convection solved: %s - %s\n" % (headline, res.provenance))
 
 
 class _AddSolverPalace:

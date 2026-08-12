@@ -1555,9 +1555,12 @@ class CableDesignerDialog(QtWidgets.QDialog):
         user is actually looking at. Re-deriving positions here would risk
         solving a geometry the dialog never showed.
 
-        ⚠ MIXED diameters are REFUSED, not averaged: Nu_D is built on a
-        diameter and a mean of unlike cables is a number with no defensible
-        definition. The refusal is surfaced to the user rather than swallowed.
+        ⚠ MIXED diameters are still never AVERAGED — they are solved size by
+        size. Each diameter becomes its own snappy patch and gets its own
+        Nusselt number and its own factor, because Nu_D is built on a diameter
+        and a mean of unlike cables would be a number with no defensible
+        definition. The mix is the common case, so refusing it (which is what
+        this did until now) was honest and useless.
         """
         from PySide import QtWidgets
 
@@ -1565,14 +1568,14 @@ class CableDesignerDialog(QtWidgets.QDialog):
         from emstudio.wire import bundle_convection as bc
 
         try:
-            centres, d_cable = bc.centres_from_bundle(self._bundle_model())
+            cables = bc.cables_from_bundle(self._bundle_model())
         except ValueError as exc:
             QtWidgets.QMessageBox.information(
                 self, "Convection", str(exc))
             return
         side = convection_dialog.enclosure_side(
-            centres, d_cable, float(self.conv_clearance.value()))
-        dlg = convection_dialog.build_dialog(centres, d_cable, side, side,
+            cables, None, float(self.conv_clearance.value()))
+        dlg = convection_dialog.build_dialog(cables, None, side, side,
                                              parent=self)
         dlg.exec()
 

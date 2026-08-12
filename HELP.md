@@ -38,6 +38,8 @@ thing; **System** designs a system of them. Every command has its own icon.
 | **Lumped Port** | Feed point on the selected edge/face; set Direction + Impedance |
 | **Coil Excitation** | Mark the selected solid as an N-turn current-driven winding (magnetics). **Set `Axis` to the real winding axis** (+X/+Y/+Z — the direction the current circulates *around*); a wrong axis silently corrupts the drive. 3-D runs report the stored energy, the coil **inductance**, and the ampere-turns actually delivered — a delivery far from 100 % means the current is not circulating as asked |
 | **Add NEC2 / openEMS / Elmer / Palace Solver** | Attach a solver: NEC2 wire MoM · openEMS full-wave FDTD · Elmer FEM magnetics · Palace FEM full-wave |
+| **Add Convection (OpenFOAM) Solver** | Attach the CFD solver that measures what BUNDLING and CONFINEMENT cost a cable's cooling. Unlike the others it **caches its result**, because the number it produces is consumed inside the ampacity bisection (~80 evaluations per answer) — so it also records the geometry it was solved for and reports the factor as **stale** the moment the design moves |
+| **Solve Convection (bundle factor)…** | Run it. Ampacity uses Churchill-Chu, which assumes ONE cable in unbounded still air; measured here, that **over-predicts a trefoil's film coefficient by ~25 %, in the unsafe direction**. This solves your actual arrangement instead. ⚠ Takes **minutes** — it is an explicit action and never a side effect of editing a property. A **mixed-diameter** bundle returns one factor **per size** (Nu is built on a diameter, so a mixed bundle genuinely has several); rate each size with its own |
 | **Pattern Frequencies…** | *(NEC2)* Compute a radiation pattern at several frequencies so the results dialog can **scrub the band**: sliders on both pattern tabs, frequency cursors with live readouts on the S11/VSWR/impedance plots, and (after *Show in 3D View*) a floating scrubber over the viewport that keeps working even after the results dialog closes. Opens on the analysis sweep with a recommended step — both editable. N patterns cost **one** extra solver run, not N; the cost is ~0.33 MB of output each. **The same dialog pops up automatically when you press Run Solver** (pre-filled; a checkbox mutes it — re-tick here to bring it back) |
 | **Run Solver** | Solve + open results (S11 / VSWR / Impedance / Pattern tabs, Touchstone export; magnetics: powers, L/M/k, fields in 3-D) |
 | **WPT: Sweep Coil Gap** | Parametric study: coupling k across a range of coil gaps, plotted k(gap) |
@@ -154,6 +156,20 @@ Pick the top-level **Construction** first — **Litz / stranded**, **Coax**, or
   when separations/conductor-radius ≥ 4, or the FastHenry option at any
   spacing). Bare/single-ended conductors in this slice — shielded coax and
   differential pairs are excluded by design.
+  **Solve convection…**: the ampacity shown elsewhere in this dialog assumes
+  ONE cable in unbounded still air, so for a bundle it reads optimistic. This
+  runs a real CFD solve on the packing shown on this page — the same geometry,
+  never a restated one — and returns the correction. Measured for a trefoil of
+  three 20 mm cables in a 200 mm enclosure: **factor 0.80**, i.e. the
+  correlation over-predicts cooling by about 25 %.
+  ⚠ **Minutes, not milliseconds**, and it needs OpenFOAM installed (Setup ▸
+  Solver Setup). ⚠ A **mixed-diameter** bundle gets one factor **per size**,
+  all solved together in the same enclosure because the sizes cool each other.
+  Measured for 1 × 20 mm with 2 × 10 mm: **0.9479 and 0.8438 — 12.3 % apart**,
+  which is why there is no single number. Rate each size with its own; if you
+  must use one, use the smallest (the most pessimistic). ⚠ Do **not** apply a
+  solved factor *and* the NEC 310.15(C)(1) adjustment — both derate the same
+  physics and using both derates twice.
 - **Litz / stranded** (below):
 
 Type (1–9, New England Wire taxonomy) → strand size (AWG/mm/mil) → operations table:
