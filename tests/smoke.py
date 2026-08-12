@@ -1503,6 +1503,29 @@ def _analysis_roundtrip():
     assert "Driven S-parameters (coax)" in \
         solver_pal.getEnumerationsOfProperty("AnalysisType"), \
         "SolverPalace missing the coax AnalysisType"
+    # --- SolverOpenFOAM: the convection solve behind the ampacity factor ---
+    # ⚠ Unlike every other solver object this one CACHES a result, because the
+    # factor it produces is consumed inside solve_steady's ~80-evaluation
+    # bisection. So the staleness contract is the part that matters: a factor
+    # solved for a different arrangement must NOT silently carry over, since
+    # confinement and spacing are exactly what it measures.
+    solver_of = solver_objs.makeSolverOpenFOAM(doc, obj)
+    assert solver_of.EMStudioType == "EMStudio::SolverOpenFOAM"
+    assert abs(solver_of.BundleFactor - 1.0) < 1e-12,         "a fresh OpenFOAM solver must default to the bare correlation (1.0)"
+    assert solver_of.FactorConverged is False,         "a fresh solver must not claim convergence"
+    _of_proxy = solver_of.Proxy
+    assert _of_proxy.factor_stale(solver_of, "some-key"),         "with NO solved geometry the factor must read STALE — 'cannot be "         "shown to match' must never read as 'matches'"
+
+    class _StoredFactor:
+        factor, geometry, converged = 0.8028, "trefoil-key", True
+        provenance = "OpenFOAM: Nu 3.1542 vs CC 3.9291 at Ra 6341 (converged)"
+    _of_proxy.store_factor(solver_of, _StoredFactor)
+    assert abs(solver_of.BundleFactor - 0.8028) < 1e-9
+    assert solver_of.FactorConverged is True
+    assert "Nu" in solver_of.FactorProvenance,         "a stored factor must carry its provenance — an untraceable factor "         "is worse than none"
+    assert not _of_proxy.factor_stale(solver_of, "trefoil-key")
+    assert _of_proxy.factor_stale(solver_of, "different-key"),         "a factor solved for a DIFFERENT arrangement must read stale"
+
     coil_obj = coil.makeCoil(doc, obj, turns=42, current_a=2.5)
     # transmission line (v0.61, LPDA feeder): maker args land; LineLength
     # defaults to 0 (auto distance) and the shunt admittances to zero
@@ -1520,7 +1543,15 @@ def _analysis_roundtrip():
     assert len(query.get_ports(obj)) == 1
     assert len(query.get_coils(obj)) == 1
     assert len(query.get_transmission_lines(obj)) == 1
-    assert len(query.get_solvers(obj)) == 4
+    # ⚠ Assert WHICH solvers, not merely how many. A bare count says nothing
+    # about what is there and has to be edited every time one is added — this
+    # one silently guarded "4" until SolverOpenFOAM made it 5, and a count that
+    # only ever gets bumped is not testing anything.
+    _solver_types = {query.em_type(s) for s in query.get_solvers(obj)}
+    assert _solver_types == {"EMStudio::SolverNEC2", "EMStudio::SolverElmer",
+                             "EMStudio::SolverPalace", "EMStudio::SolverOpenEMS",
+                             "EMStudio::SolverOpenFOAM"}, \
+        "unexpected solver set in the analysis: {0}".format(sorted(_solver_types))
     # trace-aware mesh mode (v0.16.0) defaults to Auto — a no-op unless an MSL
     # port is present, so antenna analyses are unaffected.
     assert solver_oe.MicrostripMeshMode == "Auto", "MicrostripMeshMode default changed"

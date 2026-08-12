@@ -226,6 +226,103 @@ def main():
     check("a factor with NO provenance says so, rather than passing quietly",
           any("NO PROVENANCE" in w for w in s_anon.get("warnings", [])))
 
+    # ============ B3. the bundle-factor SOURCE (wire/bundle_convection) ======
+    # The seam existed with no producer. This is the producer, driven here with
+    # a STUB runner so the arithmetic and the refusals are covered in the FAST
+    # tier (CI) while only the physics needs a solver.
+    from emstudio.wire import bundle_convection as bc
+    from emstudio.wire.bundle import Bundle, BundleMember
+
+    _TREFOIL = [(-0.015, -0.00866), (0.015, -0.00866), (0.0, 0.01732)]
+
+    class _StubRes:
+        # the MEASURED trefoil result — Nu 3.1542 at Ra 6341
+        nu_d, ra_d = 3.1542, 6341.0
+
+    class _StubCase:
+        def __init__(self, **kw):
+            self.kw = kw
+
+    def _stub_run(ok=True, converged=True, drift=1.55e-5, res=_StubRes):
+        def _run(_d, _case):
+            rep = {"ok": ok, "converged": converged, "nu_drift": drift}
+            if not ok:
+                rep["failed_at"] = "snappyHexMesh"
+                return rep, None
+            return rep, res()
+        return _run
+
+    f = bc.solve_bundle_factor(_TREFOIL, 0.020, box_w=0.2, box_h=0.2,
+                               runner=_stub_run(), case_factory=_StubCase,
+                               case_dir=".")
+    check("bundle factor = Nu_solved / Churchill-Chu at the RESULTING Ra "
+          "(0.8028 for the measured trefoil)",
+          abs(f.factor - 3.1542 / th.nu_churchill_chu(6341.0, 0.71)) < 1e-12
+          and abs(f.factor - 0.8028) < 5e-4, "%.6f" % f.factor)
+    check("...and it reports the error the way a user would state it "
+          "(Churchill-Chu over-predicts by ~25 %)",
+          24.0 < f.correlation_error_pct < 25.5,
+          "%+.2f %%" % f.correlation_error_pct)
+    check("provenance carries Nu, the correlation, Ra, convergence and drift",
+          all(s in f.provenance for s in ("Nu", "Churchill-Chu", "Ra",
+                                          "converged", "drift")))
+    # ⚠ A failed solve must NOT fall back to a plausible number.
+    try:
+        bc.solve_bundle_factor(_TREFOIL, 0.020, box_w=0.2, box_h=0.2,
+                               runner=_stub_run(ok=False),
+                               case_factory=_StubCase, case_dir=".")
+        check("a FAILED solve raises rather than returning a factor", False)
+    except ValueError:
+        check("a FAILED solve raises rather than returning a factor", True)
+    f_unconv = bc.solve_bundle_factor(
+        _TREFOIL, 0.020, box_w=0.2, box_h=0.2,
+        runner=_stub_run(converged=False, drift=0.2),
+        case_factory=_StubCase, case_dir=".")
+    check("an unsettled solve still returns a factor but WARNS it is "
+          "provisional",
+          f_unconv.warnings and "provisional" in f_unconv.warnings[0])
+
+    class _TooGood:
+        nu_d, ra_d = 9.0, 6341.0
+    f_hi = bc.solve_bundle_factor(_TREFOIL, 0.020, box_w=0.2, box_h=0.2,
+                                  runner=_stub_run(res=_TooGood),
+                                  case_factory=_StubCase, case_dir=".")
+    check("a factor above 1 (cools BETTER than a lone cable) is flagged as "
+          "needing forced flow",
+          any("forced flow" in w for w in f_hi.warnings))
+
+    # geometry key: the thing that notices a cached factor has gone stale
+    k1 = bc.geometry_key(_TREFOIL, 0.020, 0.2, 0.2)
+    check("the geometry key is order-independent (same arrangement, same key)",
+          k1 == bc.geometry_key(list(reversed(_TREFOIL)), 0.020, 0.2, 0.2))
+    check("...and changes when spacing or the enclosure changes — which is "
+          "exactly what the factor measures",
+          k1 != bc.geometry_key(_TREFOIL, 0.020, 0.4, 0.4)
+          and k1 != bc.geometry_key([(0, 0)], 0.020, 0.2, 0.2))
+
+    check("Bundle geometry feeds the solve directly (the Cable Designer has "
+          "already packed it)",
+          bc.centres_from_bundle(Bundle(members=[BundleMember("A", 0.020,
+                                                              qty=3)]))[1]
+          == 0.020)
+    try:
+        bc.centres_from_bundle(Bundle(members=[BundleMember("A", 0.020),
+                                               BundleMember("B", 0.010)]))
+        check("MIXED cable diameters are refused, not averaged", False)
+    except ValueError:
+        check("MIXED cable diameters are refused, not averaged", True)
+    for _kw, _why in ((dict(centres=[]), "no cables"),
+                      (dict(d_cable=0.0), "zero diameter"),
+                      (dict(clearance_ratio=1.0), "a clearance ratio of 1")):
+        _args = dict(centres=_TREFOIL, d_cable=0.020, runner=_stub_run(),
+                     case_factory=_StubCase, case_dir=".")
+        _args.update(_kw)
+        try:
+            bc.solve_bundle_factor(**_args)
+            check("%s is rejected" % _why, False, "no error raised")
+        except ValueError:
+            check("%s is rejected" % _why, True)
+
     # ============ C. steady solve + ampacity bands ============
     # AWG-10 / PVC 105 C hookup (UL1015-class): Multicable row 58 A +-25%
     d10 = 2.588e-3

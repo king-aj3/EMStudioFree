@@ -714,6 +714,34 @@ class CableDesignerDialog(QtWidgets.QDialog):
         self.xt_btn.clicked.connect(self._bundle_coupling)
         xform.addRow(self.xt_btn)
         lay.addWidget(xbox)
+
+        # --- convection: what bundling costs the ampacity ------------------
+        # This lives on the BUNDLE page on purpose. Churchill-Chu assumes ONE
+        # cable in unbounded still air, so the moment a user builds a bundle
+        # here the thermal answer elsewhere in this dialog is optimistic — and
+        # this is the page where they can be told, without hunting for a CFD
+        # panel they have no reason to open.
+        cbox = QtWidgets.QGroupBox("Convection (bundling and confinement)")
+        cform = QtWidgets.QFormLayout(cbox)
+        self.conv_clearance = QtWidgets.QDoubleSpinBox()
+        self.conv_clearance.setRange(1.5, 50.0)
+        self.conv_clearance.setValue(5.0)
+        self.conv_clearance.setSingleStep(0.5)
+        self.conv_clearance.setToolTip(
+            "Enclosure size as a multiple of the bundle's own extent. NOT "
+            "packaging: measured, shrinking a 0.40 m box to 0.20 m around one "
+            "20 mm cable cost 3 % of the film coefficient.")
+        cform.addRow("Enclosure / bundle extent", self.conv_clearance)
+        self.conv_btn = QtWidgets.QPushButton(
+            "Solve convection for this bundle…")
+        self.conv_btn.setToolTip(
+            "Solve natural convection for the members above and derive a "
+            "bundle factor on Churchill-Chu. Measured for a trefoil of three "
+            "20 mm cables: 0.80, i.e. the correlation over-predicts cooling "
+            "by ~25 %. Runs a CFD solve — minutes, not seconds.")
+        self.conv_btn.clicked.connect(self._bundle_convection)
+        cform.addRow(self.conv_btn)
+        lay.addWidget(cbox)
         lay.addStretch(1)
 
         # a representative default mix
@@ -1518,6 +1546,35 @@ class CableDesignerDialog(QtWidgets.QDialog):
                          jacket_m=self.bundle_wall.value() * 1e-3
                          if jacket else 0.0,
                          name="multi-design bundle")
+
+    def _bundle_convection(self):
+        """Solve convection for the members in the table above.
+
+        ⚠ The geometry comes from ``_bundle_model()`` — the SAME packing the
+        rest of this page reports — so the factor is solved for the bundle the
+        user is actually looking at. Re-deriving positions here would risk
+        solving a geometry the dialog never showed.
+
+        ⚠ MIXED diameters are REFUSED, not averaged: Nu_D is built on a
+        diameter and a mean of unlike cables is a number with no defensible
+        definition. The refusal is surfaced to the user rather than swallowed.
+        """
+        from PySide import QtWidgets
+
+        from emstudio.ui import convection_dialog
+        from emstudio.wire import bundle_convection as bc
+
+        try:
+            centres, d_cable = bc.centres_from_bundle(self._bundle_model())
+        except ValueError as exc:
+            QtWidgets.QMessageBox.information(
+                self, "Convection", str(exc))
+            return
+        side = convection_dialog.enclosure_side(
+            centres, d_cable, float(self.conv_clearance.value()))
+        dlg = convection_dialog.build_dialog(centres, d_cable, side, side,
+                                             parent=self)
+        dlg.exec()
 
     def _recalc_bundle(self):
         if self.bundle_table.rowCount() == 0:

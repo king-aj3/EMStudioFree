@@ -6,6 +6,40 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+* **`emstudio/wire/bundle_convection.py` — the bundle factor now has a SOURCE.**
+  The seam existed with nothing producing a factor. This solves the user's own
+  arrangement and returns `factor = Nu_solved / Churchill-Chu(Ra_resulting)` —
+  **0.8028** for the measured trefoil. It consumes `Bundle.pack()`, so the
+  Cable Designer's own packing feeds the case rather than the user restating
+  geometry. It **refuses** mixed diameters instead of averaging them (Nu_D is
+  defined against one diameter), **refuses** to invent a factor when the solve
+  fails, and flags a factor above 1 as needing forced flow to be physical.
+  ⚠ The factor is measured at ONE operating point and the provenance records
+  the Ra it was solved at — the flux BC makes Ra an output.
+* **`SolverOpenFOAM` document object + Analysis-group commands.** Unlike every
+  other solver object this one CACHES a result, because the factor is consumed
+  inside `solve_steady`'s ~80-evaluation bisection — re-solving there would be
+  thousands of CFD runs. So it stores the factor, its provenance, its
+  convergence state, and the geometry it was solved for. `factor_stale()`
+  returns **True when no geometry is recorded**: "cannot be shown to match"
+  must never read as "matches".
+* **`emstudio/ui/convection_dialog.py` — question-shaped, not a CFD panel.**
+  FreeCAD already has general CFD front ends and a generic panel only helps
+  someone who already decided to run CFD; the user who needs this never opens
+  it and just reads an optimistic ampacity. So the dialog states what the
+  ampacity uses today, quotes the measured magnitude BEFORE the user spends
+  minutes, warns that a real solve is starting, and reports the factor with
+  provenance plus the assistant's advice. `advice_for()` falls back to the same
+  warnings in plainer words without Pro — a tier boundary must never become a
+  correctness difference.
+* **Wired into the Cable Designer's bundle page.** The moment a user builds a
+  bundle there, the thermal answer elsewhere in that same dialog is optimistic;
+  that is where they can be told. Geometry comes from `_bundle_model()`, the
+  SAME packing the page already reports, so the factor is solved for the bundle
+  on screen. ⚠ The shipped default mix is MIXED-diameter, so the button refuses
+  on first use and names the options (uniform members, per-size solves, or the
+  NEC table). Mixed bundles are the common case and need per-cable patches in
+  snappy — real work, not a tweak, and not done.
 * **`emstudio/solvers/openfoam/bundle.py` — the cable BUNDLE in an enclosure,
   and the first OpenFOAM result that changes a number the product prints.**
   A fourth case writer (snappyHexMesh, an STL written from parameters, a

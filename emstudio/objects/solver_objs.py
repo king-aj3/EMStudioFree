@@ -499,3 +499,117 @@ def makeSolverPalace(doc=None, analysis=None, name="SolverPalace"):
     if analysis is not None:
         analysis.addObject(obj)
     return obj
+
+
+class SolverOpenFOAM(_SolverBase):
+    """Convection solve for a cable bundle in an enclosure.
+
+    ⚠ **This solver takes MINUTES, which makes it unlike every other object
+    here.** The others are parameter bags read at run time; this one CACHES a
+    result, because the number it produces (``BundleFactor``) is consumed
+    inside `thermal.solve_steady`'s bisection — ~80 evaluations per ampacity
+    answer. Re-solving there would be thousands of CFD runs.
+
+    So the object holds the solved factor AND the geometry it was solved for.
+    `FactorStale` compares them, because confinement and spacing are precisely
+    what the factor measures: it does not survive a geometry change, and a
+    silently-carried-over factor is worse than none.
+    """
+
+    Type = "EMStudio::SolverOpenFOAM"
+
+    def _ensure_properties(self, obj):
+        self._ensure_common(obj)
+        props = obj.PropertiesList
+        if "EnclosureClearance" not in props:
+            obj.addProperty(
+                "App::PropertyFloat", "EnclosureClearance", _GROUP,
+                "Enclosure size as a multiple of the bundle's own extent. "
+                "NOT packaging: measured, 0.40 m -> 0.20 m around one 20 mm "
+                "cable cost 3 % of h",
+            )
+            obj.EnclosureClearance = 5.0
+        if "WallGradient" not in props:
+            obj.addProperty(
+                "App::PropertyFloat", "WallGradient", _GROUP,
+                "Prescribed wall temperature gradient, K/m. Flux is the "
+                "physical condition for a Joule-heated cable; the surface "
+                "temperature is then an OUTPUT",
+            )
+            obj.WallGradient = 400.0
+        if "Iterations" not in props:
+            obj.addProperty(
+                "App::PropertyInteger", "Iterations", _GROUP,
+                "Maximum SIMPLE iterations (residualControl may stop earlier)",
+            )
+            obj.Iterations = 8000
+        if "BackgroundCells" not in props:
+            obj.addProperty(
+                "App::PropertyInteger", "BackgroundCells", _GROUP,
+                "Background mesh cells across the enclosure before snappy "
+                "refinement",
+            )
+            obj.BackgroundCells = 100
+        # --- solved results, read-only: these are MEASUREMENTS, not settings
+        if "BundleFactor" not in props:
+            obj.addProperty(
+                "App::PropertyFloat", "BundleFactor", _GROUP,
+                "Solved convection factor on Churchill-Chu (1.0 = the bare "
+                "correlation). Feeds wire/thermal.solve_steady",
+            )
+            obj.BundleFactor = 1.0
+            obj.setEditorMode("BundleFactor", 1)
+        if "FactorProvenance" not in props:
+            obj.addProperty(
+                "App::PropertyString", "FactorProvenance", _GROUP,
+                "What produced the factor: Nu, the correlation, Ra, and "
+                "whether it converged. A factor nobody can trace is worse "
+                "than no factor",
+            )
+            obj.FactorProvenance = ""
+            obj.setEditorMode("FactorProvenance", 1)
+        if "SolvedGeometry" not in props:
+            obj.addProperty(
+                "App::PropertyString", "SolvedGeometry", _GROUP,
+                "Geometry key the factor was solved for (staleness check)",
+            )
+            obj.SolvedGeometry = ""
+            obj.setEditorMode("SolvedGeometry", 1)
+        if "FactorConverged" not in props:
+            obj.addProperty(
+                "App::PropertyBool", "FactorConverged", _GROUP,
+                "Did the solve that produced the factor actually converge? "
+                "rc == 0 is not convergence",
+            )
+            obj.FactorConverged = False
+            obj.setEditorMode("FactorConverged", 1)
+
+    def store_factor(self, obj, factor):
+        """Record a solved :class:`BundleFactor` on the object."""
+        obj.BundleFactor = float(factor.factor)
+        obj.FactorProvenance = str(factor.provenance)
+        obj.SolvedGeometry = str(factor.geometry)
+        obj.FactorConverged = bool(factor.converged)
+
+    def factor_stale(self, obj, geometry_key):
+        """True when the cached factor was solved for a DIFFERENT design.
+
+        ⚠ Returns True for an EMPTY SolvedGeometry too: no recorded geometry
+        means the factor cannot be shown to match, and "cannot be shown to
+        match" must not read as "matches".
+        """
+        if not getattr(obj, "SolvedGeometry", ""):
+            return True
+        return obj.SolvedGeometry != geometry_key
+
+
+def makeSolverOpenFOAM(doc=None, analysis=None, name="SolverOpenFOAM"):
+    if doc is None:
+        doc = FreeCAD.ActiveDocument
+    obj = doc.addObject("App::FeaturePython", name)
+    SolverOpenFOAM(obj)
+    if FreeCAD.GuiUp:
+        _ViewProviderSolver(obj.ViewObject)
+    if analysis is not None:
+        analysis.addObject(obj)
+    return obj

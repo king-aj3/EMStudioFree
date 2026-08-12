@@ -24,6 +24,8 @@ CMD_COIL = "EMStudio_Coil"
 CMD_SOLVER_NEC2 = "EMStudio_SolverNEC2"
 CMD_SOLVER_OPENEMS = "EMStudio_SolverOpenEMS"
 CMD_SOLVER_ELMER = "EMStudio_SolverElmer"
+CMD_SOLVER_OPENFOAM = "EMStudio_SolverOpenFOAM"
+CMD_CONVECTION = "EMStudio_Convection"
 CMD_SOLVER_PALACE = "EMStudio_SolverPalace"
 CMD_PATTERN_FREQS = "EMStudio_PatternFrequencies"
 CMD_RUN = "EMStudio_RunSolver"
@@ -65,6 +67,8 @@ ALL_COMMANDS = [
     CMD_SOLVER_NEC2,
     CMD_SOLVER_OPENEMS,
     CMD_SOLVER_ELMER,
+    CMD_SOLVER_OPENFOAM,
+    CMD_CONVECTION,
     CMD_SOLVER_PALACE,
     CMD_PATTERN_FREQS,
     CMD_RUN,
@@ -110,6 +114,7 @@ COMMAND_GROUPS = [
         CMD_ANTENNA_FROM_SEL, "Separator",
         CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_COIL, "Separator",
         CMD_SOLVER_NEC2, CMD_SOLVER_OPENEMS, CMD_SOLVER_ELMER, CMD_SOLVER_PALACE,
+        CMD_SOLVER_OPENFOAM, CMD_CONVECTION,
         "Separator", CMD_PATTERN_FREQS, CMD_RUN, CMD_SHOW_RESULTS, CMD_SWEEP_GAP,
     ]),
     ("Templates", [
@@ -455,6 +460,87 @@ class _AddSolverElmer:
         ana = _active_analysis(create=True)
         solver_objs.makeSolverElmer(FreeCAD.ActiveDocument, ana)
         FreeCAD.ActiveDocument.recompute()
+
+
+class _AddSolverOpenFOAM:
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_solver_elmer.svg"),
+            "MenuText": "Add Convection (OpenFOAM) Solver",
+            "ToolTip": "Solve natural convection for a cable bundle in an "
+                       "enclosure and derive a bundle factor for ampacity. "
+                       "Churchill-Chu assumes ONE cable in unbounded still "
+                       "air; measured, it over-predicts a trefoil by ~25 % "
+                       "in the unsafe direction. Takes minutes, not seconds",
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from emstudio.objects import solver_objs
+
+        ana = _active_analysis(create=True)
+        solver_objs.makeSolverOpenFOAM(FreeCAD.ActiveDocument, ana)
+        FreeCAD.ActiveDocument.recompute()
+
+
+class _Convection:
+    """Solve the bundle factor and cache it on the SolverOpenFOAM object.
+
+    The solve takes MINUTES, so it is an explicit user action and never a side
+    effect of editing a property. The factor is consumed inside
+    solve_steady's ~80-evaluation bisection, which is precisely why it is
+    cached rather than recomputed.
+    """
+
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_solver_elmer.svg"),
+            "MenuText": "Solve Convection (bundle factor)...",
+            "ToolTip": "Solve natural convection for a cable bundle in its "
+                       "enclosure and cache the factor on the OpenFOAM "
+                       "solver. Churchill-Chu assumes ONE cable in unbounded "
+                       "still air and over-predicts a trefoil by ~25 %, in "
+                       "the unsafe direction",
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from emstudio.objects import query as _q
+        from emstudio.ui import convection_dialog
+
+        doc = FreeCAD.ActiveDocument
+        solver = None
+        for o in doc.Objects:
+            if _q.em_type(o) == "EMStudio::SolverOpenFOAM":
+                solver = o
+                break
+        if solver is None:
+            FreeCAD.Console.PrintError(
+                "No convection solver in this document - add one with "
+                "'Add Convection (OpenFOAM) Solver' first.\n")
+            return
+
+        pitch, d_cable = 0.030, 0.020
+        centres = [(-pitch / 2.0, -pitch * 0.2887),
+                   (pitch / 2.0, -pitch * 0.2887),
+                   (0.0, pitch * 0.5774)]
+        side = convection_dialog.enclosure_side(
+            centres, d_cable, float(getattr(solver, "EnclosureClearance", 5.0)))
+
+        dlg = convection_dialog.build_dialog(
+            centres, d_cable, side, side, parent=FreeCADGui.getMainWindow())
+        dlg.exec()
+        res = getattr(dlg, "result_obj", None)
+        if res is not None:
+            solver.Proxy.store_factor(solver, res)
+            doc.recompute()
+            FreeCAD.Console.PrintMessage(
+                "Convection solved: factor %.4f - %s\n"
+                % (res.factor, res.provenance))
 
 
 class _AddSolverPalace:
@@ -1522,6 +1608,8 @@ def register():
     FreeCADGui.addCommand(CMD_SOLVER_NEC2, _AddSolverNEC2())
     FreeCADGui.addCommand(CMD_SOLVER_OPENEMS, _AddSolverOpenEMS())
     FreeCADGui.addCommand(CMD_SOLVER_ELMER, _AddSolverElmer())
+    FreeCADGui.addCommand(CMD_SOLVER_OPENFOAM, _AddSolverOpenFOAM())
+    FreeCADGui.addCommand(CMD_CONVECTION, _Convection())
     FreeCADGui.addCommand(CMD_SOLVER_PALACE, _AddSolverPalace())
     FreeCADGui.addCommand(CMD_PATTERN_FREQS, _PatternFrequencies())
     FreeCADGui.addCommand(CMD_RUN, _RunSolver())
