@@ -543,9 +543,10 @@ class CableDesignerDialog(QtWidgets.QDialog):
         )
         hint.setStyleSheet("color: gray; font-size: 8pt;")
         blay.addWidget(hint)
-        self.bundle_table = QtWidgets.QTableWidget(0, 5)
+        self.bundle_table = QtWidgets.QTableWidget(0, 6)
         self.bundle_table.setHorizontalHeaderLabels(
-            ["Label", "Envelope OD (mm)", "Qty", "Kind", "Cond. Ø (mm)"])
+            ["Label", "Envelope OD (mm)", "Qty", "Kind", "Cond. Ø (mm)",
+             "Current (A)"])
         self.bundle_table.horizontalHeader().setStretchLastSection(True)
         blay.addWidget(self.bundle_table)
         btns = QtWidgets.QHBoxLayout()
@@ -751,7 +752,7 @@ class CableDesignerDialog(QtWidgets.QDialog):
         return page
 
     def _bundle_add_row(self, label="member", od_mm=2.0, qty=1, kind="generic",
-                        cond_mm=0.0):
+                        cond_mm=0.0, current_a=0.0):
         r = self.bundle_table.rowCount()
         self.bundle_table.insertRow(r)
         lab = QtWidgets.QLineEdit(str(label))
@@ -778,11 +779,28 @@ class CableDesignerDialog(QtWidgets.QDialog):
             "not a coupling conductor: model a pair as TWO wire members and\n"
             "use the differential pair-to-pair mode."
         )
+        cur = QtWidgets.QDoubleSpinBox()
+        cur.setDecimals(2)
+        cur.setRange(0.0, 10000.0)
+        cur.setValue(float(current_a))
+        cur.setSpecialValueText("n/a")
+        cur.setToolTip(
+            "Load current PER COPY (a Qty 3 row is three cables each carrying\n"
+            "this). Drives the member's I²R loss for 'Solve convection…', so\n"
+            "cables of the SAME size on different currents get their OWN\n"
+            "convection factor — measured 18.3 % apart for a 4:1 load ratio,\n"
+            "and the LIGHTLY loaded one is the worse cooled.\n\n"
+            "Needs the conductor Ø to compute R. 'n/a' on EVERY row solves the\n"
+            "bundle at one typed wall gradient instead; a mix of stated and\n"
+            "blank currents is refused, because a default applied to half a\n"
+            "bundle would put an invented heat load beside measured ones."
+        )
         self.bundle_table.setCellWidget(r, 0, lab)
         self.bundle_table.setCellWidget(r, 1, od)
         self.bundle_table.setCellWidget(r, 2, q)
         self.bundle_table.setCellWidget(r, 3, k)
         self.bundle_table.setCellWidget(r, 4, cd)
+        self.bundle_table.setCellWidget(r, 5, cur)
 
     def _bundle_del_row(self):
         r = self.bundle_table.rowCount()
@@ -1539,6 +1557,7 @@ class CableDesignerDialog(QtWidgets.QDialog):
                 qty=self.bundle_table.cellWidget(r, 2).value(),
                 kind=self.bundle_table.cellWidget(r, 3).currentText(),
                 conductor_d_m=self.bundle_table.cellWidget(r, 4).value() * 1e-3,
+                current_a=self.bundle_table.cellWidget(r, 5).value(),
             ))
         jtxt = self.bundle_jacket.currentText().strip()
         jacket = "" if jtxt.lower() in ("", "none") else jtxt
@@ -1567,8 +1586,23 @@ class CableDesignerDialog(QtWidgets.QDialog):
         from emstudio.ui import convection_dialog
         from emstudio.wire import bundle_convection as bc
 
+        model = self._bundle_model()
         try:
-            cables = bc.cables_from_bundle(self._bundle_model())
+            # ⚠ Currents turn this from a geometry case into a LOADED one:
+            # each member's own I²R becomes its own wall flux, so cables of
+            # ONE size on different currents get their own patch and their own
+            # factor. All-or-nothing by design — see bundle_has_currents.
+            if bc.bundle_has_currents(model):
+                # ⚠ R(T) needs a conductor temperature, and it is an
+                # ASSUMPTION — the temperature is what the thermal solve is
+                # for. Take the Thermal tab's own insulation-class limit so at
+                # least the two pages assume the same thing, rather than this
+                # one inventing a private default.
+                from emstudio.wire import thermal as _th
+                t_cond = _th.TEMP_CLASSES[self.th_class.currentText()]
+                cables = bc.cable_loads_from_bundle(model, t_cond_c=t_cond)
+            else:
+                cables = bc.cables_from_bundle(model)
         except ValueError as exc:
             QtWidgets.QMessageBox.information(
                 self, "Convection", str(exc))

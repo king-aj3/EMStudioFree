@@ -77,6 +77,8 @@ from emstudio.wire.thermal import nu_churchill_chu
 
 __all__ = ["BundleFactor", "MixedBundleFactor", "geometry_key", "cables_key",
            "centres_from_bundle", "cables_from_bundle",
+           "cable_loads_from_bundle", "bundle_has_currents",
+           "rdc20_from_diameter",
            "solve_bundle_factor", "solve_mixed_bundle_factor",
            "gradient_from_joule", "joule_w_per_m"]
 
@@ -383,6 +385,93 @@ def cables_from_bundle(bundle):
     if not placed:
         raise ValueError("this bundle has no members to solve")
     return [(x, y, 2.0 * r) for x, y, r, _m in placed]
+
+
+def rdc20_from_diameter(d_conductor_m, material="Cu"):
+    """DC resistance per metre at 20 °C of a solid round conductor.
+
+    ⚠ For a LITZ or stranded member ``conductor_d_m`` is the equivalent-SOLID
+    diameter, so this is the DC value and carries no strand or skin effect.
+    That is the right input here: the convection case wants the heat the cable
+    actually dissipates, and `joule_w_per_m` takes an ``rac_factor`` for the
+    AC part rather than hiding it in the geometry.
+    """
+    from emstudio.wire.thermal import CONDUCTORS
+    if d_conductor_m <= 0:
+        raise ValueError("conductor diameter must be positive")
+    if material not in CONDUCTORS:
+        raise ValueError("unknown conductor material %r; this module knows %s"
+                         % (material, ", ".join(sorted(CONDUCTORS))))
+    area = math.pi * (float(d_conductor_m) / 2.0) ** 2
+    return CONDUCTORS[material]["rho20"] / area
+
+
+def cable_loads_from_bundle(bundle, t_cond_c=90.0, material="Cu",
+                            rac_factor=1.0, t_film_k=315.0):
+    """``[(x, y, d, gradient)]`` — the packed bundle WITH each cable's own flux.
+
+    This is what makes mixed LOADING reachable: every member's stated
+    ``current_a`` becomes its own I²R loss, its own wall flux, and therefore
+    its own patch and its own convection factor. Cables of one size on
+    different currents stop sharing an answer.
+
+    ⚠ **Two different diameters are in play and conflating them is the trap.**
+    The resistance uses ``conductor_d_m`` — the metal that dissipates — while
+    the flux is spread over the ENVELOPE ``od_m``, because that is the surface
+    the air actually touches. Using one for both would be wrong in opposite
+    directions for a thin conductor in a thick jacket.
+
+    ⚠ ``t_cond_c`` is an ASSUMPTION, and a circular one if taken too seriously:
+    R rises with temperature, and the temperature is what the thermal solve is
+    for. It defaults to 90 °C — a typical insulation class — and the caller is
+    expected to state it. The error is second-order (Cu drifts ~0.4 %/K on R,
+    and the FACTOR is a ratio in which most of it cancels), but it is an
+    assumption and not a measurement.
+
+    Raises when a member states a current but no conductor diameter: without
+    the metal's cross-section there is no resistance, and inventing one would
+    put a fabricated heat load into a CFD case.
+    """
+    placed, _r_enc = bundle.pack()
+    if not placed:
+        raise ValueError("this bundle has no members to solve")
+    out = []
+    for x, y, r, m in placed:
+        i_a = float(getattr(m, "current_a", 0.0) or 0.0)
+        if i_a <= 0:
+            raise ValueError(
+                "member %r states no current, so its heat load is unknown. "
+                "Give every member a current to solve the bundle by load, or "
+                "leave them all at zero to solve it at one typed wall "
+                "gradient — a default applied to half a bundle is worse than "
+                "no default." % getattr(m, "label", "?"))
+        d_cond = float(getattr(m, "conductor_d_m", 0.0) or 0.0)
+        if d_cond <= 0:
+            raise ValueError(
+                "member %r carries %.4g A but states no conductor diameter, "
+                "so its I²R loss cannot be computed. Enter the bare (or "
+                "equivalent-solid) conductor Ø, or clear the current."
+                % (getattr(m, "label", "?"), i_a))
+        q = joule_w_per_m(i_a, rdc20_from_diameter(d_cond, material),
+                          t_cond_c, material=material, rac_factor=rac_factor)
+        out.append((x, y, 2.0 * r,
+                    gradient_from_joule(q, 2.0 * r, t_film_k=t_film_k)))
+    return out
+
+
+def bundle_has_currents(bundle):
+    """True when EVERY member states a load current.
+
+    ⚠ Deliberately all-or-nothing. A bundle where some members are loaded and
+    others are blank is an incomplete answer, not a mixed one, and quietly
+    giving the blanks a default flux would put an invented heat load beside
+    measured ones — indistinguishable in the result.
+    """
+    members = list(getattr(bundle, "members", []) or [])
+    if not members:
+        return False
+    return all(float(getattr(m, "current_a", 0.0) or 0.0) > 0
+               for m in members)
 
 
 def centres_from_bundle(bundle):

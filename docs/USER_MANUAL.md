@@ -389,13 +389,29 @@ temperature rise is small, and it sits in its neighbour's warm air, so the
 correlation flatters it most. The cable you would worry about least is the one
 the textbook answer is most wrong about.
 
-⚠ **This is API-level today.** The bundle table has no per-member current
-column, so the dialog cannot yet build such a case; reach it through
-`emstudio.wire.bundle_convection.solve_mixed_bundle_factor` with per-cable
-`(x, y, diameter, gradient)` tuples or a per-cable `joule_w_per_m` list. Ask
-for a result by size *and* load — `factor_for(d, gradient=...)`. Asking by size
-alone is refused when that size has two answers, rather than being given one of
-them.
+**How to get it:** fill the bundle table's **Current (A)** column — one current
+per member (per copy, so a Qty 3 row is three cables each carrying it). Each
+member's own I²R then drives its own wall flux, its own surface and its own
+factor. The member also needs its conductor Ø, since that is where the
+resistance comes from; the flux is spread over the ENVELOPE diameter, because
+that is the surface the air touches.
+
+⚠ **All-or-nothing.** Leave the column blank on every row and the bundle is
+solved at one typed gradient, as before. Fill it on every row and each cable
+gets its own. A PART-filled column falls back to the typed gradient rather
+than inventing a load for the blanks — an invented heat load standing beside
+measured ones is indistinguishable in the result. A current with no conductor
+Ø is refused outright.
+
+⚠ The resistance needs a conductor temperature and that is an **assumption** —
+R rises with temperature and the temperature is what you are solving for. The
+dialog uses the Thermal tab's insulation-class limit so both pages assume the
+same thing. The error is second-order, because the factor is a ratio in which
+most of it cancels, but it is an assumption and not a measurement.
+
+Ask for a result by size *and* load — `factor_for(d, gradient=...)` in the API.
+Asking by size alone is refused when that size has two answers, rather than
+being given one of them.
 
 **Things to know before you press it**
 

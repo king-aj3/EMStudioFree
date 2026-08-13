@@ -1849,7 +1849,7 @@ def _cable_designer_dialog():
             "the convection button REFUSED a mixed bundle: {0!r}".format(
                 _refused[:1])
         assert "cables" in _built, "the convection dialog was never built"
-        _ds = sorted(round(1000.0 * d, 4) for _x, _y, d in _built["cables"])
+        _ds = sorted(round(1000.0 * c[2], 4) for c in _built["cables"])
         assert _ds == [10.0, 10.0, 20.0], \
             "the solve got the wrong geometry: {0}".format(_ds)
         assert "2 sizes" in _built["plan"] and "20.0 mm" in _built["plan"], (
@@ -1857,7 +1857,7 @@ def _cable_designer_dialog():
             "not have: {0!r}".format(_built["plan"]))
         # the box must clear the FATTEST cable wherever it sits — sizing on
         # one diameter can build an enclosure an inner cable does not fit
-        _reach = max(_m.hypot(x, y) + d / 2.0 for x, y, d in _built["cables"])
+        _reach = max(_m.hypot(c[0], c[1]) + c[2] / 2.0 for c in _built["cables"])
         assert _built["box"][0] > 2.0 * _reach, \
             "the enclosure does not contain the bundle it was sized from"
         # and a UNIFORM bundle must still reach the same door
@@ -1868,7 +1868,49 @@ def _cable_designer_dialog():
         dlg._bundle_convection()
         assert not _refused and "cables" in _built, \
             "the uniform path regressed while adding mixed support"
-        assert len({round(d, 9) for _x, _y, d in _built["cables"]}) == 1
+        assert len({round(c[2], 9) for c in _built["cables"]}) == 1
+        assert all(len(c) == 3 for c in _built["cables"]), \
+            "an unloaded bundle must NOT acquire per-cable gradients"
+
+        # --- the per-member CURRENT column ------------------------------
+        # ⚠ The column is only real if pressing the button turns it into
+        # per-cable flux. Two SAME-SIZE members on different currents is the
+        # case that was unreachable from the UI before it existed.
+        _built.clear()
+        dlg.bundle_table.setRowCount(0)
+        dlg._bundle_add_row("feeder A", 20.0, 1, "wire", 10.0, 120.0)
+        dlg._bundle_add_row("feeder B", 20.0, 1, "wire", 10.0, 40.0)
+        dlg._recalc()
+        assert dlg.bundle_table.columnCount() == 6, \
+            "the bundle table lost its Current column"
+        assert abs(dlg._bundle.members[0].current_a - 120.0) < 1e-9, \
+            "the Current cell did not reach the BundleMember"
+        dlg._bundle_convection()
+        assert not _refused, "the loaded bundle was refused: {0!r}".format(
+            _refused[:1])
+        _cab = _built["cables"]
+        assert all(len(c) == 4 for c in _cab), \
+            "a fully-loaded bundle must carry a PER-CABLE gradient: " \
+            "{0}".format(_cab)
+        _gs = sorted((c[3] for c in _cab), reverse=True)
+        assert abs(_gs[0] / _gs[1] - 9.0) < 1e-6, \
+            "same size, 120 A vs 40 A must give a flux ratio of I² = 9, " \
+            "got {0:.4f}".format(_gs[0] / _gs[1])
+        assert "2 sizes" not in _built["plan"], \
+            "these are one SIZE on two loads, not two sizes"
+
+        # a HALF-filled column must not silently default the blanks
+        _built.clear()
+        dlg.bundle_table.setRowCount(0)
+        dlg._bundle_add_row("loaded", 20.0, 1, "wire", 10.0, 120.0)
+        dlg._bundle_add_row("blank", 20.0, 1, "wire", 10.0, 0.0)
+        dlg._recalc()
+        dlg._bundle_convection()
+        assert not _refused and "cables" in _built, \
+            "a partly-filled current column must fall back, not refuse"
+        assert all(len(c) == 3 for c in _built["cables"]), \
+            "a partly-filled current column must NOT produce per-cable " \
+            "gradients — that would put an invented load beside a real one"
     finally:
         _cvd.build_dialog = _real_build
         QtWidgets.QMessageBox.information = _real_info

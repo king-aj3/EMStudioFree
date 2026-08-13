@@ -81,10 +81,10 @@ def group_counts(cables):
     """``[((d, gradient), n)]`` — the units that each get their own factor.
 
     A group is one diameter at one wall flux, because that is what one snappy
-    patch carries. Equals :func:`size_counts` whenever the loading is uniform,
-    which is every bundle the Cable Designer can build today — the table has no
-    per-member current column yet, so mixed LOADING is an API-level capability
-    yet. Counted here regardless, so the guidance is right the day it is.
+    patch carries. Equals :func:`size_counts` whenever the loading is uniform;
+    it exceeds it when the Cable Designer's per-member **Current (A)** column
+    is filled, since cables of one size on different currents run at different
+    temperatures and get their own factors.
     """
     counts = {}
     for c in cables:
@@ -100,12 +100,19 @@ def describe_plan(geometry, d_cable=None, box_w=None, box_h=None):
 
     ⚠ A mixed bundle is described SIZE BY SIZE. Quoting one diameter for a
     bundle that has three is exactly how a user ends up believing the number
-    applies to the cable they care about.
+    applies to the cable they care about — and a bundle of ONE size whose
+    cables carry different loads is described as that too, because it looks
+    uniform and is not.
+
+    ⚠ Indexes ``c[0..2]`` rather than unpacking: a cable may be a 3-tuple or a
+    4-tuple with its own gradient, and unpacking would raise on the loaded path
+    only — the one this text most needs to describe correctly.
     """
     cables = as_cables(geometry, d_cable)
     n = len(cables)
-    reach = max(math.hypot(x, y) + d / 2.0 for x, y, d in cables)
+    reach = max(math.hypot(c[0], c[1]) + c[2] / 2.0 for c in cables)
     sizes = size_counts(cables)
+    groups = group_counts(cables)
     if len(sizes) == 1:
         what = "%d cable%s of %.1f mm" % (n, "" if n == 1 else "s",
                                           1000.0 * sizes[0][0])
@@ -113,12 +120,20 @@ def describe_plan(geometry, d_cable=None, box_w=None, box_h=None):
         what = "%d cables in %d sizes (%s)" % (
             n, len(sizes),
             ", ".join("%d x %.1f mm" % (c, 1000.0 * d) for d, c in sizes))
+    if len(groups) == 1:
+        note = ""
+    elif len(groups) > len(sizes):
+        note = (" %d of these carry different heat loads, so the bundle has "
+                "%d groups — each is solved on its own surface and gets its "
+                "own Nusselt number and its own factor. Cables of one size on "
+                "different currents are not thermally interchangeable."
+                % (n, len(groups)))
+    else:
+        note = (" Each size is solved on its own surface and gets its own "
+                "Nusselt number and its own factor — nothing is averaged "
+                "across unlike cables.")
     return ("%s in a %.0f x %.0f mm enclosure (bundle extent %.1f mm).%s"
-            % (what, 1000.0 * box_w, 1000.0 * box_h, 2000.0 * reach,
-               "" if len(sizes) == 1 else
-               " Each size is solved on its own surface and gets its own "
-               "Nusselt number and its own factor — nothing is averaged "
-               "across unlike cables."))
+            % (what, 1000.0 * box_w, 1000.0 * box_h, 2000.0 * reach, note))
 
 
 def advice_for(n_cables, enclosed, factor=1.0, provenance="", converged=None,
@@ -223,7 +238,11 @@ def build_dialog(geometry, d_cable, box_w, box_h, parent=None):  # pragma: no co
     from PySide import QtCore, QtWidgets
 
     cables = as_cables(geometry, d_cable)
-    mixed = len(size_counts(cables)) > 1
+    # ⚠ GROUPS, not sizes. A bundle of ONE diameter whose cables carry
+    # different currents has one size and several groups, and routing it to
+    # the single-diameter solver would collapse those loads into one answer —
+    # the exact failure the per-group work exists to prevent.
+    mixed = len(group_counts(cables)) > 1
 
     class ConvectionDialog(QtWidgets.QDialog):
         def __init__(self):
@@ -248,7 +267,8 @@ def build_dialog(geometry, d_cable, box_w, box_h, parent=None):  # pragma: no co
             self.notes = QtWidgets.QLabel("")
             self.notes.setWordWrap(True)
             self.notes.setStyleSheet("color: #a05000;")
-            for n in advice_for(len(cables), True, sizes=len(size_counts(cables))):
+            for n in advice_for(len(cables), True, sizes=len(size_counts(cables)),
+                                groups=len(group_counts(cables))):
                 self.notes.setText(self.notes.text() + "⚠ " + n + "\n\n")
             lay.addWidget(self.notes)
 
@@ -290,7 +310,7 @@ def build_dialog(geometry, d_cable, box_w, box_h, parent=None):  # pragma: no co
                                                        box_h=box_h)
                 else:
                     res = bc.solve_bundle_factor(
-                        [(x, y) for x, y, _d in cables], cables[0][2],
+                        [(c[0], c[1]) for c in cables], cables[0][2],
                         box_w=box_w, box_h=box_h)
             except Exception as exc:            # a failed solve is REPORTED
                 self.out.setText("<b>The solve did not complete.</b><br>%s"
@@ -305,7 +325,8 @@ def build_dialog(geometry, d_cable, box_w, box_h, parent=None):  # pragma: no co
             for n in advice_for(len(cables), True, factor=worst,
                                 provenance=res.provenance,
                                 converged=res.converged,
-                                sizes=len(size_counts(cables))):
+                                sizes=len(size_counts(cables)),
+                                groups=len(group_counts(cables))):
                 text += "<br><br>⚠ " + n
             for w in res.warnings:
                 text += "<br><br>⚠ " + w

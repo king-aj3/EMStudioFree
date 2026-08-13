@@ -474,6 +474,100 @@ def main():
     except ValueError:
         check("a per-cable loss list of the WRONG LENGTH is refused (silently "
               "recycling it would rate a cable at another's loss)", True)
+    # ============ B3d. per-member CURRENTS -> per-cable wall flux ============
+    # The bundle table carries a current per member, which is what makes mixed
+    # LOADING reachable without the API. Each member's own I²R becomes its own
+    # flux, its own patch and its own factor.
+    _r10 = bc.rdc20_from_diameter(0.010)
+    check("Rdc20 = rho20 / (pi r²) for a solid round conductor, exactly",
+          abs(_r10 - th.CONDUCTORS["Cu"]["rho20"] / (math.pi * 0.005 ** 2))
+          < 1e-18, "%.6g ohm/m" % _r10)
+    check("...and it scales as 1/d² — half the diameter is 4x the resistance",
+          abs(bc.rdc20_from_diameter(0.005) / _r10 - 4.0) < 1e-9)
+    check("aluminium is ~1.64x copper's resistivity, not silently copper",
+          abs(bc.rdc20_from_diameter(0.010, "Al") / _r10
+              - th.CONDUCTORS["Al"]["rho20"] / th.CONDUCTORS["Cu"]["rho20"])
+          < 1e-12)
+    for _bad, _why in ((dict(d_conductor_m=0.0), "a zero conductor diameter"),
+                       (dict(material="Unobtainium"), "an unknown material")):
+        _kw = dict(d_conductor_m=0.010)
+        _kw.update(_bad)
+        try:
+            bc.rdc20_from_diameter(**_kw)
+            check("%s is rejected" % _why, False)
+        except ValueError:
+            check("%s is rejected" % _why, True)
+
+    _LOADED = Bundle(members=[
+        BundleMember("A", 0.020, kind="wire", conductor_d_m=0.010,
+                     current_a=120.0),
+        BundleMember("B", 0.020, kind="wire", conductor_d_m=0.010,
+                     current_a=40.0),
+        BundleMember("C", 0.010, kind="wire", qty=2, conductor_d_m=0.004,
+                     current_a=5.0)])
+    check("a fully-loaded bundle is recognised as such",
+          bc.bundle_has_currents(_LOADED))
+    _loads = bc.cable_loads_from_bundle(_LOADED, t_cond_c=90.0)
+    check("every packed cable comes back with its own gradient (qty expands)",
+          len(_loads) == 4 and all(len(c) == 4 for c in _loads))
+    _g = {round(1000 * d, 4): [] for _x, _y, d, _gr in _loads}
+    for _x, _y, d, gr in _loads:
+        _g[round(1000 * d, 4)].append(gr)
+    # ⚠ THE POINT OF THE WHOLE COLUMN: same size, different current, different
+    # flux. Equal diameters mean the perimeter cancels, so the ratio is exactly
+    # the current ratio SQUARED — I²R with R identical.
+    _hot, _cool = sorted(_g[20.0], reverse=True)
+    check("two SAME-SIZE members on different currents get different fluxes, "
+          "in the ratio of their currents SQUARED (equal D, so R and the "
+          "perimeter both cancel)",
+          abs(_hot / _cool - (120.0 / 40.0) ** 2) < 1e-9,
+          "%.1f / %.1f = %.4f vs 9" % (_hot, _cool, _hot / _cool))
+    check("...and the two 5 A copies of one row are identical to each other",
+          abs(_g[10.0][0] - _g[10.0][1]) < 1e-12)
+    # ⚠ resistance uses the CONDUCTOR diameter, the flux is spread over the
+    # ENVELOPE. Conflating them is wrong in opposite directions for a thin
+    # conductor in a thick jacket, so pin the whole expression.
+    _q = bc.joule_w_per_m(120.0, bc.rdc20_from_diameter(0.010), 90.0)
+    check("gradient = I²R(T)/(pi x ENVELOPE D)/k_air — conductor Ø for the "
+          "resistance, envelope Ø for the wetted perimeter",
+          abs(_hot - bc.gradient_from_joule(_q, 0.020)) < 1e-9,
+          "%.1f K/m" % _hot)
+    check("a hotter assumed conductor gives a HIGHER loss (R rises with T)",
+          bc.cable_loads_from_bundle(_LOADED, t_cond_c=120.0)[0][3]
+          > bc.cable_loads_from_bundle(_LOADED, t_cond_c=20.0)[0][3])
+    # all-or-nothing: a half-filled table is an incomplete answer, not a mixed
+    # one, and defaulting the blanks would put an invented load beside real ones
+    _HALF = Bundle(members=[
+        BundleMember("A", 0.020, conductor_d_m=0.010, current_a=100.0),
+        BundleMember("B", 0.020, conductor_d_m=0.010)])
+    check("a bundle where only SOME members state a current does NOT read as "
+          "loaded (so the dialog takes the typed-gradient path)",
+          not bc.bundle_has_currents(_HALF))
+    try:
+        bc.cable_loads_from_bundle(_HALF)
+        check("...and forcing the loaded path on it is REFUSED rather than "
+              "defaulting the blanks", False)
+    except ValueError:
+        check("...and forcing the loaded path on it is REFUSED rather than "
+              "defaulting the blanks", True)
+    try:
+        bc.cable_loads_from_bundle(Bundle(members=[
+            BundleMember("A", 0.020, current_a=100.0)]))
+        check("a current with NO conductor diameter is refused — there is no "
+              "resistance without a cross-section, and inventing one puts a "
+              "fabricated heat load into a CFD case", False)
+    except ValueError:
+        check("a current with NO conductor diameter is refused — there is no "
+              "resistance without a cross-section, and inventing one puts a "
+              "fabricated heat load into a CFD case", True)
+    check("an UNLOADED bundle still reads as unloaded, so the existing "
+          "typed-gradient path is untouched",
+          not bc.bundle_has_currents(
+              Bundle(members=[BundleMember("A", 0.020, qty=3)])))
+    check("...and an EMPTY bundle is not 'loaded' either (all() of nothing is "
+          "True — the trap this guards)",
+          not bc.bundle_has_currents(Bundle(members=[])))
+
     # the same scalar loss on unlike cables is a REAL case: the thin one sees
     # the higher flux density, because the perimeter is smaller
     _g20 = bc.gradient_from_joule(5.0, 0.020)

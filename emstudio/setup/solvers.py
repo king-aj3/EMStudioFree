@@ -803,13 +803,22 @@ WINDOWS_HINTS = {
             "build, plus libstdc++-6, libgcc_s_seh-1 and libwinpthread-1 from "
             "your toolchain — miss any one and it exits 0xC0000135 silently, "
             "with no message and no output file.",
-    "fasthenry": "FastFieldSolvers ships Windows builds "
-                 "(https://www.fastfieldsolvers.com/) — download and install one "
-                 "yourself, then point EMStudio at it. There is no Install "
-                 "button and there cannot be one: FastHenry carries an M.I.T. "
-                 "licence granting internal, noncommercial use only and "
-                 "prohibiting redistribution without written consent, so "
-                 "EMStudio may not ship the binary for you. WSL2 also works.",
+    # ⚠ Link the DIRECT file list, not the site root. The root's "download"
+    # page (download.htm) is a registration FORM that lists no files at all,
+    # so the old hint sent users somewhere that showed them nothing. Probed
+    # 2026-08-12: the URL below is HTTP 200, application/octet-stream,
+    # 27,202,233 bytes, no login and no redirect.
+    "fasthenry": "FastFieldSolvers ships a Windows x64 installer that includes "
+                 "FastHenry2 — 'FastFieldSolvers Software Bundle' at "
+                 "https://www.fastfieldsolvers.com/dwnld02.htm (direct "
+                 "download, no registration; the site's own download.htm is a "
+                 "sign-up form that lists nothing, so use this page). Install "
+                 "it, then point EMStudio at fasthenry.exe. There is no "
+                 "Install button yet: the M.I.T. material was re-released in "
+                 "2003 under terms that DO permit redistribution, but the "
+                 "licence covering FastFieldSolvers' own 64-bit modifications "
+                 "is unresolved, so EMStudio does not ship the binary for you. "
+                 "WSL2 also works.",
     "elmer": "One-click guided install available — the Install button downloads the "
              "official CSC Windows build (~122 MB zip, per-user, no admin rights) "
              "and EMStudio detects it automatically. Manual alternative: the "
@@ -841,7 +850,11 @@ WINDOWS_HINTS = {
 # per-user managed directory and extract them with the stdlib — no shell, no
 # NSIS installer, no UAC prompt. Only backends whose upstream publishes real
 # Windows binaries belong here; the rest keep their honest WINDOWS_HINTS
-# (fastfieldsolvers.com gates downloads behind a form; openEMS zips exist but
+# (⚠ CORRECTED 2026-08-12: this said "fastfieldsolvers.com gates downloads
+# behind a form". Its download.htm does, but dwnld02.htm serves the bundle
+# installer directly — probed, 200 + octet-stream + 27 MB, no login. FastHenry
+# stays out of the guided installs on the LICENCE question alone, not on
+# availability; openEMS zips exist but
 # the python-driven run pipeline is not wired on native Windows, so installing
 # one would produce a "found" solver that cannot run — worse than honesty).
 

@@ -5,6 +5,65 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.99.0] — 2026-08-12 — a current per member, and FastHenry's licence resolved
+
+### Added
+* **A per-member Current (A) column in the Cable Designer's bundle table**, so
+  mixed LOADING is reachable without the API. Each member's stated current
+  becomes its own I²R loss, its own wall flux, its own snappy patch and its own
+  convection factor — the v0.98.0 capability, now usable.
+  ⚠ **Two different diameters are in play and conflating them is the trap:**
+  the resistance uses `conductor_d_m` (the metal that dissipates), the flux is
+  spread over the ENVELOPE `od_m` (the surface the air touches). Gated as one
+  pinned expression, and both directions of the swap are caught.
+  ⚠ Current is **per copy**, matching what `qty` already means everywhere else.
+  ⚠ **All-or-nothing.** A part-filled column is an incomplete answer, not a
+  mixed one; the bundle falls back to a single typed gradient rather than
+  defaulting the blanks, because an invented heat load standing beside measured
+  ones is indistinguishable in the result. Forcing the loaded path on a
+  part-filled bundle raises, as does a current with no conductor diameter.
+  ⚠ `t_cond_c` for R(T) is an ASSUMPTION and a circular one taken too
+  seriously; the dialog takes the Thermal tab's own insulation-class limit so
+  the two pages at least assume the same thing.
+* **Fixed while building it:** `build_dialog` decided "mixed" from the SIZE
+  count, so a one-diameter bundle whose cables carried different currents would
+  have gone down the single-diameter path and collapsed both loads into one
+  answer. Keyed on GROUP count now. `describe_plan` likewise unpacked 3-tuples
+  and would have raised on the loaded path — the one it most needs to describe.
+
+### Fixed
+* **FastHenry's licence position, corrected from PRIMARY SOURCE.** Enrico Di
+  Lorenzo (FastFieldSolvers) answered, and the 2003 M.I.T. re-release is
+  reproduced verbatim in his own `WinMSVS` `license_for_sources_4.0.txt`: it
+  grants "use, copy, modify, **sell and/or distribute** … for any purpose".
+  The 1994 "distribution strictly prohibited" header still on 18 `master`
+  files is **superseded** — backporting dropped the newer notice, which he
+  confirmed. ⚠ **The letter to the M.I.T. TLO is moot; do not send it.**
+* ⚠ **Downloading FastHenry was never restricted for a USER.** Every
+  restriction discussed was about EMStudio hosting the binary. README's
+  footnote now leads with that instead of implying otherwise.
+* **The Windows hint linked a page that lists no files.**
+  `fastfieldsolvers.com/download.htm` is a registration form; the real file
+  list is `dwnld02.htm`, and it is not gated — probed: HTTP 200,
+  `application/octet-stream`, 27,202,233 bytes for
+  `fastfieldsolvers_bundle_5.2.0_setup_x64.exe` (FastHenry2 + FastCap2 +
+  FasterCap + FastModel). The hint now names the bundle and links that page,
+  and the source comment claiming the site gates downloads behind a form is
+  corrected. FastHenry stays out of the guided installs on the LICENCE
+  question alone, not on availability.
+  ⚠ Still open, and the only thing blocking an Install button: the licence on
+  FastFieldSolvers' OWN 64-bit modifications — his email says LGPL, their
+  licence file's §2 grants only a right to use.
+* **Mutation harness, third fault of one family.** A mutation that made the
+  gate raise `KeyError` scored as a SURVIVOR, because the harness read an empty
+  accumulator without asking whether the gate finished. It now treats a raised
+  exception as a failure, on top of running both gates, reading either
+  accumulator name, and refusing a gate that produced no check output.
+  **32/32 caught.** The one duplicate failure signature was investigated, not
+  waved through: the two "which diameter goes where" mutations are two
+  spellings of one conflation, and a check broken by one but not the other is
+  not constructible — both diameters appear multiplicatively in one expression.
+
 ## [0.98.0] — 2026-08-12 — same size, different current, different factor
 
 The v0.97.0 per-size result was keyed by DIAMETER, so two cables of one size on

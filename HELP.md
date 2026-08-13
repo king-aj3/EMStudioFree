@@ -171,8 +171,10 @@ Pick the top-level **Construction** first — **Litz / stranded**, **Coax**, or
   ⚠ **Same size, different current, different factor too.** Two 20 mm cables at
   a 4:1 load difference measure **0.9876 and 0.8346 — 18.3 % apart**, and the
   *lightly* loaded one is the worse cooled: small temperature rise of its own,
-  sitting in its neighbour's warm air. (API-level today — the member table has
-  no per-member current column yet.)
+  sitting in its neighbour's warm air. Fill the **Current (A)** column to get
+  this — each member's own I²R drives its own flux. It is all-or-nothing: a
+  part-filled column falls back to one typed gradient rather than inventing a
+  load for the blanks, and a current with no conductor Ø is refused.
   ⚠ Do **not** apply a solved factor *and* the NEC 310.15(C)(1) adjustment —
   both derate the same physics and using both derates twice.
 - **Litz / stranded** (below):

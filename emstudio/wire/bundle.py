@@ -155,6 +155,15 @@ class BundleMember:
     :param conductor_d_m: bare (or equivalent-solid, for litz) conductor
         diameter — needed by the coupling/crosstalk analysis
         (``emstudio.wire.coupling``); 0 = not available (member excluded).
+    :param current_a: load current per copy, amperes. Drives the member's I²R
+        loss for the CONVECTION solve, where cables of one size carrying
+        different currents run at different temperatures and therefore have
+        different convection factors. 0 = not stated; the solve then falls
+        back to a single typed wall gradient for every member.
+
+        ⚠ It is PER COPY, not per row. A row with ``qty=3`` places three
+        cables each carrying ``current_a`` — the same convention ``qty``
+        already uses for every other field.
     """
 
     label: str
@@ -163,6 +172,7 @@ class BundleMember:
     qty: int = 1
     weight_kg_m: float = 0.0
     conductor_d_m: float = 0.0
+    current_a: float = 0.0
 
 
 @dataclass
