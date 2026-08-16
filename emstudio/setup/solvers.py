@@ -100,6 +100,79 @@ FASTHENRY_REQUIRED_FLAGS = (
     "-Wno-return-mismatch",
 )
 
+# --- FastHenry on NATIVE WINDOWS ---------------------------------------------
+# ⚠ The POSIX recipe above does NOT build on Windows, and no combination of
+# flags makes it. MEASURED 2026-08-13 by building it here with mingw-w64 gcc
+# 16.2.0 (ucrt64) — four distinct blockers, in the order they appear:
+#
+#   1. `-DFOUR` selects the BSD getrusage timers in resusage.h, which include
+#      <sys/resource.h>. That header does not exist on mingw. Dropping FOUR
+#      (and not defining FIVE) takes the header's own `#else` branch: no-op
+#      timers, no POSIX includes. Cost is the timing report, not the solve.
+#   2. induct.c defines a SunOS-era `matherr(struct exception *)`. mingw's
+#      math.h does `#define matherr _matherr` and prototypes it taking
+#      `struct _exception *`, so the definition collides. ⚠ A `-D` on the
+#      command line CANNOT fix this — math.h is included first and its macro
+#      wins. The rename has to happen in the source.
+#   3. parse_command_line.c declares `long clock` and passes `&clock` to
+#      `time()`. ⚠ THIS IS A REAL 64-BIT BUG, not a warning to silence:
+#      Windows is LLP64, so `long` is 4 bytes while `time_t` is 8, and the
+#      call writes 8 bytes into a 4-byte object. Linux is LP64 (both 8),
+#      which is why it only ever bites here. Reported upstream.
+#   4. `sbrk` and `gethostname` are unresolved at LINK time. Both are used
+#      for REPORTING only — the run header's host line and the memory
+#      statistics — so a shim object is honest. ⚠ The memory figures it
+#      produces are meaningless on Windows and must not be quoted as
+#      measurements.
+#
+# Plus one build-system quirk: the Makefile recurses with a bare `cd sparse;
+# make`, and mingw installs the binary as `mingw32-make.exe` only, so the
+# sub-make dies with "command not found" AFTER every source file has compiled.
+# A `make.exe` copy on PATH is enough.
+#
+# Verified end to end: the resulting binary SOLVES (a 10 mm x 1 mm^2 copper bar
+# at 1 MHz returns R = 0.000172414 ohm, exactly rho*L/A, and X = 0.0358 ohm =
+# 5.7 nH), and runs on a bare `C:\Windows\system32` PATH — self-contained, so
+# EMStudio can drive it as a plain subprocess.
+
+#: Windows flags = the POSIX set minus -DFOUR. Derived, never spelled out, for
+#: the same reason FASTHENRY_CFLAGS is a single constant.
+FASTHENRY_WIN_CFLAGS = " ".join(
+    f for f in FASTHENRY_CFLAGS.split() if f != "-DFOUR")
+
+#: Source edits the Windows build requires: (relative path, old, new, why).
+#: Each anchor must appear EXACTLY once or the build refuses — upstream moving
+#: the line must fail loudly, not patch the wrong thing.
+FASTHENRY_WIN_PATCHES = (
+    ("induct.c", "int matherr(exc)", "int fh_unused_matherr(exc)",
+     "collides with mingw math.h's _matherr prototype; a -D cannot win"),
+    ("parse_command_line.c", "  long clock;", "  time_t clock;",
+     "LLP64: time() writes 8 bytes into a 4-byte long"),
+)
+
+#: Link shim for the two POSIX symbols. Reporting only — see the note above.
+FASTHENRY_WIN_SHIM_C = """\
+/* Windows shims for POSIX symbols FastHenry uses for REPORTING only. */
+#include <string.h>
+#include <windows.h>
+
+/* Memory accounting only. A constant makes the reported usage meaningless,
+   which is preferable to a fake plausible number. */
+void *sbrk(long incr) { (void)incr; return (void *)0; }
+
+int gethostname(char *name, int len)
+{
+    DWORD n = (DWORD)len;
+    if (GetComputerNameA(name, &n)) return 0;
+    if (len > 0) { strncpy(name, "windows", len - 1); name[len - 1] = 0; }
+    return 0;
+}
+"""
+
+#: Source archive. A zip, not a clone: git is not a given on Windows.
+FASTHENRY_WIN_SRC_URL = (
+    "https://github.com/ediloren/FastHenry2/archive/refs/heads/master.zip")
+
 
 # Preferences group used for per-backend binary overrides.
 PREF_GROUP = "User parameter:BaseApp/Preferences/Mod/EMStudio"
@@ -569,6 +642,39 @@ def openfoam_status_note():
         return ""
 
 
+#: Where the FastFieldSolvers Windows bundle installs FastHenry2. Its presence
+#: is the ANSWER to "I installed FastHenry, why does this still say MISSING?"
+_FFS_DIRS = (
+    r"C:\Program Files (x86)\FastFieldSolvers\FastHenry2",
+    r"C:\Program Files\FastFieldSolvers\FastHenry2",
+)
+
+
+def fasthenry_status_note():
+    """Found-the-GUI-but-it-is-unusable diagnostic, or ''. Never raises.
+
+    An installed FastHenry2 shows as MISSING and that looks like a detection
+    bug — AJ hit exactly that (2026-08-13). It is not: EMStudio drives solvers
+    as subprocesses and FastHenry2.exe is Automation-only. Saying so beats a
+    bare MISSING, which is the same silent-absence class the v0.91.0 fixes
+    were about. Detection itself is deliberately NOT taught this binary: it
+    would report FastHenry usable and every solve would hang to its timeout.
+    """
+    try:
+        if os.name != "nt":
+            return ""
+        for d in _FFS_DIRS:
+            if os.path.isfile(os.path.join(d, "FastHenry2.exe")):
+                return ("FastHenry2 IS installed at {0}, but it is the "
+                        "Automation (COM) build: its own release notes record "
+                        "that command-line arguments were removed in 2004, and "
+                        "it hangs when given any. EMStudio needs a command-line "
+                        "'fasthenry' — WSL2 or a source build.".format(d))
+        return ""
+    except Exception:                          # noqa: BLE001 — advisory only
+        return ""
+
+
 def openfoam_clear_cache():
     """Forget cached OpenFOAM discovery (Re-detect / post-install)."""
     try:
@@ -808,17 +914,34 @@ WINDOWS_HINTS = {
     # so the old hint sent users somewhere that showed them nothing. Probed
     # 2026-08-12: the URL below is HTTP 200, application/octet-stream,
     # 27,202,233 bytes, no login and no redirect.
-    "fasthenry": "FastFieldSolvers ships a Windows x64 installer that includes "
-                 "FastHenry2 — 'FastFieldSolvers Software Bundle' at "
+    # ⚠ The bundle does NOT give EMStudio a usable FastHenry, and the hint
+    # used to say it did ("install it, then point EMStudio at fasthenry.exe").
+    # It ships no fasthenry.exe at all, and its FastHenry2.exe cannot be driven
+    # by argv — MEASURED 2026-08-13 on an installed copy: both `-help` and a
+    # real .inp deck hang with no output and no Zc.mat. That is deliberate,
+    # from their own History.txt shipped beside the binary: version 3.0
+    # (2004/12/10) "Removed the possibility to pass arguments to FastHenry when
+    # launching from the command line (must use Automation)". EMStudio drives
+    # solvers as SUBPROCESSES, so an Automation-only binary is unusable here
+    # and adding "FastHenry2.exe" to `executables` would be worse than the bug:
+    # detection would report FastHenry found and every solve would then hang to
+    # its timeout.
+    "fasthenry": "⚠ The FastFieldSolvers Windows bundle does NOT provide a "
+                 "FastHenry that EMStudio can drive. It ships no fasthenry.exe; "
+                 "its FastHenry2.exe is an Automation (COM) application whose "
+                 "own release notes record that command-line arguments were "
+                 "REMOVED in 2004 ('must use Automation') — measured here, it "
+                 "hangs with no output. EMStudio runs solvers as subprocesses, "
+                 "so it needs a command-line 'fasthenry': use WSL2 (Ubuntu), "
+                 "or build from source. The bundle is still worth having for "
+                 "the FastHenry2 GUI itself — "
                  "https://www.fastfieldsolvers.com/dwnld02.htm (direct "
                  "download, no registration; the site's own download.htm is a "
-                 "sign-up form that lists nothing, so use this page). Install "
-                 "it, then point EMStudio at fasthenry.exe. There is no "
-                 "Install button yet: the M.I.T. material was re-released in "
+                 "sign-up form that lists nothing, so use this page). There is "
+                 "no Install button: the M.I.T. material was re-released in "
                  "2003 under terms that DO permit redistribution, but the "
                  "licence covering FastFieldSolvers' own 64-bit modifications "
-                 "is unresolved, so EMStudio does not ship the binary for you. "
-                 "WSL2 also works.",
+                 "is unresolved, so EMStudio does not ship the binary for you.",
     "elmer": "One-click guided install available — the Install button downloads the "
              "official CSC Windows build (~122 MB zip, per-user, no admin rights) "
              "and EMStudio detects it automatically. Manual alternative: the "
@@ -1270,6 +1393,258 @@ def run_win_install(key, line_callback=None, _plan=None):
     if not info.found:
         raise SolverError(
             "installed to {0} but detection cannot see it — report this".format(target))
+    say("detected: {0}{1}".format(
+        info.path, (" — " + info.version) if info.version else ""))
+    return info
+
+
+# --- guided source build on NATIVE WINDOWS -----------------------------------
+# The Linux/macOS Build button runs a bash recipe; there is no bash here, so
+# this path does the whole thing in Python. It exists for FastHenry alone,
+# because FastHenry is the one backend with no usable Windows binary at all —
+# see the FASTHENRY_WIN_* block for why the vendor's own executable cannot be
+# driven, and for each of the four things the POSIX recipe gets wrong here.
+
+#: Where a mingw toolchain plausibly lives, most specific first. The OpenFOAM
+#: guided install brings an MSYS2 with `pacman` but NO compiler in it, so a box
+#: that has OpenFOAM may still need `pacman -S mingw-w64-ucrt-x86_64-gcc
+#: mingw-w64-ucrt-x86_64-make` first. That is the user's call, not ours: we
+#: detect and explain, we never bootstrap a toolchain behind their back.
+def _win_toolchain_dirs():
+    if os.name != "nt":
+        return ()
+    of_root = os.path.join(win_install_root(), "openfoam", "msys64")
+    return tuple(os.path.join(of_root, sub, "bin")
+                 for sub in ("ucrt64", "mingw64", "clang64"))
+
+
+def win_build_toolchain():
+    """``(cc, make)`` absolute paths for a native Windows source build.
+
+    Either may be ``None``. `make` is accepted under its mingw name
+    ``mingw32-make.exe`` as well — the packages install only that spelling.
+    """
+    cc = make = None
+    for d in _win_toolchain_dirs() + (None,):
+        for name in ("gcc.exe", "cc.exe"):
+            cand = os.path.join(d, name) if d else shutil.which(name[:-4])
+            if cand and os.path.isfile(cand) and cc is None:
+                cc = cand
+        for name in ("mingw32-make.exe", "make.exe"):
+            cand = os.path.join(d, name) if d else shutil.which(name[:-4])
+            if cand and os.path.isfile(cand) and make is None:
+                make = cand
+    return cc, make
+
+
+#: Guided source builds available on native Windows.
+WIN_SOURCE_BUILDS = {
+    "fasthenry": {
+        "estimate": "~2 min (small C build; ~1.3 MB of source downloaded)",
+        "proof": "fasthenry.exe",
+        "url": FASTHENRY_WIN_SRC_URL,
+    },
+}
+
+
+def win_source_build_plan(key):
+    """The native-Windows source-build recipe for a backend, or None.
+
+    None off Windows, for a backend with no recipe, or when no compiler can be
+    found — an offered button that cannot possibly work is worse than none.
+    """
+    if os.name != "nt":
+        return None
+    plan = WIN_SOURCE_BUILDS.get(key)
+    if plan is None:
+        return None
+    cc, make = win_build_toolchain()
+    if not cc or not make:
+        return None
+    return plan
+
+
+def win_build_toolchain_note():
+    """Why the Windows source build is unavailable, or '' when it is available."""
+    if os.name != "nt":
+        return ""
+    cc, make = win_build_toolchain()
+    if cc and make:
+        return ""
+    missing = ", ".join(n for n, v in (("a C compiler", cc), ("make", make))
+                        if not v)
+    return ("Building FastHenry here needs {0}. EMStudio does not install a "
+            "toolchain for you. If you already have EMStudio's OpenFOAM, its "
+            "MSYS2 ships pacman but no compiler — add one with: pacman -S "
+            "mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-make".format(missing))
+
+
+#: The Makefile line the shim object is appended to. NONUNIOBJS appears in BOTH
+#: the prerequisite list and the link line, so adding it there gets the object
+#: built and linked without touching CFLAGS (reused on every compile).
+FASTHENRY_WIN_MAKE_ANCHOR = "NONUNIOBJS = find_nonuni_path.o read_tree.o contact.o"
+
+
+def prepare_fasthenry_win_source(src, say=None):
+    """Apply every Windows source change in ``src``. Idempotent.
+
+    Separated from the build so it is testable without a network fetch or a
+    compiler — the anchor discipline below is the part worth gating.
+
+    ⚠ Every anchor must match EXACTLY ONCE. Upstream moving one of these lines
+    must STOP the build loudly, never silently patch something that merely
+    looks similar: a wrong patch here produces a binary that compiles and is
+    subtly wrong, which is far worse than a failed build.
+    """
+    # Imported here, not at module scope, like every other user of it in this
+    # file — emstudio.solvers.base imports back into setup.
+    from emstudio.solvers.base import SolverError
+
+    say = say or (lambda _line: None)
+    for rel, old, new, why in FASTHENRY_WIN_PATCHES:
+        path = os.path.join(src, rel)
+        try:
+            with open(path, "r", encoding="latin-1") as fh:
+                text = fh.read()
+        except OSError as exc:
+            raise SolverError("cannot read {0}: {1}".format(rel, exc))
+        if new in text:
+            continue                          # already patched
+        n = text.count(old)
+        if n != 1:
+            raise SolverError(
+                "{0}: expected exactly one '{1}', found {2} — upstream "
+                "changed; the Windows patch needs review".format(rel, old, n))
+        with open(path, "w", encoding="latin-1") as fh:
+            fh.write(text.replace(old, new))
+        say("patched {0} ({1})".format(rel, why))
+
+    with open(os.path.join(src, "win_compat.c"), "w",
+              encoding="ascii", newline="\n") as fh:
+        fh.write(FASTHENRY_WIN_SHIM_C)
+    say("wrote win_compat.c (sbrk/gethostname shims)")
+
+    mk = os.path.join(src, "Makefile")
+    try:
+        with open(mk, "r", encoding="latin-1") as fh:
+            mtext = fh.read()
+    except OSError as exc:
+        raise SolverError("cannot read Makefile: {0}".format(exc))
+    if "win_compat.o" not in mtext:
+        if mtext.count(FASTHENRY_WIN_MAKE_ANCHOR) != 1:
+            raise SolverError(
+                "Makefile: NONUNIOBJS line not found as expected — upstream "
+                "changed; the Windows patch needs review")
+        with open(mk, "w", encoding="latin-1") as fh:
+            fh.write(mtext.replace(FASTHENRY_WIN_MAKE_ANCHOR,
+                                   FASTHENRY_WIN_MAKE_ANCHOR + " win_compat.o"))
+        say("patched Makefile to link win_compat.o")
+
+
+def run_fasthenry_win_build(line_callback=None):
+    """Build FastHenry from source on native Windows. Returns its SolverInfo.
+
+    Every step is the one MEASURED to work on 2026-08-13; see FASTHENRY_WIN_*
+    for why each exists. Raises SolverError with a usable message rather than
+    leaving a half-built tree.
+    """
+    import tempfile
+    import zipfile as _zipfile
+
+    from emstudio.solvers.base import SolverError
+
+    say = line_callback or (lambda _line: None)
+    if os.name != "nt":
+        raise SolverError("the Windows source build is native-Windows only")
+
+    cc, make = win_build_toolchain()
+    if not cc or not make:
+        raise SolverError(win_build_toolchain_note())
+    say("compiler: " + cc)
+    say("make    : " + make)
+
+    root = win_install_root()
+    os.makedirs(root, exist_ok=True)
+    tmp_dir = tempfile.mkdtemp(dir=root, prefix="fhbuild_")
+    try:
+        zip_path = os.path.join(tmp_dir, "src.zip")
+        say("downloading " + FASTHENRY_WIN_SRC_URL)
+        _download_archive(FASTHENRY_WIN_SRC_URL, zip_path, say)
+        say("extracting...")
+        try:
+            with _zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(tmp_dir)
+        except _zipfile.BadZipFile as exc:
+            raise SolverError("corrupt source download: {0}".format(exc))
+
+        # Locate by a FILE THAT MUST BE THERE, not by an assumed folder name:
+        # the archive's top-level directory carries the branch name.
+        src = None
+        for dirpath, _dirs, files in os.walk(tmp_dir):
+            if "induct.c" in files and "Makefile" in files:
+                src = dirpath
+                break
+        if src is None:
+            raise SolverError(
+                "source archive has no fasthenry/induct.c — upstream layout "
+                "changed; report this")
+        say("source: " + src)
+
+        prepare_fasthenry_win_source(src, say)
+
+        # The Makefile recurses with a bare `cd sparse; make`; mingw installs
+        # only mingw32-make.exe, so the sub-make dies AFTER everything compiled.
+        shim_dir = os.path.join(tmp_dir, "makeshim")
+        os.makedirs(shim_dir, exist_ok=True)
+        shutil.copy2(make, os.path.join(shim_dir, "make.exe"))
+
+        env = dict(os.environ)
+        env["PATH"] = os.pathsep.join(
+            [shim_dir, os.path.dirname(cc), os.path.dirname(make),
+             env.get("PATH", "")])
+        os.makedirs(os.path.join(os.path.dirname(os.path.dirname(src)), "bin"),
+                    exist_ok=True)      # the Makefile's `mv` target
+
+        say("building (CFLAGS: {0})...".format(FASTHENRY_WIN_CFLAGS))
+        proc = subprocess.run(
+            [make, "fasthenry", "CC=" + cc, "CFLAGS=" + FASTHENRY_WIN_CFLAGS],
+            cwd=src, env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=1800,
+            # Without this the compile flashes a console window per spawn under
+            # the FreeCAD GUI — a smoke invariant, not a preference.
+            creationflags=procutil.CREATE_NO_WINDOW)
+        for line in (proc.stdout + proc.stderr).splitlines():
+            if line.strip():
+                say(line)
+
+        built = None
+        for dirpath, _dirs, files in os.walk(tmp_dir):
+            for f in files:
+                if f.lower() == "fasthenry.exe":
+                    built = os.path.join(dirpath, f)
+                    break
+            if built:
+                break
+        # Trust the OUTPUT FILE over the exit code: make's `mv` step can report
+        # oddly on Windows while having produced a perfectly good binary.
+        if built is None:
+            raise SolverError(
+                "build produced no fasthenry.exe (make exit {0}); the last "
+                "lines above say why".format(proc.returncode))
+
+        target_dir = os.path.join(root, "fasthenry", "bin")
+        os.makedirs(target_dir, exist_ok=True)
+        target = os.path.join(target_dir, "fasthenry.exe")
+        shutil.copy2(built, target)
+        say("installed to " + target)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    info = find_backend("fasthenry")
+    if not info.found:
+        raise SolverError(
+            "built and installed to {0} but detection cannot see it — "
+            "report this".format(target))
     say("detected: {0}{1}".format(
         info.path, (" — " + info.version) if info.version else ""))
     return info

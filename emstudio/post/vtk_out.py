@@ -346,6 +346,40 @@ def show_pattern(farfield, label, extent_mm=None, center_mm=(0.0, 0.0, 0.0),
     return show_in_freecad(path, label, doc, transparency=transparency)
 
 
+#: How see-through the boundary patches are. ⚠ NOT cosmetic: the enclosure
+#: patch ENCLOSES the volume field, so at low transparency it hides the very
+#: thing the view exists to show — the same trap the pattern balloon hit when
+#: it started enclosing its own antenna. High enough to see the field through,
+#: low enough that the walls still read as surfaces.
+FOAM_PATCH_TRANSPARENCY = 78
+
+
+def show_foam_case(vtu_path, patch_paths=(), doc=None, label_prefix="Convection",
+                   patch_transparency=None):
+    """Load an OpenFOAM volume field and its boundary patches. Returns objects.
+
+    The VOLUME goes in first and opaque — it carries the answer (temperature).
+    Patches follow, transparent, as context: they show where the cables and the
+    enclosure are, which is what makes a plume readable as a plume.
+
+    A patch that fails to load is skipped rather than aborting the lot: a
+    missing wall is worth less than the field, and losing the field because one
+    surface would not read would be the wrong trade.
+    """
+    trans = (FOAM_PATCH_TRANSPARENCY if patch_transparency is None
+             else patch_transparency)
+    objs = [show_in_freecad(vtu_path, "{0} field".format(label_prefix), doc)]
+    for path in patch_paths:
+        name = os.path.splitext(os.path.basename(path))[0]
+        try:
+            objs.append(show_in_freecad(
+                path, "{0} patch — {1}".format(label_prefix, name), doc,
+                transparency=trans))
+        except Exception:                      # noqa: BLE001 — context only
+            continue
+    return objs
+
+
 def show_in_freecad(vtu_path, label, doc=None, transparency=0):
     """Load a VTU into the active document as a colored FemPostPipeline surface.
 

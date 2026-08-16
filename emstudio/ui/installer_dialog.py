@@ -114,17 +114,83 @@ class SolverInstallerDialog(QtWidgets.QDialog):
 
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self._poll)
+        # Detection runs OFF the GUI thread and reports back through this one.
+        self._detect = None
+        self._detect_timer = QtCore.QTimer(self)
+        self._detect_timer.timeout.connect(self._poll_detect)
 
         self.refresh()
 
     # -- table ---------------------------------------------------------------
 
     def refresh(self):
-        # OpenFOAM discovery caches its runtime probe (it RUNS a solver);
-        # every refresh here is a moment the user expects a fresh look —
-        # dialog open, Re-detect, and the tail of an install.
-        solvers.openfoam_clear_cache()
-        plan = solvers.install_plan()
+        """Start a detection sweep. Returns immediately; the table fills later.
+
+        ⚠ THIS MUST NOT BLOCK. Detection is real work — every backend's
+        version probe is a subprocess, WSL is queried, and OpenFOAM's
+        discovery deliberately RUNS a solver to find out whether function
+        objects work. Done inline it was seconds of frozen GUI, and because
+        __init__ calls it the freeze happened BEFORE the window painted: the
+        dialog appeared to take forever to open and FreeCAD went
+        "Not Responding" (AJ, 2026-08-13).
+
+        Callers may treat this as fire-and-forget: `_poll_detect` populates
+        the table when the sweep lands. Tests must wait for a non-empty
+        table rather than reading it straight after construction.
+        """
+        if self._detect is not None and not self._detect["done"]:
+            return                       # one sweep at a time
+        state = {"done": False, "error": None, "plan": None}
+        self._detect = state
+        self._set_detecting()
+
+        def work():
+            try:
+                # OpenFOAM discovery caches its runtime probe (it RUNS a
+                # solver); every refresh here is a moment the user expects a
+                # fresh look — dialog open, Re-detect, and the tail of an
+                # install. Clearing it is WHY this is slow, so it belongs on
+                # the worker, not on the way in.
+                solvers.openfoam_clear_cache()
+                state["plan"] = solvers.install_plan()
+            except Exception as exc:      # noqa: BLE001 — surfaced in the table
+                state["error"] = exc
+            finally:
+                state["done"] = True
+
+        threading.Thread(target=work, daemon=True).start()
+        self._detect_timer.start(100)
+
+    def _set_detecting(self):
+        """Placeholder while the sweep runs — never an empty-looking table."""
+        self.redetect_btn.setEnabled(False)
+        self.table.setRowCount(1)
+        for col in range(4):
+            self.table.setCellWidget(0, col, None)
+            self.table.setItem(0, col, QtWidgets.QTableWidgetItem(""))
+        self.table.setItem(0, 0, QtWidgets.QTableWidgetItem("Detecting…"))
+        self.table.setItem(0, 2, QtWidgets.QTableWidgetItem(
+            "Probing for installed solvers — this runs each one to check it "
+            "actually works, so it takes a few seconds."))
+
+    def _poll_detect(self):
+        state = self._detect
+        if state is None or not state["done"]:
+            return
+        self._detect_timer.stop()
+        # A build/install owns the button while it runs; do not steal it back.
+        self.redetect_btn.setEnabled(not self._busy_key)
+        if state["error"] is not None:
+            self.table.setRowCount(1)
+            self.table.setItem(0, 0, QtWidgets.QTableWidgetItem("detection failed"))
+            self.table.setItem(0, 2, QtWidgets.QTableWidgetItem(str(state["error"])))
+            FreeCAD.Console.PrintError(
+                "EMStudio: solver detection failed: {0}\n".format(state["error"]))
+            return
+        self._populate(state["plan"])
+
+    def _populate(self, plan):
+        """Fill the table from an already-computed plan. GUI thread only."""
         rows = [(info, None) for info in plan["found"]]
         rows += [(m["info"], m) for m in plan["missing"]]
         rows.sort(key=lambda r: list(solvers.BACKENDS).index(r[0].backend.key))
@@ -162,6 +228,12 @@ class SolverInstallerDialog(QtWidgets.QDialog):
                 detail = "in the sudo step below (apt: {0})".format(b.apt_package)
             else:
                 detail = b.manual_hint.splitlines()[0] if b.manual_hint else b.homepage
+            if not info.found and b.key == "fasthenry":
+                # An installed FastHenry2 reading "MISSING" looks like a
+                # detection bug. It is not — say WHY instead.
+                note = solvers.fasthenry_status_note()
+                if note:
+                    detail = note
             if not info.found and b.key == "openfoam":
                 # "MISSING" can hide the real story here: an install may
                 # exist that is the wrong fork, incomplete, or the distro
@@ -195,6 +267,21 @@ class SolverInstallerDialog(QtWidgets.QDialog):
                         wplan["estimate"]))
                 btn.clicked.connect(
                     lambda _=False, key=b.key: self._win_install(key))
+                self.table.setCellWidget(i, 3, btn)
+            elif not info.found and solvers.win_source_build_plan(b.key) is not None:
+                # FastHenry is the one backend with NO usable Windows binary —
+                # the vendor's own executable is Automation-only — so on
+                # Windows its button compiles from source instead of
+                # downloading. win_source_build_plan() already returned None if
+                # no compiler exists, so this button can always actually run.
+                splan = solvers.win_source_build_plan(b.key)
+                btn = QtWidgets.QPushButton("Build…", self.table)
+                btn.setToolTip(
+                    "Compiles {0} from source with the toolchain found on this "
+                    "machine ({1}); progress streams below. Per-user, no admin "
+                    "rights needed.".format(b.label, splan["estimate"]))
+                btn.clicked.connect(
+                    lambda _=False, key=b.key: self._win_source_build(key))
                 self.table.setCellWidget(i, 3, btn)
             elif not info.found and b.key == "openfoam" and self._is_win:
                 # Not a WIN_INSTALL_PLANS zip: OpenFOAM's guided Windows
@@ -293,6 +380,56 @@ class SolverInstallerDialog(QtWidgets.QDialog):
                 state["done"] = True
 
         self.log.appendPlainText("=== installing {0} ===".format(label))
+        self.redetect_btn.setEnabled(False)
+        self._lock = lock
+        threading.Thread(target=work, daemon=True).start()
+        self._timer.start(300)
+
+    def _win_source_build(self, key):
+        """Guided native-Windows source build (FastHenry), in a thread."""
+        if self._busy_key:
+            return
+        splan = solvers.win_source_build_plan(key)
+        if splan is None:
+            # The toolchain went away between refresh and click. Say WHY
+            # rather than failing at the first command.
+            QtWidgets.QMessageBox.warning(
+                self, "EMStudio — cannot build",
+                solvers.win_build_toolchain_note()
+                or "No source build is available for this backend here.")
+            return
+        label = solvers.BACKENDS[key].label
+        cc, _make = solvers.win_build_toolchain()
+        answer = QtWidgets.QMessageBox.question(
+            self, "EMStudio — build {0}?".format(label),
+            "Compile {0} from source now?\n\nEstimated time: {1}\n"
+            "Compiler: {2}\nInstalls to: {3}\n\nSource is downloaded from the "
+            "upstream repository and built on this machine — nothing is "
+            "shipped to you, and no admin rights are needed.".format(
+                label, splan["estimate"], cc,
+                os.path.join(solvers.win_install_root(), key, "bin")),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if answer != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._busy_key = key
+        self._state = {"done": False, "error": None, "lines": []}
+        state = self._state
+        lock = threading.Lock()
+
+        def line_cb(line):
+            with lock:
+                state["lines"].append(line)
+
+        def work():
+            try:
+                solvers.run_fasthenry_win_build(line_callback=line_cb)
+            except Exception as exc:  # noqa: BLE001 — surfaced in the dialog
+                state["error"] = exc
+            finally:
+                state["done"] = True
+
+        self.log.appendPlainText("=== building {0} from source ===".format(label))
         self.redetect_btn.setEnabled(False)
         self._lock = lock
         threading.Thread(target=work, daemon=True).start()
@@ -421,6 +558,11 @@ class SolverInstallerDialog(QtWidgets.QDialog):
             self.log.appendPlainText("=== abort requested ===")
 
     def closeEvent(self, event):
+        # The detection worker is a daemon that only writes to its own state
+        # dict, so it is safe to abandon — but the timer must stop, or it
+        # fires _poll_detect against a dialog whose widgets are being torn
+        # down. Nothing to confirm with the user: detection has no side effect.
+        self._detect_timer.stop()
         if self._busy_key:
             answer = QtWidgets.QMessageBox.question(
                 self, "EMStudio", "A build is still running — abort it?",

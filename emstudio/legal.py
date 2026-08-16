@@ -152,6 +152,29 @@ PRO_TEASER_ARRAY = (
     "part of EMStudio Pro (the System Designer), " + PRO_PRICE + ". "
     "See ajj3.us."
 )
+def pro_hint_applies(vswr_min, pro_installed, accept=2.0):
+    """Should the matching pointer be shown beside THIS sweep result?
+
+    Policy, not presentation, so it lives here with the copy it governs and
+    away from PySide — which also lets the FAST-tier gate test it. The rule is
+    deliberately narrow, because the difference between a useful pointer and
+    nagware is entirely in when it stays quiet:
+
+    * only when the run itself raises the question (the element is not matched)
+    * never to someone who already bought the feature
+    * never on a number it cannot read
+
+    ``accept`` is passed in by the caller so the VSWR threshold has one home,
+    in the dialog that also draws it.
+    """
+    if pro_installed:
+        return False
+    try:
+        return float(vswr_min) > float(accept)
+    except (TypeError, ValueError):
+        return False
+
+
 PRO_SUMMARY = (
     "EMStudio Pro adds the System Designer: impedance matching, filter and "
     "diplexer synthesis, phased arrays with amplitude tapers, and RF direction "

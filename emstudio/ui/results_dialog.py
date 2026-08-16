@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from PySide import QtCore, QtWidgets
+from PySide import QtCore, QtGui, QtWidgets
 
 import matplotlib
 
@@ -102,6 +102,50 @@ def _retarget_balloon(balloon, ctx, ff):
         FreeCAD.Console.PrintWarning(
             "EMStudio: balloon update failed: {0}\n".format(exc))
     return True
+
+
+def _screen_geometry_for(widget, point):
+    """Available geometry of the screen a reference widget is really on.
+
+    ``QWidget.screen()`` is the direct answer (Qt 5.14+) and is preferred
+    because it follows the widget's own window, straddling or not.
+    ``screenAt`` covers a widget with no window handle yet, and the primary
+    screen is the last resort. What this must never do is ASSUME the primary
+    screen — see ``_clamp_into``.
+    """
+    screen = None
+    getter = getattr(widget, "screen", None)
+    if getter is not None:
+        try:
+            screen = getter()
+        except Exception:                      # noqa: BLE001 — older binding
+            screen = None
+    if screen is None:
+        screen = QtGui.QGuiApplication.screenAt(point)
+    if screen is None:
+        screen = QtGui.QGuiApplication.primaryScreen()
+    return screen.availableGeometry()
+
+
+def _clamp_into(geo, x, y, w, h):
+    """Keep a w x h rect at (x, y) wholly inside the screen rect ``geo``.
+
+    The bound is the SCREEN's own, never ``(0, 0)``. This ended in
+    ``move(max(x, 0), max(y, 0))``, which reads like a safety net and is one
+    only on a single-monitor desktop: a Windows monitor placed LEFT of or
+    ABOVE the primary has NEGATIVE global coordinates, so with FreeCAD's 3-D
+    view on such a screen the clamp threw the scrubber onto the PRIMARY
+    monitor — a different screen from the viewport it drives. AJ reported it
+    missing on 2026-08-13; it was not missing, it was on the other screen.
+    There was no containment against the far edges either, so a view near a
+    screen's bottom-right could push it off just as invisibly.
+
+    A rect too large for the screen in either axis pins to that screen's
+    top-left rather than shoving its opposite edge out of reach.
+    """
+    x = min(max(x, geo.x()), geo.x() + max(0, geo.width() - w))
+    y = min(max(y, geo.y()), geo.y() + max(0, geo.height() - h))
+    return x, y
 
 
 class BalloonScrubber(QtWidgets.QWidget):
@@ -240,6 +284,10 @@ class BalloonScrubber(QtWidgets.QWidget):
         scrubber that appears at a default spot beats one that crashed
         trying to be pretty. It is a normal Tool window: the user can drag
         it wherever they like afterwards.
+
+        Contained by the geometry of the screen the reference widget is on,
+        NOT by (0, 0) — see ``_clamp_into``, and the multi-monitor bug it
+        records.
         """
         try:
             mdi = mw.findChild(QtWidgets.QMdiArea)
@@ -249,7 +297,8 @@ class BalloonScrubber(QtWidgets.QWidget):
             self.adjustSize()
             x = top_left.x() + (ref.width() - self.width()) // 2
             y = top_left.y() + ref.height() - self.height() - 48
-            self.move(max(x, 0), max(y, 0))
+            geo = _screen_geometry_for(ref, top_left)
+            self.move(*_clamp_into(geo, x, y, self.width(), self.height()))
         except Exception:                      # noqa: BLE001 — cosmetic only
             pass
 
@@ -340,6 +389,17 @@ class SweepResultsDialog(QtWidgets.QDialog):
             warn.setWordWrap(True)
             warn.setStyleSheet("color: #b06000;")
             layout.addWidget(warn)
+
+        # The one place a matching network is unambiguously the next question:
+        # the sweep just said this element is NOT matched. legal.PRO_TEASER_*
+        # was written for exactly this moment ("shown WHERE THE NEED APPEARS
+        # rather than as a nag") and had never been displayed anywhere.
+        #
+        # Deliberately: one quiet line, no colour, no button, no popup, and
+        # ONLY when the run itself makes the point — a matched result never
+        # sees it. In the Pro build it never appears at all, because the
+        # feature is already installed.
+        self._maybe_pro_hint(layout, result)
 
         buttons = QtWidgets.QHBoxLayout()
         export_btn = QtWidgets.QPushButton("Export Touchstone (.s1p)…")
@@ -859,6 +919,27 @@ class SweepResultsDialog(QtWidgets.QDialog):
         return canvas
 
     # -- export ---------------------------------------------------------------
+    def _maybe_pro_hint(self, layout, result):
+        try:
+            vswr_min = float(result.vswr().min())
+        except Exception:                                       # noqa: BLE001
+            return
+        try:                            # present == owned; absent == free tier
+            import emstudio_pro                                 # noqa: F401
+            pro_installed = True
+        except ImportError:
+            pro_installed = False
+        from emstudio import legal
+
+        # VSWR_ACCEPT is passed in: this dialog owns the threshold it draws.
+        if not legal.pro_hint_applies(vswr_min, pro_installed, VSWR_ACCEPT):
+            return
+
+        hint = QtWidgets.QLabel(legal.PRO_TEASER_MATCHING)
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #6a6a6a;")   # quieter than the thin-wire warning
+        layout.addWidget(hint)
+
     def _export_touchstone(self):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Export Touchstone", os.path.expanduser("~/port_1.s1p"),

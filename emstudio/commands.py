@@ -26,6 +26,7 @@ CMD_SOLVER_OPENEMS = "EMStudio_SolverOpenEMS"
 CMD_SOLVER_ELMER = "EMStudio_SolverElmer"
 CMD_SOLVER_OPENFOAM = "EMStudio_SolverOpenFOAM"
 CMD_CONVECTION = "EMStudio_Convection"
+CMD_CONVECTION_FIELD = "EMStudio_ConvectionField"
 CMD_SOLVER_PALACE = "EMStudio_SolverPalace"
 CMD_PATTERN_FREQS = "EMStudio_PatternFrequencies"
 CMD_RUN = "EMStudio_RunSolver"
@@ -46,6 +47,8 @@ CMD_SWEEP_GAP = "EMStudio_SweepGap"
 # the Cable Designer keeps the historical id so saved user toolbars stay valid
 CMD_LITZ = "EMStudio_LitzDesigner"
 CMD_ELEMENT = "EMStudio_ElementDesigner"
+CMD_SYSTEM_MATCHING = "EMStudio_SystemMatching"
+CMD_ARRAY = "EMStudio_ArrayDesigner"
 CMD_SMALL_ANTENNA = "EMStudio_SmallAntenna"
 CMD_TPL_COSITE_PAIR = "EMStudio_TemplateCositePair"
 CMD_ISOLATION = "EMStudio_IsolationMatrix"
@@ -53,6 +56,8 @@ CMD_COSITE = "EMStudio_Cosite"
 CMD_LINK = "EMStudio_LinkBudget"
 CMD_COVERAGE = "EMStudio_Coverage"
 CMD_MULTICOVERAGE = "EMStudio_MultiCoverage"
+CMD_RFDF = "EMStudio_RFDF"
+CMD_ASSISTANT = "EMStudio_Assistant"
 CMD_DETECT = "EMStudio_DetectSolvers"
 CMD_ABOUT = "EMStudio_About"
 CMD_LEGAL = "EMStudio_Legal"
@@ -69,6 +74,7 @@ ALL_COMMANDS = [
     CMD_SOLVER_ELMER,
     CMD_SOLVER_OPENFOAM,
     CMD_CONVECTION,
+    CMD_CONVECTION_FIELD,
     CMD_SOLVER_PALACE,
     CMD_PATTERN_FREQS,
     CMD_RUN,
@@ -90,7 +96,11 @@ ALL_COMMANDS = [
     CMD_SWEEP_GAP,
     CMD_LITZ,
     CMD_ELEMENT,
+    CMD_SYSTEM_MATCHING,
+    CMD_ARRAY,
     CMD_SMALL_ANTENNA,
+    CMD_RFDF,
+    CMD_ASSISTANT,
     CMD_ISOLATION,
     CMD_COSITE,
     CMD_LINK,
@@ -114,7 +124,7 @@ COMMAND_GROUPS = [
         CMD_ANTENNA_FROM_SEL, "Separator",
         CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_COIL, "Separator",
         CMD_SOLVER_NEC2, CMD_SOLVER_OPENEMS, CMD_SOLVER_ELMER, CMD_SOLVER_PALACE,
-        CMD_SOLVER_OPENFOAM, CMD_CONVECTION,
+        CMD_SOLVER_OPENFOAM, CMD_CONVECTION, CMD_CONVECTION_FIELD,
         "Separator", CMD_PATTERN_FREQS, CMD_RUN, CMD_SHOW_RESULTS, CMD_SWEEP_GAP,
     ]),
     ("Templates", [
@@ -139,7 +149,7 @@ COMMAND_GROUPS = [
     # entries are absent and this group holds the co-site pair; EMStudio Pro
     # adds them back through the emstudio_pro extension point.
     ("System", [
-        "Separator",
+        CMD_SYSTEM_MATCHING, CMD_ARRAY, CMD_RFDF, "Separator",
         CMD_ISOLATION, CMD_COSITE,
     ]),
     ("Setup", [
@@ -149,7 +159,7 @@ COMMAND_GROUPS = [
     # where users look for them. Both are always enabled — a user must be able
     # to reach the disclaimer with no document open and no solver installed.
     ("Help", [
-        CMD_LICENCE, "Separator",
+        CMD_ASSISTANT, CMD_LICENCE, "Separator",
         CMD_ABOUT, CMD_LEGAL,
     ]),
 ]
@@ -508,16 +518,19 @@ class _Convection:
     def IsActive(self):
         return FreeCAD.ActiveDocument is not None
 
-    def Activated(self):
+    def Activated(self, solver=None):
         from emstudio.objects import query as _q
         from emstudio.ui import convection_dialog
 
         doc = FreeCAD.ActiveDocument
-        solver = None
-        for o in doc.Objects:
-            if _q.em_type(o) == "EMStudio::SolverOpenFOAM":
-                solver = o
-                break
+        # Run Solver hands us the solver the user SELECTED; the menu command
+        # passes nothing and takes the document's first. FreeCAD invokes
+        # Activated() with no arguments, so the default leaves that untouched.
+        if solver is None:
+            for o in doc.Objects:
+                if _q.em_type(o) == "EMStudio::SolverOpenFOAM":
+                    solver = o
+                    break
         if solver is None:
             FreeCAD.Console.PrintError(
                 "No convection solver in this document - add one with "
@@ -552,9 +565,88 @@ class _Convection:
         else:
             solver.Proxy.store_factor(solver, res)
             headline = "factor %.4f" % res.factor
+        # Remember WHERE it was solved. The factor is one number distilled
+        # from a whole temperature and velocity field; without this the field
+        # is unreachable the moment the dialog closes, and "Show Convection
+        # Field" has nothing to open.
+        case_dir = getattr(res, "case_dir", "")
+        if case_dir:
+            try:
+                solver.WorkingDirectory = case_dir
+            except Exception:                  # noqa: BLE001 — advisory
+                pass
         doc.recompute()
         FreeCAD.Console.PrintMessage(
             "Convection solved: %s - %s\n" % (headline, res.provenance))
+
+
+class _ConvectionField:
+    """Show the solved OpenFOAM temperature field in the 3-D view.
+
+    The bundle factor is ONE number distilled from a full field. This opens the
+    field it came from, so the solve can be looked at rather than trusted —
+    which matters most when the number is surprising.
+    """
+
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_solver_elmer.svg"),
+            "MenuText": "Show Convection Field in 3-D View",
+            "ToolTip": "Convert the solved OpenFOAM case to VTK and load the "
+                       "temperature field into the 3-D view. Needs a "
+                       "convection solve to have been run first",
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        import os
+
+        from emstudio.objects import query as _q
+        from emstudio.post import vtk_out
+        from emstudio.solvers.openfoam import vtk_export
+
+        doc = FreeCAD.ActiveDocument
+        solver = None
+        for o in doc.Objects:
+            if _q.em_type(o) == "EMStudio::SolverOpenFOAM":
+                solver = o
+                break
+        if solver is None:
+            _warn("No convection solver in this document — add one with "
+                  "'Add Convection (OpenFOAM) Solver' and solve it first.")
+            return
+        case_dir = getattr(solver, "WorkingDirectory", "")
+        if not case_dir:
+            # Be specific: "nothing to show" reads like a bug when the user
+            # remembers solving. They may have solved before this shipped.
+            _warn("This solver has no solved case recorded yet. Run 'Solve "
+                  "Convection (bundle factor)...' first — the case directory "
+                  "is stored when the solve finishes.")
+            return
+
+        try:
+            vtu = vtk_export.convert(case_dir)
+            patches = vtk_export.boundary_vtps(case_dir)
+            objs = vtk_out.show_foam_case(
+                vtu, patches, doc,
+                label_prefix="Convection {0}".format(
+                    os.path.basename(case_dir.rstrip("\\/"))))
+        except Exception as exc:                # noqa: BLE001 — surfaced
+            _warn("Could not show the convection field: {0}".format(exc))
+            return
+        obj = objs[0]
+        FreeCAD.Console.PrintMessage(
+            "EMStudio: convection field loaded from %s (%d boundary "
+            "patch(es))\n" % (vtu, len(objs) - 1))
+        try:
+            import FreeCADGui as _Gui
+
+            _Gui.SendMsgToActiveView("ViewFit")
+        except Exception:                       # noqa: BLE001 — cosmetic
+            pass
+        return obj
 
 
 class _AddSolverPalace:
@@ -962,6 +1054,19 @@ class _RunSolver:
 
             run_gui.run_generic_gui("Running {0}".format(solver.Label), run_palace,
                                     on_success, parent=FreeCADGui.getMainWindow())
+            return
+        elif stype == "EMStudio::SolverOpenFOAM":
+            # Convection is not a sweep: it runs through its OWN dialog, which
+            # owns the factor caching (mixed bundles store per-group, so a
+            # second copy of that logic here would be a second place to get it
+            # wrong). Delegate rather than duplicate.
+            #
+            # Without this branch Run Solver fell through to "Unknown solver
+            # type", which reads like a corrupt document rather than "use the
+            # other command" — and the object is named `Solver...` and sits in
+            # the tree beside SolverNEC2, so Run Solver is the obvious thing to
+            # press (AJ hit exactly this, 2026-08-13).
+            _Convection().Activated(solver)
             return
         else:
             _warn("Unknown solver type: {0}".format(stype))
@@ -1553,6 +1658,44 @@ class _DetectSolvers:
         SolverInstallerDialog(parent=FreeCADGui.getMainWindow()).exec()
 
 
+class _ProTeaser:
+    """Stands in for a Pro command in the FREE build only.
+
+    Never registered here: ``tools/export_free.py`` re-points the paid
+    ``addCommand`` lines at ``_ProTeaser("<key>")`` on the way out, so in this
+    private tree the real designers are registered and this class is unused.
+    It lives in commands.py rather than in the exported diff so that the free
+    build's registration line stays a one-liner the exporter can write, and so
+    this file still parses and imports identically in both trees.
+
+    All of the copy and the dialog live in ``emstudio/ui/pro_teaser.py``.
+    """
+
+    def __init__(self, key):
+        self.key = key
+
+    def _feature(self):
+        from emstudio.ui.pro_teaser import FEATURES
+
+        return FEATURES[self.key]
+
+    def GetResources(self):
+        feat = self._feature()
+        return {
+            "Pixmap": icon_path("emstudio_pro.svg"),
+            "MenuText": feat["menu"],
+            "ToolTip": feat["blurb"],
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        from emstudio.ui.pro_teaser import show_teaser
+
+        show_teaser(self.key, FreeCADGui.getMainWindow())
+
+
 class _Licence:
     def GetResources(self):
         return {
@@ -1624,6 +1767,7 @@ def register():
     FreeCADGui.addCommand(CMD_SOLVER_ELMER, _AddSolverElmer())
     FreeCADGui.addCommand(CMD_SOLVER_OPENFOAM, _AddSolverOpenFOAM())
     FreeCADGui.addCommand(CMD_CONVECTION, _Convection())
+    FreeCADGui.addCommand(CMD_CONVECTION_FIELD, _ConvectionField())
     FreeCADGui.addCommand(CMD_SOLVER_PALACE, _AddSolverPalace())
     FreeCADGui.addCommand(CMD_PATTERN_FREQS, _PatternFrequencies())
     FreeCADGui.addCommand(CMD_RUN, _RunSolver())
@@ -1644,13 +1788,15 @@ def register():
     FreeCADGui.addCommand(CMD_SWEEP_GAP, _SweepGap())
     FreeCADGui.addCommand(CMD_LITZ, _CableDesigner())
     FreeCADGui.addCommand(CMD_ELEMENT, _ElementDesigner())
-
+    FreeCADGui.addCommand(CMD_SYSTEM_MATCHING, _ProTeaser("matching"))
+    FreeCADGui.addCommand(CMD_ARRAY, _ProTeaser("array"))
     FreeCADGui.addCommand(CMD_SMALL_ANTENNA, _SmallAntennaDesigner())
     FreeCADGui.addCommand(CMD_COSITE, _CositeCalculator())
     FreeCADGui.addCommand(CMD_LINK, _LinkBudget())
     FreeCADGui.addCommand(CMD_COVERAGE, _Coverage())
     FreeCADGui.addCommand(CMD_MULTICOVERAGE, _MultiStationCoverage())
-
+    FreeCADGui.addCommand(CMD_RFDF, _ProTeaser("rfdf"))
+    FreeCADGui.addCommand(CMD_ASSISTANT, _ProTeaser("assistant"))
     FreeCADGui.addCommand(CMD_DETECT, _DetectSolvers())
     FreeCADGui.addCommand(CMD_ABOUT, _About())
     FreeCADGui.addCommand(CMD_LEGAL, _Legal())

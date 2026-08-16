@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- EMStudio Pro badge. Used ONLY by the free build's teaser menu entries
+     (emstudio/ui/pro_teaser.py), so a user can see at a glance which items
+     belong to the paid System Designer.
+
+     Deliberately its own icon rather than the four real Pro icons: those are
+     denied to the public tree on purpose, so that browsing the free repo does
+     not enumerate the paid surface. A single badge also gives the four entries
+     one consistent visual language.
+
+     Brand navy #0A2540 outline, brass #BE8A36 key. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <circle cx="32" cy="32" r="28" fill="#0A2540"/>
+  <circle cx="32" cy="32" r="28" fill="none" stroke="#BE8A36" stroke-width="3"/>
+  <!-- a key: what the entry is asking you to unlock -->
+  <circle cx="25" cy="27" r="8" fill="none" stroke="#BE8A36" stroke-width="4"/>
+  <path d="M30 32 L46 46" stroke="#BE8A36" stroke-width="4" stroke-linecap="round"/>
+  <path d="M40 40 L46 34" stroke="#BE8A36" stroke-width="4" stroke-linecap="round"/>
+  <path d="M46 46 L41 51" stroke="#BE8A36" stroke-width="4" stroke-linecap="round"/>
+</svg>

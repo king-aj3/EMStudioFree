@@ -3,7 +3,143 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.99.1] — 2026-08-16 — the free build points at Pro instead of hiding it
+
+### Added
+* **The free workbench now SHOWS the paid features it does not have.** Until
+  now `export_free.py` deleted the Pro commands outright, so a free user's
+  System menu simply had a hole in it and the only mentions of Pro were an
+  About section and a Help entry that reads like an install chore. Measured
+  the day this shipped: **145 estimated installs, 111 page views, 1 star and
+  0 sales** — nobody buys a room they never learn exists.
+
+  The four entries (Matching Designer, Array Designer, RF Direction Finding,
+  AI Assistant) now stay in their menus marked "(Pro)" with a badge icon, and
+  clicking one opens a single explainer — what the feature does, what it was
+  MEASURED against, and the price. New `emstudio/ui/pro_teaser.py` (public;
+  strings and a dialog, no paid logic) plus a new `emstudio_pro.svg` badge.
+  The four real Pro icons stay denied, so browsing the public repo still does
+  not enumerate the paid surface.
+
+  Deliberately not nagware: nothing ever pops up on its own, every dialog is
+  opened by a click the user chose, and every claim is a measured number from
+  a validation gate with its comparison (29.6 dB vs 3.4 dB front-to-back;
+  −26.02 dB Chebyshev floor to 0.04 dB; 0.00° manifold decode).
+* **A matching pointer at the one moment it is useful** — the sweep-results
+  dialog shows `legal.PRO_TEASER_MATCHING` as one quiet grey line **only**
+  when the run says the element is not matched (`VSWR_min > VSWR_ACCEPT`) and
+  **never** to someone who already has Pro installed. That string and
+  `PRO_TEASER_ARRAY` had existed since v0.77.0, written for exactly this
+  ("shown WHERE THE NEED APPEARS rather than as a nag"), and had never been
+  displayed anywhere. The rule lives in `legal.pro_hint_applies()` — policy,
+  GUI-free, so the gate can test it without PySide.
+* Gate `pro_teaser` (FAST, Pro-side only — it imports the exporter, which is
+  denied to the public tree). Mutation-proven four ways: inverting the rule,
+  a manifest key with no FEATURES entry, a menu entry that loses its "(Pro)"
+  marker, and a feature that loses its evidence were each caught.
+
+### Changed
+* `strip_commands_src` → **`teaser_commands_src`**, and the manifest's
+  `strip_commands` list → a `[teaser_commands]` id→key table. Only two of the
+  five places a command id lives now change on export: the paid class is
+  deleted and its `addCommand` is re-pointed at `_ProTeaser("<key>")`. The
+  constant, the id list and the menu row stay. The exporter refuses a key
+  with no `FEATURES` entry — that would ship a menu item which RAISES when a
+  buyer clicks it — and the audit now checks the teaser module and its icon
+  actually reach the public tree.
+* Fixed in passing: the old strip left a **stray leading separator** at the
+  top of the free build's System menu (it removed trailing ones only). With
+  the entries restored the separator is doing its job again.
+
 ## [Unreleased]
+
+### Added
+* **Conjugate heat transfer** (`solvers/openfoam/cht.py`, `run_cht`). Every
+  thermal case before this imposed a condition on the cable surface — a wall
+  temperature or a wall flux — which is an assumption about the answer. CHT
+  solves solid and fluid together and lets the interface temperature come out
+  of the solve. Anchored where the answer is EXACT: with `g = 0` the stack is
+  conduction in series, and a linear profile's cell-average equals its analytic
+  mean on uniform cells, so both region means are exact AND mesh-insensitive —
+  **solved 337.29278 / 312.29278 K against closed-form 337.29278 / 312.29278,
+  +0.00000 K**. Gates `cht_setup` (FAST) + `openfoam_cht` (SOLVER).
+* **Buoyancy for CHT** — 2-D mesh, `Boussinesq` equation of state and a derived
+  Rayleigh number. ⚠ `rhoConst` makes buoyancy IMPOSSIBLE (constant density
+  cannot answer temperature, so gravity is inert and the case silently returns
+  the conduction answer), and one cell up the cavity leaves a convection cell
+  nowhere to turn over — `buoyant` therefore requires BOTH. Proven at the
+  conduction limit: gravity ON at Ra 100 returns the closed form to
+  **+0.00007 K**. Convection itself is NOT yet validated — see below.
+* **Unsteady wind loading** (`WindCase(transient=True)` → `pimpleFoam`), which
+  reaches the Reynolds numbers where the flow actually sheds. Anchored on three
+  independent quantities: **Re 100 → Cd 1.3411, St 0.1647, Cl amp 0.3275** and
+  **Re 150 → Cd 1.3283, St 0.1835, Cl amp 0.5202**, against Williamson's
+  laminar correlation (0.2 % and 0.04 %). ⚠ A transient solve does not
+  legitimise a high Reynolds number: above ~190 the wake goes 3-D and
+  `TURBULENT_RE` refuses it. Real antenna loading still needs a turbulence
+  model, which is not built.
+* **The solved OpenFOAM field in the 3-D view** — Analysis ▸ Show Convection
+  Field in 3-D View. The bundle factor is one number distilled from a whole
+  field; the case directory is now carried out of the solve so the field can be
+  opened. Volume opaque, boundary patches at 78 % transparency (the enclosure
+  encloses the volume, so an opaque patch hides what the view exists to show).
+* **A Build button for FastHenry on native Windows**, compiling from source —
+  it is the one backend with no usable Windows binary. Appears only when a
+  compiler is actually present; EMStudio never bootstraps a toolchain.
+
+### Fixed
+* **Run Solver rejected the OpenFOAM solver** with "Unknown solver type",
+  which reads like a corrupt document. It now delegates to the convection
+  command (delegates, not duplicates — mixed bundles store per-group factors
+  through a different door).
+* **Solver Setup froze FreeCAD.** Detection ran on the GUI thread from
+  `__init__`, so the freeze happened BEFORE the window painted. Now a worker
+  thread plus a polling timer, with a "Detecting…" placeholder.
+* **FastHenry guidance was a dead end.** The FastFieldSolvers bundle ships no
+  `fasthenry.exe`, and its `FastHenry2.exe` is Automation-only — their own
+  release notes record that command-line arguments were REMOVED in 2004, and it
+  hangs when given any. Detection is deliberately NOT taught that binary
+  (reporting it found would hang every solve); the hint and a new status note
+  explain the situation instead.
+* **`CMD_CONVECTION_FIELD` was registered but missing from `ALL_COMMANDS`**, so
+  smoke's GUI registration contract failed under FreeCAD. It shipped CI-green
+  because CI runs `python3 smoke`, which skips that contract.
+* **Conjugate buoyant runs took the better part of an hour.**
+  `momentumPredictor no` on a buoyancy-driven flow leaves velocity to be
+  updated only through the pressure correction, so GAMG hit its 1000-iteration
+  cap every step while the energy residual was already ~1e-8. With the
+  predictor on, tuned GAMG and `residualControl`, **4000 iterations run in
+  155 s, ~25x faster** — and the exact conduction case is unchanged.
+* **The Rayleigh length scale was the cavity height.** A side-heated vertical
+  gap is governed by the GAP WIDTH, with H/L entering separately. A case asking
+  for Ra 1e6 really had a width-based Ra of 1.56e4 and returned Nu 1.014 — not
+  a wrong solve so much as an answer to a different question.
+
+### Known limitations
+* **Conjugate natural convection is NOT validated.** With the length scale and
+  pressure setup fixed, convection is real (q 6.32 → 11.60) but
+  **Nu 1.876 against Berkovsky-Polevikov's 8.549 at Ra 9.54e5, H/L 4 — −78 %**.
+  Convergence is ruled out (Nu identical at 4000 and 20 000 iterations). The
+  remaining suspect is spatial resolution: the thermal boundary layer is about
+  0.16 mm and 40 cells across a 5 mm gap gives 0.125 mm cells. No gate asserts
+  a convective Nusselt number, because there is no result worth pinning.
+
+### Fixed
+* **The floating pattern scrubber landed on the wrong MONITOR.**
+  `BalloonScrubber._position_over_view` computed its position from the active
+  3-D view correctly and then ended in `move(max(x, 0), max(y, 0))`. A Windows
+  monitor placed left of or above the primary has NEGATIVE global coordinates,
+  so with FreeCAD on such a screen that clamp threw the scrubber onto the
+  PRIMARY monitor — a different screen from the viewport it drives. Reported as
+  "missing" (AJ, 2026-08-13); it was on the other screen. It is now contained by
+  the geometry of the screen the 3-D view is actually on
+  (`ref.screen().availableGeometry()`, then `screenAt`, then the primary), in
+  BOTH directions — the old line had no far-edge containment either, so a view
+  near a screen's bottom-right pushed it off just as invisibly. Positioning
+  stays cosmetic and still fails silently by design. Gated in `gui_smoke` with
+  the second monitor injected through the reference widget (the offscreen
+  platform reports one screen at (0, 0)); 7/7 mutations caught, 7 distinct
+  signatures.
 
 ## [0.99.0] — 2026-08-12 — a current per member, and FastHenry's licence resolved
 

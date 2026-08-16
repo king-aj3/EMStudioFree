@@ -37,9 +37,12 @@ _ROOT = os.path.dirname(os.path.dirname(_HERE))
 # gate name -> optional requirement checked before running (None = always run)
 FAST = {
     "cable": None,
+    "cht_setup": None,
     "cosite": None,
     "coverage": None,
     "element_designer": None,
+    "fasthenry_guidance": None,
+    "foam_vtk_export": None,
     "freq_guard": None,
     "horn": None,
     "lfmf": None,
@@ -54,12 +57,15 @@ FAST = {
     "small_antenna": None,
     "solver_progress": None,
     "thermal": None,
+    "wind_transient": None,
     "ui_attr_collisions": None,
 }
 
 SOLVER = [
-    "amr_palace", "antenna_from_selection", "openfoam_bundle", "openfoam_cavity", "openfoam_cylinder",
+    "amr_palace", "antenna_from_selection", "openfoam_bundle", "openfoam_cavity", "openfoam_cht",
+    "openfoam_cylinder",
     "openfoam_wind",
+    "openfoam_wind_transient",
     "bh_elmer", "cavity_palace", "circwaveguide_palace",
     "coax_palace", "coil_inductance_elmer", "curved_wire_nec2",
     "cylcavity_palace", "dipole_nec2",
@@ -116,6 +122,8 @@ SOLVER_REQS = {
     "openfoam_cylinder": "openfoam",
     "openfoam_bundle": "openfoam",
     "openfoam_wind": "openfoam",
+    "openfoam_cht": "openfoam",
+    "openfoam_wind_transient": "openfoam",
     "patch_openems": "openems_python",
     "msl_notch_openems": "openems_python",
     "patch_auto_openems": "openems_python",

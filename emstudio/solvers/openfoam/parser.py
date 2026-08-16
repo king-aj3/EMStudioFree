@@ -441,6 +441,12 @@ _FORCE_BLOCK = re.compile(
     r"Sum of forces\s*\n\s*Total\s*:\s*\(([^)]*)\)\s*\n"
     r"\s*Pressure\s*:\s*\(([^)]*)\)\s*\n\s*Viscous\s*:\s*\(([^)]*)\)")
 
+#: ⚠ Anchored at the START of a line. `Time = ` also appears inside
+#: "ExecutionTime = ... ClockTime = ...", and matching that would pair every
+#: force block with a wall-clock second instead of a simulated one — a time
+#: axis that looks fine and makes the Strouhal number meaningless.
+_TIME_LINE = re.compile(r"^Time\s*=\s*([0-9.eE+-]+)\s*$", re.MULTILINE)
+
 
 @dataclass
 class WindForces:
@@ -468,6 +474,105 @@ class WindForces:
         if not self.cd:
             return float("inf")
         return abs(self.cl) / abs(self.cd)
+
+
+@dataclass
+class WindHistory:
+    """A transient run's force history, and what it means.
+
+    ⚠ A transient answer is a TIME SERIES, not a final value. Reading the last
+    step the way a steady run is read returns whatever phase of the shedding
+    cycle the run happened to stop on — which for lift is anywhere between
+    plus and minus the amplitude, and for drag oscillates at twice the
+    shedding frequency. Everything here is computed over settled whole cycles.
+    """
+
+    times: list = _field(default_factory=list)
+    cd: list = _field(default_factory=list)
+    cl: list = _field(default_factory=list)
+    cd_mean: float = 0.0
+    cl_amplitude: float = 0.0
+    strouhal: float = 0.0
+    cycles_measured: int = 0
+    warnings: list = _field(default_factory=list)
+
+
+def force_history_from_log(text, q_ref, d_ref, u_inf, settle_time=0.0):
+    """Every force report in a transient log, plus Cd and Strouhal.
+
+    Strouhal comes from the LIFT period. Lift crosses zero twice per shedding
+    cycle and drag oscillates at 2f, so lift is the unambiguous signal; using
+    drag would return double the frequency, which is a plausible-looking wrong
+    answer rather than an obvious one.
+    """
+    if q_ref <= 0:
+        raise ValueError("reference dynamic pressure must be positive")
+    if d_ref <= 0 or u_inf <= 0:
+        raise ValueError("diameter and freestream speed must be positive")
+
+    # Times and force blocks come from the same log in the same order, so they
+    # are paired by position. Blocks BEFORE the first "Time =" cannot exist.
+    times = [float(m) for m in _TIME_LINE.findall(text or "")]
+    blocks = _FORCE_BLOCK.findall(text or "")
+    if not blocks:
+        raise ValueError(
+            "no 'Sum of forces' block in the transient log — the forces "
+            "function object did not report")
+    n = min(len(times), len(blocks))
+    if n < 2:
+        raise ValueError(
+            "a transient force history needs at least two reports; got "
+            "{0} time(s) and {1} force block(s)".format(len(times), len(blocks)))
+
+    hist = WindHistory()
+    for i in range(n):
+        tot = tuple(float(x) for x in blocks[i][0].split())
+        hist.times.append(times[i])
+        hist.cd.append(tot[0] / q_ref)
+        hist.cl.append(tot[1] / q_ref)
+
+    keep = [i for i, t in enumerate(hist.times) if t >= settle_time]
+    if len(keep) < 2:
+        keep = list(range(n))
+        hist.warnings.append(
+            "the settle time discarded the whole history; averaging over all "
+            "of it INCLUDING startup, which biases Cd toward the steady value")
+    t_s = [hist.times[i] for i in keep]
+    cl_s = [hist.cl[i] for i in keep]
+    cd_s = [hist.cd[i] for i in keep]
+
+    cl_mean = sum(cl_s) / len(cl_s)
+    hist.cl_amplitude = max(abs(c - cl_mean) for c in cl_s)
+
+    # Upward zero crossings of lift about its own mean: one per shedding cycle.
+    # Linearly interpolated, because the sample rate sets the resolution of the
+    # period otherwise, and that is exactly the quantity being measured.
+    crossings = []
+    for a, b in zip(range(len(cl_s) - 1), range(1, len(cl_s))):
+        y0, y1 = cl_s[a] - cl_mean, cl_s[b] - cl_mean
+        if y0 <= 0.0 < y1:
+            span = y1 - y0
+            frac = (-y0 / span) if span else 0.0
+            crossings.append(t_s[a] + frac * (t_s[b] - t_s[a]))
+
+    hist.cycles_measured = max(0, len(crossings) - 1)
+    if hist.cycles_measured >= 1:
+        period = (crossings[-1] - crossings[0]) / hist.cycles_measured
+        if period > 0:
+            hist.strouhal = (d_ref / u_inf) / period
+        # Average Cd over WHOLE cycles only. A partial cycle at either end
+        # leaves a bias that looks like a converged difference.
+        lo = min(range(len(t_s)), key=lambda i: abs(t_s[i] - crossings[0]))
+        hi = min(range(len(t_s)), key=lambda i: abs(t_s[i] - crossings[-1]))
+        if hi > lo:
+            cd_s = cd_s[lo:hi + 1]
+    else:
+        hist.warnings.append(
+            "no complete shedding cycle in the settled window: either the "
+            "wake has not destabilised yet or the run is too short. Cd is a "
+            "plain mean and the Strouhal number is NOT measured")
+    hist.cd_mean = sum(cd_s) / len(cd_s)
+    return hist
 
 
 def forces_from_log(text, q_ref):

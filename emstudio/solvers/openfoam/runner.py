@@ -38,8 +38,13 @@ from emstudio.solvers.openfoam.parser import (MixedBundleNusselt,
                                               nusselt_from_patch,
                                               read_internal_field,
                                               read_patch_values,
-                                              forces_from_log)
+                                              forces_from_log,
+                                              force_history_from_log)
 from emstudio.solvers.openfoam.writer import CavityCase, L, write_cavity
+from emstudio.solvers.openfoam.cht import (ChtCase, write_cht,
+                                           write_region_fields,
+                                           SOLID_REGION as _CHT_SOLID,
+                                           FLUID_REGION as _CHT_FLUID)
 
 __all__ = ["run_chain", "run_cavity", "run_cylinder", "run_bundle",
            "run_wind"]
@@ -387,6 +392,84 @@ def run_bundle(case_dir, case=None, info=None, timeout=7200):
 
 
 WIND_STEPS = ("blockMesh", "checkMesh", "simpleFoam")
+WIND_TRANSIENT_STEPS = ("blockMesh", "checkMesh", "pimpleFoam")
+
+#: ⚠ The region split is a MESH step, and the order matters: topoSet makes the
+#: cellZones, splitMeshRegions turns them into regions AND generates the
+#: `<region>_to_<neighbour>` interface patches, and only then can
+#: changeDictionary attach the coupled BC to a patch that exists. Read off the
+#: shipped v2512 tutorial rather than guessed.
+#: ⚠ The split copies EVERY field into EVERY region, so the solid ends up with
+#: U/p/p_rgh/alphat that mean nothing there. The shipped tutorial removes them
+#: explicitly ("important for post-processing"); so do we.
+#: ⚠ Two chains with a PYTHON step between them, not one. The interface patch
+#: does not exist until splitMeshRegions has run, so the per-region fields that
+#: reference it cannot be written before the mesh is split — and the tool that
+#: normally bridges that gap (`changeDictionary`) crashes on `U` in v2512.
+#: `write_region_fields` writes them whole instead.
+CHT_MESH_STEPS = ("blockMesh", "topoSet",
+                  "splitMeshRegions -cellZones -overwrite")
+CHT_SOLVE_STEPS = ("chtMultiRegionSimpleFoam",)
+
+
+def run_cht(case_dir, case=None, info=None, timeout=3600):
+    """Write, run and read a conjugate two-region case.
+
+    Returns ``(report, {region: mean T})``. The means are the check: for a
+    LINEAR profile on uniform cells the cell-average equals the analytic mean
+    exactly, so they can be compared to closed form without a mesh-convergence
+    argument. See :mod:`emstudio.solvers.openfoam.cht`.
+    """
+    case = write_cht(case_dir, case or ChtCase())
+    report = run_chain(case_dir, info=info, steps=CHT_MESH_STEPS, timeout=timeout)
+    if report["ok"]:
+        # The interface patch exists only now. Write the fields that name it,
+        # then solve. A failure here is a case-setup failure, not a solver one,
+        # and is reported as such rather than as a mysterious solver abort.
+        try:
+            report["patches"] = write_region_fields(case_dir, case)
+        except (OSError, ValueError) as exc:
+            report.update(ok=False, failed_at="write_region_fields",
+                          error=str(exc))
+        else:
+            solve = run_chain(case_dir, info=info, steps=CHT_SOLVE_STEPS,
+                              timeout=timeout)
+            report["steps"].extend(solve["steps"])
+            if not solve["ok"]:
+                report.update(ok=False, failed_at=solve.get("failed_at"),
+                              error=solve.get("error"))
+    report["case"] = {
+        "t_hot": case.t_hot, "t_cold": case.t_cold,
+        "k_solid": case.k_solid, "k_fluid": case.k_fluid,
+        "flux_exact": case.flux, "t_interface_exact": case.t_interface,
+        "t_solid_mean_exact": case.t_solid_mean,
+        "t_fluid_mean_exact": case.t_fluid_mean,
+    }
+    if not report["ok"]:
+        return report, None
+
+    means = {}
+    for region in (_CHT_SOLID, _CHT_FLUID):
+        latest = latest_time_dir(os.path.join(case_dir))
+        path = os.path.join(case_dir, latest or "", region, "T")
+        if not os.path.isfile(path):
+            report.update(ok=False, failed_at="read",
+                          error="no T field for region %r at %r" % (region, path))
+            return report, None
+        try:
+            values = read_internal_field(path)
+        except (OSError, ValueError) as exc:
+            report.update(ok=False, failed_at="read", error=str(exc))
+            return report, None
+        if not values:
+            report.update(ok=False, failed_at="read",
+                          error="empty T field for region %r" % region)
+            return report, None
+        means[region] = sum(values) / len(values)
+
+    report["t_solid_mean"] = means[_CHT_SOLID]
+    report["t_fluid_mean"] = means[_CHT_FLUID]
+    return report, means
 
 
 def run_wind(case_dir, case=None, info=None, timeout=3600):
@@ -398,11 +481,15 @@ def run_wind(case_dir, case=None, info=None, timeout=3600):
     that produced the numbers, so a reader can check them by eye.
     """
     case = write_wind(case_dir, case or WindCase())
-    report = run_chain(case_dir, info=info, steps=WIND_STEPS, timeout=timeout)
+    steps = WIND_TRANSIENT_STEPS if case.transient else WIND_STEPS
+    app = steps[-1]
+    report = run_chain(case_dir, info=info, steps=steps, timeout=timeout)
     report["case"] = {"reynolds": case.reynolds, "d_ref": case.d_ref,
                       "u_inf": case.u_inf, "q_ref": case.q_ref,
                       "radius_ratio": case.radius_ratio,
-                      "steady_is_valid": case.steady_is_valid}
+                      "steady_is_valid": case.steady_is_valid,
+                      "transient": case.transient,
+                      "method_is_valid": case.method_is_valid}
     # ⚠ Surfaced whether or not it is asked for: a drag number produced above
     # the shedding onset is not a wind load, and the caller must not have to
     # know that to be told.
@@ -412,15 +499,37 @@ def run_wind(case_dir, case=None, info=None, timeout=3600):
     if not report["ok"]:
         return report, None
 
-    solve = [s for s in report["steps"] if s["step"] == "simpleFoam"]
+    solve = [s for s in report["steps"] if s["step"] == app]
     report["converged"] = bool(solve and solve[0]["converged"])
+    log_path = os.path.join(case_dir, "log." + app)
+
+    if case.transient:
+        # ⚠ ALWAYS the whole log, never the tail: the tail is the last few
+        # thousand characters and a transient answer is the SHAPE of the
+        # history, not its end. Reading the tail would give a handful of
+        # samples off one arbitrary phase of the cycle.
+        try:
+            with open(log_path, encoding="utf-8", errors="replace") as fh:
+                hist = force_history_from_log(
+                    fh.read(), case.q_ref, case.d_ref, case.u_inf,
+                    settle_time=case.settle_time)
+        except (OSError, ValueError) as exc:
+            report.update(ok=False, failed_at="read", error=str(exc))
+            return report, None
+        report["cd"] = hist.cd_mean
+        report["cl_amplitude"] = hist.cl_amplitude
+        report["strouhal"] = hist.strouhal
+        report["cycles_measured"] = hist.cycles_measured
+        if note:
+            hist.warnings.append(note)
+        return report, hist
+
     try:
         result = forces_from_log(solve[0]["tail"] if solve else "", case.q_ref)
     except (IndexError, ValueError) as exc:
         # the tail is only the last 3000 chars; fall back to the whole log
         try:
-            with open(os.path.join(case_dir, "log.simpleFoam"),
-                      encoding="utf-8", errors="replace") as fh:
+            with open(log_path, encoding="utf-8", errors="replace") as fh:
                 result = forces_from_log(fh.read(), case.q_ref)
         except (OSError, ValueError):
             report.update(ok=False, failed_at="read", error=str(exc))

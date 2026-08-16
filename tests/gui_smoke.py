@@ -776,6 +776,156 @@ def _pattern_frequency_picker():
            "survives the dialog".format(len(ffs))
 
 
+def _scrubber_stays_on_the_viewport_screen():
+    """The floating scrubber must land on the screen its 3-D view is on.
+
+    ``_position_over_view`` ended in ``move(max(x, 0), max(y, 0))``. That is a
+    safety net only on a single-monitor desktop: a Windows monitor placed LEFT
+    of or ABOVE the primary has NEGATIVE global coordinates, so with FreeCAD's
+    3-D view on such a screen the clamp threw the scrubber onto the PRIMARY
+    monitor — a different screen from the viewport it drives. AJ reported it
+    "missing" on 2026-08-13; it was on the other screen. Nothing contained it
+    against the FAR edges either.
+
+    The offscreen platform reports ONE screen at (0, 0), so the multi-monitor
+    layout is INJECTED rather than waited for: the reference widget reports
+    globals on a second monitor and answers ``screen()`` with it, which is
+    what a real MDI subwindow on that monitor does. Nothing is monkeypatched,
+    so the shipped screen lookup runs for real. Two levels, on purpose — the
+    arithmetic exactly (``_clamp_into`` is pure), and then the scrubber's OWN
+    realised position, because the defect was in what ``move()`` was handed
+    and a check that only re-ran the arithmetic would not have seen it.
+
+    Note ``_position_over_view`` swallows everything (positioning is cosmetic).
+    That cannot make this pass by accident: a swallowed failure leaves the
+    scrubber where it was, and it is parked on the primary screen first.
+    """
+    from PySide import QtCore
+    from PySide import QtGui as QtWidgets  # noqa: N813
+
+    from emstudio.ui import results_dialog as _rd
+    from emstudio.ui.results_dialog import BalloonScrubber
+
+    # The offscreen QPA reports frame margins a couple of pixels off the
+    # requested move (measured: move(-1500,-200) -> pos (-1498,-198)). Real
+    # window managers honour it exactly; allow the platform its slop, which is
+    # three orders of magnitude smaller than the ~1900 px this is about.
+    slop = 8
+
+    # -- the arithmetic, exactly -------------------------------------------
+    # A monitor above-left of the primary: the layout that broke.
+    screen = QtCore.QRect(-1920, -360, 1920, 1080)
+    assert _rd._clamp_into(screen, -3000, -2000, 320, 44) == (-1920, -360), \
+        "off the top-left corner did not clamp to the SCREEN's corner: " \
+        "{0}".format(_rd._clamp_into(screen, -3000, -2000, 320, 44))
+    assert _rd._clamp_into(screen, 5000, 5000, 320, 44) == (-320, 676), \
+        "off the bottom-right corner is not pulled back inside: " \
+        "{0}".format(_rd._clamp_into(screen, 5000, 5000, 320, 44))
+    assert _rd._clamp_into(screen, -500, 100, 320, 44) == (-500, 100), \
+        "a position already inside the screen was moved"
+    # wider/taller than the screen pins to its corner rather than shoving the
+    # opposite edge out of reach
+    assert _rd._clamp_into(screen, 0, 0, 4000, 2000) == (-1920, -360), \
+        "a rect too big for the screen was pushed off it: {0}".format(
+            _rd._clamp_into(screen, 0, 0, 4000, 2000))
+
+    # -- the screen lookup itself ------------------------------------------
+    import FreeCADGui
+
+    mw = FreeCADGui.getMainWindow()
+    real = _rd._screen_geometry_for(mw, QtCore.QPoint(0, 0))
+    assert real.width() > 0 and real.height() > 0, \
+        "no usable screen geometry for the main window: {0}".format(real)
+
+    class _FakeScreen(object):
+        def __init__(self, geo):
+            self._geo = geo
+
+        def availableGeometry(self):
+            return self._geo
+
+    class _OnOtherScreen(object):
+        """A widget whose window sits on the injected second monitor."""
+
+        def screen(self):
+            return _FakeScreen(screen)
+
+    class _NoScreen(object):
+        """A widget binding without QWidget.screen() (pre-Qt 5.14)."""
+
+    class _RaisingScreen(object):
+        def screen(self):
+            raise RuntimeError("binding without a usable screen()")
+
+    # the WIDGET's screen wins — answering with the primary one regardless is
+    # the whole bug, one layer down.
+    assert _rd._screen_geometry_for(_OnOtherScreen(),
+                                    QtCore.QPoint(0, 0)) == screen, \
+        "the reference widget's own screen was ignored"
+    # screenAt() returns None for a point on no screen — both fallback arms
+    # must still produce a geometry instead of raising into the swallow.
+    for stub in (_NoScreen(), _RaisingScreen()):
+        fallback = _rd._screen_geometry_for(stub, QtCore.QPoint(-9999, -9999))
+        assert fallback.width() > 0, \
+            "screen fallback chain produced nothing for {0}".format(stub)
+
+    # -- the realised position ---------------------------------------------
+    class _FF(object):
+        def __init__(self, freq):
+            self.freq = freq
+
+    class _Ref(_OnOtherScreen):
+        """Stands in for the MDI subwindow, living on the injected screen."""
+
+        def __init__(self, x, y, w, h):
+            self._x, self._y, self._w, self._h = x, y, w, h
+
+        def findChild(self, *_a, **_k):
+            return None                   # no MDI area -> ref is this widget
+
+        def mapToGlobal(self, pt):
+            return QtCore.QPoint(self._x + pt.x(), self._y + pt.y())
+
+        def width(self):
+            return self._w
+
+        def height(self):
+            return self._h
+
+    ffs = [_FF(f) for f in (200e6, 300e6, 400e6)]
+    sc = BalloonScrubber.show_for(ffs, 1, None, None)
+    try:
+        for what, ref in (("a view on the negative-coordinate screen",
+                           _Ref(-1900, -340, 1200, 300)),
+                          ("a view at that screen's bottom-right",
+                           _Ref(-500, 400, 1200, 900))):
+            sc.move(10, 10)               # park it on the PRIMARY screen first
+            QtWidgets.QApplication.processEvents()
+            sc._position_over_view(ref)
+            QtWidgets.QApplication.processEvents()
+            got = sc.pos()
+            assert got.x() < 0, \
+                "{0}: scrubber clamped to x={1} — that is the PRIMARY monitor, " \
+                "not the screen the viewport is on".format(what, got.x())
+            placed = QtCore.QRect(got, sc.size())
+            room = screen.adjusted(-slop, -slop, slop, slop)
+            assert room.contains(placed), \
+                "{0}: scrubber at {1} is not inside its own screen {2}".format(
+                    what, placed, screen)
+        # the first case must also prove the Y axis, which max(y, 0) broke
+        # independently of X — otherwise half the clamp is unchecked.
+        sc.move(10, 10)
+        sc._position_over_view(_Ref(-1900, -340, 1200, 300))
+        QtWidgets.QApplication.processEvents()
+        assert sc.pos().y() < 0, \
+            "scrubber clamped to y={0} — a view ABOVE the primary monitor " \
+            "puts it back on the primary".format(sc.pos().y())
+    finally:
+        sc.close()
+    return "clamped to its own screen at {0},{1}, not to (0, 0)".format(
+        screen.x(), screen.y())
+
+
 def _vswr_offscale_is_visible():
     """A VSWR curve above the linear view must still be DRAWN.
 
@@ -2555,6 +2705,68 @@ def _about_and_legal_dialogs():
     return "about + legal + first-run notice OK (text asserted, Help group)"
 
 
+def _run_solver_openfoam_dispatch():
+    """Run Solver must ROUTE an OpenFOAM solver, not reject it.
+
+    WHY THIS EXISTS: the object is named `SolverOpenFOAM` and sits in the tree
+    beside SolverNEC2, so Run Solver is the obvious thing to press — and the
+    dispatch table had branches for NEC2 / openEMS / Elmer / Palace only. It
+    fell through to `_warn("Unknown solver type: ...")`, which reads like a
+    corrupt document rather than "use the other command" (AJ hit it live,
+    2026-08-13).
+
+    Asserted BEHAVIOURALLY, by driving Activated() with the convection
+    entrance stubbed — not by matching source text. A source match would pass
+    on a branch that dispatched to the wrong place, and this project has been
+    caught by exactly that (2026-08-06: a comment satisfied the match while
+    the real call was deleted).
+
+    The stub is the right seam: the convection command opens a MODAL dialog,
+    so calling it for real would hang the suite. What is under test is the
+    dispatcher's routing, not the dialog.
+    """
+    import FreeCAD
+
+    from emstudio import commands as _cmds
+    from emstudio.objects import solver_objs
+
+    doc = FreeCAD.newDocument("gui_of_dispatch")
+    real_conv, real_warn = _cmds._Convection.Activated, _cmds._warn
+    seen = {"solver": None, "calls": 0}
+    warnings = []
+    try:
+        ana = _cmds._active_analysis(create=True)
+        solver = solver_objs.makeSolverOpenFOAM(doc, ana)
+        doc.recompute()
+
+        def fake_conv(self, solver=None):
+            seen["calls"] += 1
+            seen["solver"] = solver
+
+        _cmds._Convection.Activated = fake_conv
+        _cmds._warn = lambda msg: warnings.append(msg)
+
+        _cmds._RunSolver().Activated()
+
+        assert seen["calls"] == 1, (
+            "Run Solver did not route the OpenFOAM solver to the convection "
+            "command (calls={0}, warnings={1})".format(seen["calls"], warnings))
+        # ROUTED WITH THE RIGHT OBJECT. Passing None would silently fall back
+        # to "first SolverOpenFOAM in the document", which is not the same
+        # thing once a document holds two of them.
+        assert seen["solver"] is solver, (
+            "convection was handed {0!r}, not the solver Run Solver "
+            "resolved".format(seen["solver"]))
+        assert not any("Unknown solver type" in w for w in warnings), \
+            "Run Solver still reports OpenFOAM as an unknown solver: {0}".format(
+                warnings)
+        return "OpenFOAM routes to the convection command with its own solver"
+    finally:
+        _cmds._Convection.Activated = real_conv
+        _cmds._warn = real_warn
+        FreeCAD.closeDocument(doc.Name)
+
+
 def _solver_setup_dialog():
     """Solver Setup must build, and the Windows guided-install branch must
     actually produce Install buttons.
@@ -2582,6 +2794,47 @@ def _solver_setup_dialog():
             out[dlg.table.item(row, 0).text()] = w.text() if w is not None else None
         return out
 
+    def settle(dlg, timeout_ms=240000):
+        """Pump events until the detection sweep lands. Never a fixed sleep.
+
+        ⚠ The bound is GENEROUS on purpose. Detection is real subprocess work
+        — a version probe per backend plus an OpenFOAM run — so its wall clock
+        depends on what else the machine is doing. At 60 s this flaked exactly
+        once, on a run sharing the box with the validation battery, and a
+        timeout that fails only under load is a worse gate than no gate: it
+        trains you to re-run instead of to read.
+        """
+        import time as _t
+        from PySide import QtWidgets as _QtW
+        t_end = _t.time() + timeout_ms / 1000.0
+        while _t.time() < t_end:
+            _QtW.QApplication.processEvents()
+            if (dlg._detect is not None and dlg._detect["done"]
+                    and dlg.table.rowCount() >= len(solvers.BACKENDS)):
+                return
+        raise AssertionError("solver detection did not finish within "
+                             "{0} ms".format(timeout_ms))
+
+    def assert_not_blocking(dlg):
+        """THE FREEZE GATE (AJ, 2026-08-13).
+
+        Detection is seconds of subprocess work — every backend's version
+        probe, WSL queries, and an OpenFOAM discovery that RUNS a solver.
+        Run inline from __init__ it froze FreeCAD before the window even
+        painted: "takes forever to come up", then Not Responding.
+
+        So immediately after construction the table must hold ONLY the
+        placeholder. A table already carrying backend rows here means the
+        constructor blocked on detection again.
+        """
+        assert dlg.table.rowCount() == 1, (
+            "solver detection ran inline in the constructor ({0} rows already "
+            "populated) — the GUI would freeze".format(dlg.table.rowCount()))
+        first = dlg.table.item(0, 0)
+        assert first is not None and first.text().startswith("Detecting"), \
+            "expected the 'Detecting…' placeholder, got {0!r}".format(
+                first.text() if first is not None else None)
+
     # --- the real platform path ---------------------------------------------
     # The real property is CONDITIONAL: guided-install buttons exist ONLY on
     # native Windows. This used to assert "no Install button" flat, which is
@@ -2592,6 +2845,8 @@ def _solver_setup_dialog():
     # called correct behaviour a failure (2026-08-07). The Windows behaviours
     # themselves are pinned by the simulated-Windows branch below.
     dlg = SolverInstallerDialog()
+    assert_not_blocking(dlg)
+    settle(dlg)
     assert dlg.table.rowCount() >= len(solvers.BACKENDS), "backend rows missing"
     if _os.name != "nt":
         assert "Install…" not in buttons(dlg).values(), \
@@ -2607,6 +2862,8 @@ def _solver_setup_dialog():
             k: solvers.SolverInfo(solvers.BACKENDS[k], "") for k in solvers.BACKENDS}
         _os.name = "nt"
         wdlg = SolverInstallerDialog()
+        assert_not_blocking(wdlg)
+        settle(wdlg)
         btns = buttons(wdlg)
         installable = {k for k in solvers.BACKENDS
                        if btns.get(solvers.BACKENDS[k].label) == "Install…"}
@@ -2757,6 +3014,9 @@ def main():
           _pattern_overlay_coloured)
     check("pattern frequency picker (multi-frequency sweep)",
           _pattern_frequency_picker)
+    check("viewport scrubber stays on the 3-D view's own screen "
+          "(negative-coordinate monitors)",
+          _scrubber_stays_on_the_viewport_screen)
     check("VSWR plot shows off-scale data instead of an empty grid",
           _vswr_offscale_is_visible)
     check("Pattern Frequencies dialog (band + recommended step + round-trip)",
@@ -2764,6 +3024,8 @@ def main():
     check("results dialogs construct", _dialogs_construct)
     check("About + Legal notice dialogs (intended use / liability / brand)",
           _about_and_legal_dialogs)
+    check("Run Solver routes an OpenFOAM solver instead of rejecting it",
+          _run_solver_openfoam_dispatch)
     check("Solver Setup dialog + Windows guided-install buttons",
           _solver_setup_dialog)
     _log("----------------------------")

@@ -153,6 +153,12 @@ class BundleFactor:
     converged: bool = False
     drift: float = float("nan")
     geometry: str = ""
+    #: The OpenFOAM case this came out of, so the solved FIELDS can be found
+    #: again — the factor is one number distilled from a whole temperature and
+    #: velocity field, and without this the field is unreachable the moment the
+    #: solve returns. Empty when the caller supplied no case (pure-python
+    #: tests, cached factors reloaded from a document).
+    case_dir: str = ""
     warnings: list = _field(default_factory=list)
 
     @property
@@ -204,6 +210,9 @@ class MixedBundleFactor:
     geometry: str = ""
     converged: bool = False
     drift: float = float("nan")
+    #: The OpenFOAM case every group was solved in — ONE case, because the
+    #: groups share an enclosure. See :attr:`BundleFactor.case_dir`.
+    case_dir: str = ""
     warnings: list = _field(default_factory=list)
 
     @property
@@ -566,8 +575,10 @@ def solve_bundle_factor(centres, d_cable, box_w=None, box_h=None,
             "number" % (report.get("failed_at") or report.get("error") or
                         "unknown step"))
 
-    return _factor_from(result, d_cable, len(centres),
-                        "%s | %s" % (key, driven_by), report)
+    factor = _factor_from(result, d_cable, len(centres),
+                          "%s | %s" % (key, driven_by), report)
+    factor.case_dir = case_dir
+    return factor
 
 
 def _factor_from(result, d_cable, n_cables, geometry, report,
@@ -733,7 +744,7 @@ def solve_mixed_bundle_factor(cables, box_w=None, box_h=None,
     geometry = "%s | %s" % (key, driven_by)
     out = MixedBundleFactor(
         geometry=geometry, converged=bool(report.get("converged")),
-        drift=report.get("nu_drift", float("nan")))
+        drift=report.get("nu_drift", float("nan")), case_dir=case_dir)
     # A uniform set comes back as a plain BundleNusselt, exactly as it always
     # did; a mixed one carries a reading per patch. ⚠ The key is the PATCH, not
     # the diameter: one diameter can carry several groups when same-size cables

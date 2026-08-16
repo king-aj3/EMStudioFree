@@ -23,11 +23,33 @@ Measured here (laminar, steady, O-grid, 40 diameters of far field):
     Re 20   Cd 2.0646    Cl -5.1e-07
     Re 40   Cd 1.5448    Cl -3.3e-07
 
-⚠ **ABOVE Re ~47 THESE NUMBERS ARE NOT TRUSTWORTHY** and the case says so
-rather than quietly producing them. Real antenna wind loading is Re 1e5-1e6,
-which needs either an unsteady solve (`pimpleFoam`) or a turbulence model with
-its own validation — neither is built. What IS built is the pipeline and its
-anchor.
+⚠ **ABOVE Re ~47 THESE STEADY NUMBERS ARE NOT TRUSTWORTHY** and the case says
+so rather than quietly producing them.
+
+THE UNSTEADY RUNG (`transient=True`, 2026-08-14)
+------------------------------------------------
+`pimpleFoam`, still laminar, which reaches the Reynolds numbers where the flow
+actually sheds. Anchored on THREE independent quantities, because drag alone
+is forgiving of a coarse mesh and a short run while the shedding FREQUENCY is
+not — St is what proves the solve resolves the physics rather than merely runs.
+
+Measured here (O-grid 80x30, 40 diameters, 40 cycles, half discarded):
+
+    Re 100  Cd 1.3411   St 0.1647   Cl amp 0.3275   15 cycles
+    Re 150  Cd 1.3283   St 0.1835   Cl amp 0.5202   17 cycles
+
+against Williamson's laminar correlation
+St = -3.3265/Re + 0.1816 + 1.6e-4*Re, which gives 0.1643 at Re 100 (**0.2 %**)
+and 0.1834 at Re 150 (**0.04 %**); published Cd ~1.32-1.37, and a lift
+amplitude that GROWS with Re (~0.33 at Re 100, ~0.52 at Re 150) — a trend the
+two anchors reproduce and neither alone could check.
+
+⚠ **A transient solve does NOT make a high Reynolds number legitimate.** Above
+Re ~190 the real wake goes three-dimensional, so a 2-D laminar solve is
+modelling an idealisation whatever the time derivative does; `TURBULENT_RE`
+refuses it. Real antenna wind loading is Re 1e5-1e6 and needs a validated
+turbulence model, which is NOT built. What IS built is every rung up to here,
+each anchored on published numbers.
 
 ⚠ **This is the FIRST result path in this package to use a function object.**
 The thermal cases avoid them because `wallHeatFlux` aborts on Ubuntu's 1912
@@ -44,13 +66,26 @@ import math
 import os
 from dataclasses import dataclass
 
-__all__ = ["WindCase", "SHEDDING_RE", "write_wind"]
+__all__ = ["WindCase", "SHEDDING_RE", "TURBULENT_RE", "write_wind"]
 
 #: Onset of vortex shedding for a circular cylinder. Above this a STEADY solve
 #: is not modelling the real flow, and the case refuses to pretend otherwise.
 #: (The transition is gradual and geometry-dependent; this is the standard
 #: round number for a circular cylinder and is used only as a guard rail.)
 SHEDDING_RE = 47.0
+
+#: Where a LAMINAR unsteady solve stops being the right physics. The 2-D
+#: laminar shedding regime runs to roughly Re 190, above which the wake goes
+#: three-dimensional (mode A/B instabilities) and a 2-D laminar solve is
+#: modelling something the flow no longer does. Held at 200 as a round guard
+#: rail: the validated anchors sit at Re 100 and Re 150, both comfortably
+#: inside it, and beyond it this case refuses rather than returning a
+#: confident wrong number.
+#:
+#: ⚠ Real antenna loading (Re 1e5-1e6) is ABOVE this. Reaching it needs a
+#: turbulence model with its own validation, which is not built. What IS built
+#: is every rung up to here, each anchored on published numbers.
+TURBULENT_RE = 200.0
 
 
 @dataclass
@@ -66,6 +101,24 @@ class WindCase:
     n_theta: int = 30
     grading: float = 60.0           # radial clustering at the wall
     iterations: int = 3000
+    #: UNSTEADY solve (`pimpleFoam`). Above Re ~47 the real flow sheds, and a
+    #: steady solve cannot represent that at all — see the module docstring.
+    #: This is the path that reaches Reynolds numbers worth calling wind.
+    transient: bool = False
+    #: Shedding cycles to simulate. The first ones are startup: the wake has to
+    #: destabilise from a symmetric initial field before periodic shedding
+    #: exists at all, and averaging across that transient drags Cd toward the
+    #: steady (too low) answer.
+    cycles: float = 40.0
+    #: Fraction of the run discarded as startup before any average is taken.
+    settle_fraction: float = 0.5
+    #: Courant target for the adjustable time step.
+    co_max: float = 0.8
+    #: Strouhal number used ONLY to size the time step and run length before
+    #: the solve — the measured value comes out of the lift history. 0.2 is the
+    #: flat part of the St(Re) curve across a huge Re range, which is why it is
+    #: safe as a sizing guess and useless as an answer.
+    st_guess: float = 0.2
 
     def __post_init__(self):
         if self.reynolds <= 0:
@@ -97,20 +150,66 @@ class WindCase:
         return 0.5 * self.rho * self.u_inf ** 2 * self.a_ref
 
     @property
+    def shed_period(self):
+        """Estimated vortex-shedding period, from :attr:`st_guess`. Seconds."""
+        return self.d_ref / (self.st_guess * self.u_inf)
+
+    @property
+    def end_time(self):
+        """Physical duration of a transient run: `cycles` shedding periods."""
+        return self.cycles * self.shed_period
+
+    @property
+    def delta_t(self):
+        """Starting step. The solver then adjusts it to hold `co_max`.
+
+        Sized so one shedding period is resolved by ~400 steps even before
+        the Courant control takes over — a period resolved by a handful of
+        steps yields a Strouhal number set by the time step rather than by
+        the flow.
+        """
+        return self.shed_period / 400.0
+
+    @property
+    def settle_time(self):
+        """When averaging starts. Everything before this is startup."""
+        return self.end_time * self.settle_fraction
+
+    @property
     def steady_is_valid(self):
         """False where a STEADY solve stops modelling the real flow."""
         return self.reynolds < SHEDDING_RE
 
+    @property
+    def method_is_valid(self):
+        """Is the CHOSEN method defensible at this Reynolds number?
+
+        Steady below shedding onset, unsteady above it — and neither above
+        :data:`TURBULENT_RE`, where a laminar solve of any kind stops being
+        the right physics regardless of how the time derivative is treated.
+        """
+        if self.reynolds >= TURBULENT_RE:
+            return False
+        return self.transient or self.steady_is_valid
+
     def validity_note(self):
         """The caveat a caller must surface, or empty when there is none."""
-        if self.steady_is_valid:
+        if self.reynolds >= TURBULENT_RE:
+            return (
+                "Re %.4g is beyond what a LAMINAR solve can represent, steady "
+                "or not: the boundary layer and wake are turbulent, and no "
+                "time-stepping scheme fixes a missing turbulence model. A "
+                "number from this case is not a wind load. Real antenna "
+                "loading is Re 1e5-1e6 and needs a validated turbulence model."
+                % self.reynolds)
+        if self.steady_is_valid or self.transient:
             return ""
         return (
             "Re %.4g is above the vortex-shedding onset (~%g): the real flow "
             "is UNSTEADY and a steady solve produces a symmetric wake that "
-            "UNDER-reads drag. This number is not a wind load. Real antenna "
-            "loading is Re 1e5-1e6 and needs an unsteady solve or a validated "
-            "turbulence model." % (self.reynolds, SHEDDING_RE))
+            "UNDER-reads drag. This number is not a wind load. Set "
+            "transient=True to solve it unsteadily, which is validated up to "
+            "Re %g." % (self.reynolds, SHEDDING_RE, TURBULENT_RE))
 
 
 def _header(cls, obj, loc):
@@ -216,6 +315,55 @@ def write_wind(case_dir, case=None):
     # (m^2/s^2), so the function object must be told the density to return
     # forces in newtons. Omitting it yields forces short by a factor of rho —
     # a plausible-looking number that is simply wrong.
+    if case.transient:
+        # ⚠ Forces are reported EVERY step, not at the write interval: the
+        # lift history IS the measurement (Strouhal comes out of its period),
+        # so sampling it coarsely would alias the very thing being measured.
+        # Field writes stay rare — they are for looking at, not for numbers.
+        n_writes = 20.0
+        put("system/controlDict",
+            _header("dictionary", "controlDict", "system")
+            + "application     pimpleFoam;\nstartFrom       startTime;\n"
+              "startTime       0;\nstopAt          endTime;\n"
+              "endTime         %.10g;\ndeltaT          %.10g;\n"
+              "writeControl    runTime;\nwriteInterval   %.10g;\n"
+              "purgeWrite      2;\nwriteFormat     ascii;\nwritePrecision  10;\n"
+              "writeCompression off;\ntimeFormat      general;\ntimePrecision   6;\n"
+              "runTimeModifiable false;\n"
+              "adjustTimeStep  yes;\nmaxCo           %.10g;\n"
+              "maxDeltaT       %.10g;\n\n"
+              "functions\n{\n    forces\n    {\n        type            forces;\n"
+              "        libs            (forces);\n        patches         (cylinder);\n"
+              "        rho             rhoInf;\n        rhoInf          %.10g;\n"
+              "        CofR            (0 0 0);\n        writeControl    timeStep;\n"
+              "        writeInterval   1;\n    }\n}\n"
+            % (case.end_time, case.delta_t, case.end_time / n_writes,
+               case.co_max, case.delta_t * 20.0, case.rho))
+
+        # `backward` is second order in time. Euler is stable but damps the
+        # oscillation this case exists to measure, which shows up as a
+        # Strouhal number that drifts with the time step.
+        put("system/fvSchemes", _header("dictionary", "fvSchemes", "system")
+            + "ddtSchemes      { default backward; }\n"
+              "gradSchemes     { default Gauss linear; }\n"
+              "divSchemes\n{\n    default none;\n"
+              "    div(phi,U)      Gauss linearUpwind grad(U);\n"
+              "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
+              "laplacianSchemes { default Gauss linear corrected; }\n"
+              "interpolationSchemes { default linear; }\n"
+              "snGradSchemes   { default corrected; }\n")
+        # ⚠ No `bounded` on div(phi,U) here: that term exists to help a steady
+        # solve converge and is not wanted in a transient one.
+        put("system/fvSolution", _header("dictionary", "fvSolution", "system")
+            + "solvers\n{\n"
+              "    p { solver GAMG; tolerance 1e-8; relTol 0.01; smoother GaussSeidel; }\n"
+              "    pFinal { $p; relTol 0; }\n"
+              "    \"(U|UFinal)\" { solver smoothSolver; smoother symGaussSeidel; "
+              "tolerance 1e-9; relTol 0; }\n"
+              "}\n\nPIMPLE\n{\n    nOuterCorrectors 2;\n    nCorrectors 2;\n"
+              "    nNonOrthogonalCorrectors 0;\n}\n")
+        return case
+
     put("system/controlDict", _header("dictionary", "controlDict", "system")
         + "application     simpleFoam;\nstartFrom       startTime;\n"
           "startTime       0;\nstopAt          endTime;\nendTime         %d;\n"
