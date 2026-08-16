@@ -8,6 +8,7 @@ bundled matplotlib. Only imported from GUI code paths.
 from __future__ import annotations
 
 import os
+import time
 
 from PySide import QtCore, QtGui, QtWidgets
 
@@ -298,9 +299,48 @@ class BalloonScrubber(QtWidgets.QWidget):
             x = top_left.x() + (ref.width() - self.width()) // 2
             y = top_left.y() + ref.height() - self.height() - 48
             geo = _screen_geometry_for(ref, top_left)
-            self.move(*_clamp_into(geo, x, y, self.width(), self.height()))
+            tx, ty = _clamp_into(geo, x, y, self.width(), self.height())
+            # The window system may ADJUST a shown tool window's first
+            # placement — measured: the first move() of this widget onto a
+            # negative-coordinate screen landed at (0, 0), the primary
+            # monitor, while an identical second call stuck. The adjustment
+            # arrives through the event loop (pos() keeps reporting the
+            # REQUESTED point until it does), so neither a synchronous check
+            # nor a zero-delay timer reliably sees it. ``moveEvent`` does:
+            # record the intent, and let the event handler re-assert ONCE if
+            # the realised position differs. Cleared on success so a user
+            # drag is never fought — they may park it wherever they like.
+            self._intended_pos = QtCore.QPoint(tx, ty)
+            self._reasserted = False
+            # Watch WINDOW, not a single event: measured, the platform first
+            # delivers a moveEvent AT the requested point and only then the
+            # adjustment that yanks the window to the primary monitor —
+            # disarming on the success event therefore disarms one event too
+            # early. Half a second outlives any placement churn while being
+            # far shorter than a human reaching for the title bar.
+            self._intended_until = time.monotonic() + 0.5
+            self.move(tx, ty)
         except Exception:                      # noqa: BLE001 — cosmetic only
             pass
+
+    def moveEvent(self, event):
+        want = getattr(self, "_intended_pos", None)
+        if want is not None:
+            if time.monotonic() > getattr(self, "_intended_until", 0):
+                self._intended_pos = None      # window over: drags are the
+            elif self.pos() == want:           # user's business from here on
+                pass                           # placed — stay armed; the
+            elif not getattr(self, "_reasserted", False):   # yank may follow
+                # Synchronously, not via a timer: the adjustment arrives
+                # inside one event-loop pass, and a deferred retry would
+                # still read as misplaced to anything checking right after
+                # it. Guarded to ONE nested call — a platform that refuses
+                # twice has a reason, and is let be.
+                self._reasserted = True
+                self.move(want)
+            else:
+                self._intended_pos = None      # refused twice: let it be
+        super(BalloonScrubber, self).moveEvent(event)
 
 
 class SweepResultsDialog(QtWidgets.QDialog):

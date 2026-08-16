@@ -5,6 +5,28 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.99.1] — 2026-08-16 — the free build points at Pro instead of hiding it
 
+### Fixed
+* **gui_smoke's two reds from the v0.99.0 session are green again.** Both
+  pre-dated the teaser work (verified by stashing it and re-running HEAD):
+  * **The viewport scrubber could still land on the wrong monitor.** The
+    v0.99.0 `_clamp_into` fix computed the right target, but the window
+    system delivers a moveEvent AT the requested point and only THEN the
+    adjustment that yanks a freshly shown tool window to the primary screen
+    — so the first placement onto a negative-coordinate monitor ended at
+    (0, 0) anyway, and neither a synchronous check nor a zero-delay timer
+    could see it (pos() reports the requested point until the adjustment
+    lands). The scrubber now records its intended position and re-asserts
+    it ONCE from `moveEvent`, synchronously, inside a half-second watch
+    window — long enough to outlive placement churn, far shorter than a
+    human reaching for the title bar, so a drag is never fought.
+  * **The Solver Setup gate still asserted "no Build button on Windows",**
+    which was the truth until v0.99.0 made it false deliberately: FastHenry
+    has no usable Windows binary, so `win_source_build_plan()` compiles it
+    with the machine's own toolchain (and returns None without one). The
+    gate now asserts the real contract — a Build button only where a
+    Windows source-build plan exists, and `build_plan()` (the POSIX bash
+    recipe) still None everywhere under nt.
+
 ### Added
 * **The free workbench now SHOWS the paid features it does not have.** Until
   now `export_free.py` deleted the Pro commands outright, so a free user's

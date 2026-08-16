@@ -2875,8 +2875,25 @@ def _solver_setup_dialog():
         assert installable == expected, (
             "Install buttons {0} do not match the guided-install set {1}".format(
                 sorted(installable), sorted(expected)))
-        assert "Build…" not in btns.values(), \
-            "a from-source Build button on Windows (no bash, no compiler there)"
+        # A Build button on Windows was a bug until v0.99.0 and is a FEATURE
+        # after it. The POSIX no-sudo build still cannot run there (no bash),
+        # and `build_plan()` returns None on nt for exactly that reason — but
+        # FastHenry has NO usable Windows binary (the vendor's own executable
+        # is Automation-only), so `win_source_build_plan()` compiles it with
+        # whatever toolchain the machine has, and returns None when there is
+        # none. So the contract is not "never" — it is "only where a Windows
+        # source-build plan exists".
+        build_btns = {label for label, txt in btns.items() if txt == "Build…"}
+        allowed = {solvers.BACKENDS[k].label for k in solvers.BACKENDS
+                   if solvers.win_source_build_plan(k) is not None}
+        assert build_btns <= allowed, (
+            "Build button(s) {0} on Windows with no win_source_build_plan — "
+            "the POSIX bash build cannot run there".format(
+                sorted(build_btns - allowed)))
+        for k in solvers.BACKENDS:
+            assert solvers.build_plan(k) is None, (
+                "build_plan({0!r}) returned a POSIX bash recipe under "
+                "os.name='nt'".format(k))
         # v0.78.0's actual fix: the log pane used to be hidden on Windows, which
         # would have made every guided install look like it did nothing.
         assert wdlg.log.isVisibleTo(wdlg), \
