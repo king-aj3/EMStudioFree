@@ -3,6 +3,41 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.0] — 2026-08-16 — one-point-oh, and a free 14-day trial
+
+The roadmap that started this project is complete — every planned section
+shipped and gated (§1 Element Designer, §3 AI assistant, §4 Watt breadth,
+§5 co-site, §6 coverage, §7 System Designer, the OpenFOAM thermal arc), the
+first user bug reports have been fixed and verified on all three OSes, and
+the free/Pro split has been public since v0.77.0. This release marks it.
+
+### Added
+* **A free 14-day trial of EMStudio Pro.** The blind leap was the last wall
+  in the funnel: $149 on faith from an unknown brand. The trial is the SAME
+  Pro zip, offered as a $0 download at the same store: install it and press
+  **Start free trial** in Help ▸ EMStudio Pro — no key, no account. After 14
+  days the Pro commands stand down and the free workbench continues
+  untouched; entering a purchased key at any time simply replaces the trial.
+  * Serverless like everything else in the licence path:
+    `licence.start_trial()` / `trial_status()` keep a dated record beside the
+    activation cache. It is HMAC-stamped so a casual text edit reads as
+    expired rather than fresh — and deliberately no stronger (deleting the
+    file re-trials; the person determined enough was never a lost sale, and
+    clock-tamper paranoia costs more goodwill than it protects revenue).
+  * Precedence is absolute: a licence key always outranks trial state, so a
+    refunded purchase can never keep working behind a leftover trial record.
+  * The licence dialog gains **Start free trial**; the Pro teaser dialogs
+    gain **Try free for 14 days…**; About/Help/PRO.md copy carries the offer.
+  * Gate `pro_licence` grew 12 trial checks (fresh start = 14 days, expiry,
+    tamper-reads-as-expired, no restart, key-over-trial precedence — including
+    the decisive case: an ACTIVE trial must not mask a key Gumroad REFUSES).
+    Mutation-proven: dropping the MAC check, inverting key/trial precedence
+    and stretching the window were each caught.
+
+### Notes
+* Versions 0.99.0/0.99.1 are included; see their entries below. The teaser
+  entries in the free build (v0.99.1) now offer the trial as their soft CTA.
+
 ## [0.99.1] — 2026-08-16 — the free build points at Pro instead of hiding it
 
 ### Fixed

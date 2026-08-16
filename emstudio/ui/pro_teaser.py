@@ -137,18 +137,23 @@ class ProTeaserDialog(QtWidgets.QDialog):
         lay.addWidget(box)
 
         note = QtWidgets.QLabel(
-            "EMStudio Pro is {0} — perpetual, no subscription and no account. "
-            "This free workbench keeps every solver, template, the Element and "
-            "Cable Designers, magnetics, coverage and all of its validation "
-            "gates.".format(legal.PRO_PRICE))
+            "EMStudio Pro is {0} — perpetual, no subscription and no account — "
+            "or try everything free for 14 days (the $0 trial download at the "
+            "same store; no key, no account). This free workbench keeps every "
+            "solver, template, the Element and Cable Designers, magnetics, "
+            "coverage and all of its validation gates.".format(legal.PRO_PRICE))
         note.setWordWrap(True)
         lay.addWidget(note)
 
         btns = QtWidgets.QDialogButtonBox()
         see = btns.addButton("See EMStudio Pro", QtWidgets.QDialogButtonBox.ActionRole)
+        trial = btns.addButton("Try free for 14 days…", QtWidgets.QDialogButtonBox.ActionRole)
         have = btns.addButton("I already bought it…", QtWidgets.QDialogButtonBox.ActionRole)
         btns.addButton(QtWidgets.QDialogButtonBox.Close)
         see.clicked.connect(self._open_store)
+        # Both routes end at the licence dialog — it installs the zip and knows
+        # whether to start a trial or take a key. One flow, no duplicate logic.
+        trial.clicked.connect(self._open_licence)
         have.clicked.connect(self._open_licence)
         btns.rejected.connect(self.reject)
         lay.addWidget(btns)

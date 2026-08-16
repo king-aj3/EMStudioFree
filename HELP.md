@@ -19,8 +19,10 @@ Full manual with step-by-step tutorials: [docs/USER_MANUAL](docs/USER_MANUAL.md)
 > CentralBrain and hosted OpenAI / Anthropic (any OpenAI-compatible endpoint
 > works), with Fetch-models and a Test probe so a wrong model name is caught
 > before you ask a question. Buy at
-> [ajj3us.gumroad.com](https://ajj3us.gumroad.com) and install it from
-> **EMStudio → Help → EMStudio Pro — install / activate**.
+> [ajj3us.gumroad.com](https://ajj3us.gumroad.com) — or **try everything free
+> for 14 days**: grab the $0 trial download at the same store, install it from
+> **EMStudio → Help → EMStudio Pro — install / activate** and press *Start
+> free trial* (no key, no account; buying later just replaces the trial).
 > See [docs/PRO](docs/PRO.md).
 
 ## Toolbar commands

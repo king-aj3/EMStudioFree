@@ -146,6 +146,9 @@ class LicenceDialog(QtWidgets.QDialog):
             "arrays, RF direction finding) and the AI assistant.<br>"
             "Buy it at <a href='{0}'>{0}</a> — you receive a licence key and a "
             "zip file. Install the zip here, then enter the key.<br>"
+            "<b>Trying first?</b> The free 14-day trial is the same zip (the "
+            "$0 trial download at the same store): install it below and press "
+            "<i>Start free trial</i> — no key, no account.<br>"
             "<b>Updating?</b> Just install the new zip — your activation is "
             "kept; the key is only needed once.".format(STORE_URL))
         intro.setWordWrap(True)
@@ -183,6 +186,12 @@ class LicenceDialog(QtWidgets.QDialog):
         self.remove_btn.clicked.connect(self._remove)
         row.addWidget(self.remove_btn)
         row.addStretch(1)
+        self.trial_btn = QtWidgets.QPushButton("Start free trial")
+        self.trial_btn.setToolTip(
+            "Full EMStudio Pro for 14 days — no key, no account. Installs "
+            "the zip above first if one is selected.")
+        self.trial_btn.clicked.connect(self._trial)
+        row.addWidget(self.trial_btn)
         self.install_btn = QtWidgets.QPushButton("Install and activate")
         self.install_btn.setDefault(True)
         self.install_btn.clicked.connect(self._install)
@@ -275,6 +284,40 @@ class LicenceDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(
                 self, "Activation failed",
                 "That key was not accepted.\n\n{0}".format(why))
+        self._refresh_status()
+
+    def _trial(self):
+        # Same install step as _install, then start_trial instead of a key.
+        zip_path = self.zip_edit.text().strip()
+        if zip_path:
+            try:
+                dest = install_zip(zip_path)
+            except (ValueError, OSError) as exc:
+                self._say("Install failed: {0}".format(exc))
+                QtWidgets.QMessageBox.warning(self, "Install failed", str(exc))
+                return
+            self._say("Installed to {0}".format(dest))
+        try:
+            licence = _import_pro()
+        except ImportError as exc:
+            self._say("Pro is not installed yet ({0}). Choose the trial zip "
+                      "above first — the $0 download at the store.".format(exc))
+            return
+        if not hasattr(licence, "start_trial"):
+            self._say("This Pro module predates the trial — install the "
+                      "current zip above first.")
+            return
+        ok, why = licence.start_trial()
+        self._say(why if ok else "Trial not started: {0}".format(why))
+        if ok:
+            QtWidgets.QMessageBox.information(
+                self, "EMStudio Pro trial",
+                "{0}.\n\nRestart FreeCAD to load the Pro commands.\n"
+                "Buy at {1} any time — entering a key simply replaces the "
+                "trial.".format(why, STORE_URL))
+        else:
+            QtWidgets.QMessageBox.warning(
+                self, "EMStudio Pro trial", why)
         self._refresh_status()
 
     def _remove(self):
