@@ -3,6 +3,125 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.0] — 2026-08-19 — CFD on what you select, and FastHenry's licence resolved
+
+### Added
+* **FastHenry redistribution — unblocked, built, and STAGED.** The licence
+  question that kept Windows users compiling their own FastHenry is resolved
+  in writing: the M.I.T.-copyrighted material is governed by the 2003
+  re-release (distribution permitted, notice must travel), and
+  FastFieldSolvers' own modifications are LGPL per their General Manager's
+  statement of 2026-08-13 ("you can redistribute the binaries"). The release
+  assets exist and are verified — `tools/build_fasthenry_dist.py` compiles
+  fasthenry.exe through the shipping build path, packages it with both
+  licence texts and the complete corresponding source (exact patched tree,
+  upstream commit 363e43e), and then proves the SHIPPED zip solves a
+  closed-form copper bar on a bare PATH before it may ship. The guided
+  Install plan is staged (`FASTHENRY_WIN_INSTALL_STAGED`), deliberately not
+  live until the M.I.T. TLO answers the confirmation request; the activation
+  checklist rides with the constant. Downloads verify a pinned **sha256**
+  now: `run_win_install` gained optional per-plan hash pinning (verify
+  before extraction, refuse loudly on mismatch) — pinned for self-hosted
+  assets, deliberately absent for upstream URLs whose bytes legitimately
+  refresh — and **self-hosted now IMPLIES pinned**: the smoke gate requires
+  a sha256 on every self-hosted plan, and the existing nec2++ asset is
+  pinned from the live zip. Gate: `fasthenry_guidance` grew 16 checks
+  (staged-plan shape + the pinning behaviour end to end through the real
+  installer, with the hash expectation computed independently of the code
+  under test); 6 mutations caught, two of them found by adversarial review
+  (a hashlib-algorithm swap and a log-wording drift that silently disarmed
+  the ordering check). Stale user-facing licence text repeating the
+  superseded "noncommercial, no redistribution" reading is corrected in
+  Solver Setup hints, README, the free README and the user manual.
+* **Conjugate natural convection — measured, anchored, gated (ROADMAP §8c,
+  first rung).** `cht.gap_nusselt()` turns a solved buoyant CHT case into
+  (q, T_interface, Nu, Ra) via the validated solid-mean recovery — an
+  engine function, so the coming dialog and the gates measure through one
+  door. New SOLVER gate `openfoam_cht_convection`: the 40x60 gap at
+  interface Ra ~8.5e5 must land Nu in **[5.5, 8.6]** (Berkovsky-Polevikov
+  6.6-6.9 at A=4, MacGregor & Emery ~8.4 at the interface Ra / ~8.7 at
+  nominal, measured 6.85 mid-window), the
+  interface-referenced Ra in [5e5, 9e5] (independently kills both the
+  conduction limit and a nominal-drop referencing slip), and the interface
+  temperature must drop below the conduction answer. FAST identity checks
+  in `cht_setup` (conduction mean → exactly Nu 1, q, T_int; Ra linearity);
+  4 mutations caught. ⚠ A citation correction that outlived three session
+  notes: the "Berkovsky-Polevikov 8.549" reference was MacGregor & Emery —
+  B-P with its aspect factor gives 6.6-6.9 here.
+  **And the mesh is no longer suspect.** A refinement pass on the FIXED
+  mesh gives 40×60 → 60×90 = Nu **6.8529 → 6.6957 (−2.3 %)**, both proven
+  converged from the solver log (max-T drift ~0 over the last 1000
+  iterations, residuals ~1e-8). That kills the 08-17 data point which had
+  refinement collapsing Nu 1.8768 → 1.2001 *toward* the conduction limit —
+  that was the swapped-face-set geometry artifact, not resolution, and the
+  signature is now gone. 6.6957 lands inside Berkovsky-Polevikov's own
+  6.6-6.9 band.
+* **Analysis ▸ Solve Conjugate Heat Transfer (slab + air gap)… — the §8c
+  dialog.** A solid layer against a vertical air gap, the two regions
+  COUPLED, so the interface temperature is solved rather than assumed.
+  Parametric and honest about it (the dialog states it does NOT read the
+  document — the reference-trefoil lesson). Buoyancy off reproduces the
+  closed form to 5 decimals live; buoyancy on reports the gap Nu,
+  through-flux, solved interface temperature and interface-referenced Ra —
+  solved with **real air near 300 K** (`make_case` pins `target_ra = 0`; a
+  tuned viscosity is for gates, not users — gate-enforced), with regime
+  warnings when the case leaves the validated envelope: Ra beyond laminar,
+  aspect outside 2–10, a film temperature far off the 300 K property
+  constants, or a solid too conductive for the Nu recovery to measure —
+  and an outright REFUSAL of hot faces the Boussinesq air model cannot
+  represent (its linearised density reaches zero at ~603 K). Worker thread + REAL Cancel (`run_cht` grew the same
+  `cancel` contract as `run_solid`), and *Show gap field in 3-D view* via
+  new multi-region VTK support (`vtk_export` `region=` — `foamToVTK
+  -region` layout MEASURED on v2512, verified end to end on a live case).
+  10 new FAST checks in `cht_setup` (the dialog's headless contract);
+  3 more mutations caught (derived-mu, dead regime warning, dropped
+  honesty phrase).
+* **CFD on the solid you SELECT — Analysis ▸ Solve Convection on Selected
+  Solid (open air)… (ROADMAP §8a).** Select any solid in the document — a
+  coil, a PCB, a housing — enter its dissipated power, and OpenFOAM solves
+  its natural convection: the solid is tessellated AS-IS (document
+  orientation, gravity −z), immersed in an open-air box (far walls at
+  ambient — the honest reading of "no enclosure in the model"), the power
+  becomes a surface heat flux, and the result is the surface temperature
+  rise, the mean film coefficient, and the solved field loadable into the
+  3-D view. Long solves run on a worker thread with a real Cancel.
+  **Anchored on a sphere, both ways, measured live (cells_bg 32):**
+  * conduction (g = 0): Nu_D **2.5575** inside the EXACT two-sided
+    sandwich **[2.3374, 2.6667]** (concentric-shell closed forms bracket
+    the box domain by Dirichlet monotonicity — citation-free);
+  * free convection: Nu_D **18.17** at the resulting Ra_D 1.33e6 vs
+    Churchill's sphere correlation 17.42 — **+4.3 %**, inside the
+    correlation's own scatter, beside the bundle ladder's cylinder rungs.
+  New gates: `solid_setup` (FAST, offline — 6 mutations caught) and
+  `openfoam_solid` (SOLVER, the live sphere rungs). Scope stated in the
+  dialog: laminar, constant properties at a film temperature (the dialog
+  warns when the solved film strays), no enclosure geometry read yet, no
+  radiation. Wind on structures remains ROADMAP §8b, blocked on a
+  turbulence anchor.
+
+### Fixed
+* **The convection solve can now actually be cancelled — and no longer
+  freezes FreeCAD.** The Convection Designer ran its multi-minute CFD
+  synchronously on the GUI thread, so the whole window went Not Responding
+  and the Close button, while visibly present, could not be serviced until
+  the very solve it was meant to stop had finished. The solve now runs on a
+  worker thread (the installer dialog's proven idiom) with a **Cancel
+  solve** button that kills the running OpenFOAM chain — the whole process
+  group, not just the wrapping shell, so no orphaned solver keeps burning
+  CPU behind a cancelled dialog. Closing the dialog mid-solve cancels too.
+  New FAST gate `openfoam_runner_cancel` (prompt return, `cancelled=True`
+  report, child-process-dead), 3 mutations caught.
+* **The OpenFOAM menu command now says it solves the built-in REFERENCE
+  trefoil.** "Solve Convection" read as "solve my document": a user with a
+  helical coil in the viewport was told a CFD was running "on three cables"
+  with no way to know those cables were a built-in reference geometry
+  (three 20 mm at 30 mm pitch) and that nothing in the 3-D view is ever
+  read by that path. The menu entry, tooltip and dialog now say so in as
+  many words, and point at the Cable Designer's Bundle tab — the door that
+  solves YOUR bundle. (The wider principle this surfaced — CFD should
+  attach to the thing you select, thermal on a coil or PCB, wind on a
+  structure — is now a designed roadmap item; see ROADMAP §8.)
+
 ## [1.0.0] — 2026-08-16 — one-point-oh, and a free 14-day trial
 
 The roadmap that started this project is complete — every planned section
@@ -108,7 +227,11 @@ the free/Pro split has been public since v0.77.0. This release marks it.
   top of the free build's System menu (it removed trailing ones only). With
   the entries restored the separator is doing its job again.
 
-## [Unreleased]
+## [1.0.0] — 2026-08-16 — engine work released in one-point-oh
+
+> Heading corrected 2026-08-19: this section was still titled
+> "Unreleased" although its content shipped in 1.0.0 — `cht.py`
+> was added 2026-08-14, between 0.99.0 and the 1.0.0 tag.
 
 ### Added
 * **Conjugate heat transfer** (`solvers/openfoam/cht.py`, `run_cht`). Every
@@ -172,14 +295,20 @@ the free/Pro split has been public since v0.77.0. This release marks it.
   for Ra 1e6 really had a width-based Ra of 1.56e4 and returned Nu 1.014 — not
   a wrong solve so much as an answer to a different question.
 
-### Known limitations
-* **Conjugate natural convection is NOT validated.** With the length scale and
-  pressure setup fixed, convection is real (q 6.32 → 11.60) but
-  **Nu 1.876 against Berkovsky-Polevikov's 8.549 at Ra 9.54e5, H/L 4 — −78 %**.
-  Convergence is ruled out (Nu identical at 4000 and 20 000 iterations). The
-  remaining suspect is spatial resolution: the thermal boundary layer is about
-  0.16 mm and 40 cells across a 5 mm gap gives 0.125 mm cells. No gate asserts
-  a convective Nusselt number, because there is no result worth pinning.
+### Fixed (was a Known limitation)
+* **Conjugate natural convection now reproduces the references** — the deficit
+  (Nu 1.9 where correlations say ~7-8.5) was `write_cht`'s blockMeshDict with
+  the `topBottom`/`frontAndBack` face sets SWAPPED: the empty faces sat on
+  gravity's own Y-planes and the Z-planes became no-slip walls one cell apart,
+  a scale-invariant Hele-Shaw drag. Found when a 200x scale-up left Nu
+  identical to four figures. Fixed and verified: the coupled two-region 5 mm
+  gap gives **Nu 6.85** vs the incompressible single-region reference 6.99
+  (2 %) and the vertical-slot correlations' 6-8.5 band; T_int and q respond
+  to convection exactly as they should. Along the way the shipped cavity was
+  validated against de Vahl Davis at Ra 1e4/1e5/1e6 (+0.3/+0.9/+3.0 %) in BOTH
+  solver paths — a convective-regime validation the cavity gate never claimed.
+  The setup gate now verifies mesh GEOMETRY from vertex coordinates rather
+  than patch labels, and fails on the exact shipped bug (mutation-proven).
 
 ### Fixed
 * **The floating pattern scrubber landed on the wrong MONITOR.**

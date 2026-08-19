@@ -27,6 +27,8 @@ CMD_SOLVER_ELMER = "EMStudio_SolverElmer"
 CMD_SOLVER_OPENFOAM = "EMStudio_SolverOpenFOAM"
 CMD_CONVECTION = "EMStudio_Convection"
 CMD_CONVECTION_FIELD = "EMStudio_ConvectionField"
+CMD_SOLID_CONVECTION = "EMStudio_SolidConvection"
+CMD_CHT = "EMStudio_ChtConvection"
 CMD_SOLVER_PALACE = "EMStudio_SolverPalace"
 CMD_PATTERN_FREQS = "EMStudio_PatternFrequencies"
 CMD_RUN = "EMStudio_RunSolver"
@@ -75,6 +77,8 @@ ALL_COMMANDS = [
     CMD_SOLVER_OPENFOAM,
     CMD_CONVECTION,
     CMD_CONVECTION_FIELD,
+    CMD_SOLID_CONVECTION,
+    CMD_CHT,
     CMD_SOLVER_PALACE,
     CMD_PATTERN_FREQS,
     CMD_RUN,
@@ -125,6 +129,7 @@ COMMAND_GROUPS = [
         CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_COIL, "Separator",
         CMD_SOLVER_NEC2, CMD_SOLVER_OPENEMS, CMD_SOLVER_ELMER, CMD_SOLVER_PALACE,
         CMD_SOLVER_OPENFOAM, CMD_CONVECTION, CMD_CONVECTION_FIELD,
+        CMD_SOLID_CONVECTION, CMD_CHT,
         "Separator", CMD_PATTERN_FREQS, CMD_RUN, CMD_SHOW_RESULTS, CMD_SWEEP_GAP,
     ]),
     ("Templates", [
@@ -507,12 +512,15 @@ class _Convection:
     def GetResources(self):
         return {
             "Pixmap": icon_path("emstudio_solver_elmer.svg"),
-            "MenuText": "Solve Convection (bundle factor)...",
-            "ToolTip": "Solve natural convection for a cable bundle in its "
-                       "enclosure and cache the factor on the OpenFOAM "
-                       "solver. Churchill-Chu assumes ONE cable in unbounded "
-                       "still air and over-predicts a trefoil by ~25 %, in "
-                       "the unsafe direction",
+            "MenuText": "Solve Convection (reference trefoil)...",
+            "ToolTip": "Solve natural convection for the BUILT-IN reference "
+                       "trefoil (three 20 mm cables at 30 mm pitch) and "
+                       "cache the factor on the OpenFOAM solver. This does "
+                       "NOT read your document's geometry - solve your own "
+                       "bundle from the Cable Designer's Bundle tab. "
+                       "Churchill-Chu assumes ONE cable in unbounded still "
+                       "air and over-predicts a trefoil by ~25 %, in the "
+                       "unsafe direction",
         }
 
     def IsActive(self):
@@ -545,7 +553,8 @@ class _Convection:
             centres, d_cable, float(getattr(solver, "EnclosureClearance", 5.0)))
 
         dlg = convection_dialog.build_dialog(
-            centres, d_cable, side, side, parent=FreeCADGui.getMainWindow())
+            centres, d_cable, side, side, parent=FreeCADGui.getMainWindow(),
+            reference=True)
         dlg.exec()
         res = getattr(dlg, "result_obj", None)
         if res is None:
@@ -622,8 +631,8 @@ class _ConvectionField:
             # Be specific: "nothing to show" reads like a bug when the user
             # remembers solving. They may have solved before this shipped.
             _warn("This solver has no solved case recorded yet. Run 'Solve "
-                  "Convection (bundle factor)...' first — the case directory "
-                  "is stored when the solve finishes.")
+                  "Convection (reference trefoil)...' first — the case "
+                  "directory is stored when the solve finishes.")
             return
 
         try:
@@ -647,6 +656,125 @@ class _ConvectionField:
         except Exception:                       # noqa: BLE001 — cosmetic
             pass
         return obj
+
+
+class _SolidConvection:
+    """Natural-convection CFD on the SELECTED solid — ROADMAP §8a.
+
+    The door carries the problem (AJ, 2026-08-17): this command solves the
+    geometry the user selected in the document — the coil, PCB or antenna
+    they are looking at — never a built-in. The domain is OPEN AIR (a
+    far-wall box at ambient), which is the honest default when the document
+    contains no enclosure; a designated enclosure solid is a planned
+    extension the dialog names rather than silently ignores.
+    """
+
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_solver_elmer.svg"),
+            "MenuText": "Solve Convection on Selected Solid (open air)...",
+            "ToolTip": "Tessellate the SELECTED solid, immerse it in open "
+                       "air and solve its natural convection with OpenFOAM: "
+                       "enter the dissipated power, get the surface "
+                       "temperature rise and mean film coefficient, and "
+                       "show the solved field in the 3-D view. Anchored on "
+                       "a sphere: exact conduction bounds plus the "
+                       "Churchill correlation",
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from emstudio.ui import solid_convection_dialog
+
+        sel = FreeCADGui.Selection.getSelection()
+        solids = [o for o in sel
+                  if hasattr(o, "Shape") and getattr(o.Shape, "Solids", None)]
+        if len(solids) != 1:
+            _warn("Select exactly ONE solid to solve (got {0}). This "
+                  "command attaches the CFD to the thing you select — "
+                  "that is its point.".format(len(solids)))
+            return
+        obj = solids[0]
+        # ⚠ "One solid" means ONE: a fused/compound Shape with several
+        # solids would silently spread the entered power over every body's
+        # surface at once, which is not what the message promises.
+        if len(obj.Shape.Solids) != 1:
+            _warn("'{0}' contains {1} solids. Select an object with exactly "
+                  "one — for several bodies, solve them one at a time (each "
+                  "with its own power).".format(obj.Label,
+                                               len(obj.Shape.Solids)))
+            return
+        # ⚠ A sealed internal void is a silent power leak: its faces land in
+        # the STL and the flux is spread over ALL of them, but snappy keeps
+        # only the exterior air, so the inner surface's share of the power
+        # simply vanishes from the solve.
+        if len(obj.Shape.Solids[0].Shells) > 1:
+            _warn("'{0}' has a sealed internal void. The dissipated power "
+                  "would be spread over inner AND outer surfaces while only "
+                  "the outer ones meet the air — part of the power would "
+                  "silently vanish. Model the outer envelope "
+                  "instead.".format(obj.Label))
+            return
+        try:
+            gp = obj.getGlobalPlacement()
+            if gp is not None and gp != obj.Placement:
+                FreeCAD.Console.PrintWarning(
+                    "EMStudio: '%s' sits in a placed container; it is "
+                    "solved in its LOCAL orientation, so gravity (-z) may "
+                    "not be the viewport's down for this body.\n" % obj.Label)
+        except AttributeError:
+            pass
+        # ⚠ FreeCAD tessellates in DOCUMENT millimetres; the case is metres.
+        try:
+            pts, facets = obj.Shape.tessellate(
+                solid_convection_dialog.TESS_TOL_MM)
+            triangles = [tuple((pts[i].x * 1e-3, pts[i].y * 1e-3,
+                                pts[i].z * 1e-3) for i in tri)
+                         for tri in facets]
+            dlg = solid_convection_dialog.build_dialog(
+                triangles, obj.Label, doc=FreeCAD.ActiveDocument,
+                parent=FreeCADGui.getMainWindow())
+        except ValueError as exc:
+            _warn("Cannot solve this selection: {0}".format(exc))
+            return
+        dlg.exec()
+
+
+class _ChtConvection:
+    """Conjugate heat transfer on the slab + air-gap stack — ROADMAP §8c.
+
+    ⚠ PARAMETRIC, and honest about it: this command solves a planar stack
+    the user types in — it does NOT read document geometry (the
+    reference-trefoil lesson). CHT on a selected assembly is the extension
+    this rung anchors: conduction is exact (gated), the buoyant gap sits
+    mid-window of the vertical-cavity correlations (gated live: Nu 6.8529
+    at interface Ra 8.49e5, A = 4, 2026-08-19).
+    """
+
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_solver_elmer.svg"),
+            "MenuText": "Solve Conjugate Heat Transfer (slab + air gap)...",
+            "ToolTip": "Solve a solid layer against a vertical air gap with "
+                       "the solid and the fluid COUPLED — the interface "
+                       "temperature comes out of the solve instead of being "
+                       "assumed. Parametric stack, typed in the dialog (it "
+                       "does not read the document). Anchored: exact "
+                       "conduction limit + the gap Nusselt number inside "
+                       "the vertical-cavity correlation window",
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from emstudio.ui import cht_dialog
+
+        dlg = cht_dialog.build_dialog(doc=FreeCAD.ActiveDocument,
+                                      parent=FreeCADGui.getMainWindow())
+        dlg.exec()
 
 
 class _AddSolverPalace:
@@ -1768,6 +1896,8 @@ def register():
     FreeCADGui.addCommand(CMD_SOLVER_OPENFOAM, _AddSolverOpenFOAM())
     FreeCADGui.addCommand(CMD_CONVECTION, _Convection())
     FreeCADGui.addCommand(CMD_CONVECTION_FIELD, _ConvectionField())
+    FreeCADGui.addCommand(CMD_SOLID_CONVECTION, _SolidConvection())
+    FreeCADGui.addCommand(CMD_CHT, _ChtConvection())
     FreeCADGui.addCommand(CMD_SOLVER_PALACE, _AddSolverPalace())
     FreeCADGui.addCommand(CMD_PATTERN_FREQS, _PatternFrequencies())
     FreeCADGui.addCommand(CMD_RUN, _RunSolver())

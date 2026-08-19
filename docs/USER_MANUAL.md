@@ -335,8 +335,12 @@ with a solve of your own arrangement.
 **Where it is.** Cable Designer ▸ **Bundle** page ▸ *Solve convection…* — on the
 page where the bundle exists, because that is where the ampacity elsewhere in
 the dialog starts being optimistic. There is also a document-object route
-(Analysis ▸ *Add Convection (OpenFOAM) Solver*, then *Solve Convection*), which
-caches the result on the document.
+(Analysis ▸ *Add Convection (OpenFOAM) Solver*, then *Solve Convection
+(reference trefoil)*), which caches a factor for the BUILT-IN reference
+trefoil on the document — it does **not** read your geometry; the dialog
+says so. Long solves run on a worker thread and the **Cancel solve** button
+genuinely stops the OpenFOAM chain (closing the dialog mid-solve cancels
+too).
 
 **What it gives you.** A dimensionless **bundle factor** on Churchill-Chu —
 1.0 means the bare correlation, below 1 means the correlation over-predicts
@@ -408,6 +412,46 @@ R rises with temperature and the temperature is what you are solving for. The
 dialog uses the Thermal tab's insulation-class limit so both pages assume the
 same thing. The error is second-order, because the factor is a ratio in which
 most of it cancels, but it is an assumption and not a measurement.
+
+**A separate command for a separate question — convection on YOUR solid.**
+Analysis ▸ *Solve Convection on Selected Solid (open air)…* solves the
+natural convection of whatever single solid you have selected — a coil, a
+PCB, a housing. Enter the dissipated power; the solid is tessellated as-is
+(document orientation, gravity along −z) and immersed in open air, meaning
+a far-wall box at ambient sized generously around it — when your document
+contains no enclosure, open air is the assumption. You get the surface
+temperature rise, the mean film coefficient h, and a *Show field in 3-D
+view* button for the solved temperature field. Scope, stated in the dialog
+too: **laminar, convection only — no radiation** (a high-emissivity surface
+sheds a comparable power radiatively, so the solved rise is an
+over-estimate), constant-property air at a film temperature (the dialog
+warns when the solved film strays), and no enclosure geometry read yet.
+The path is anchored on a sphere: an exact two-sided conduction sandwich
+(Nu 2.5575 inside [2.3374, 2.6667]) and the Churchill free-convection
+correlation (+4.3 % at Ra_D 1.33e6).
+
+**Conjugate heat transfer — the interface temperature comes out of the
+solve.** Analysis ▸ *Solve Conjugate Heat Transfer (slab + air gap)…*
+solves a solid layer against a vertical air gap with the two regions
+COUPLED: every other thermal case imposes a wall temperature or a wall flux
+(an assumption about the answer); here the solid conducts, the gap
+convects, and the interface temperature is solved, not assumed. The stack
+is **parametric — typed into the dialog, not read from the document** (the
+dialog says so; CHT on a selected assembly is the planned extension). With
+buoyancy off the answer is closed form and the solve reproduces it to five
+decimals — a live check of the machinery. With buoyancy on you get the gap
+Nusselt number, the through-flux, the solved interface temperature and the
+interface-referenced Rayleigh number, solved with **real air near 300 K**
+(constant properties, never a tuned viscosity — the dialog warns when your
+temperatures pull the film far from 300 K, and refuses a hot face the
+Boussinesq air model cannot represent at all), plus *Show gap field in 3-D
+view*. Anchored live: Nu 6.853 at Ra 8.49e5, aspect 4 — mid-window of the
+vertical-cavity correlations (Berkovsky-Polevikov 6.6–6.9, MacGregor &
+Emery ≈8.4, both at that same interface Ra). The dialog names it when your
+case leaves that envelope: Ra beyond laminar, aspect outside 2–10, film
+temperature far off the property table, or a solid layer too conductive to
+carry a measurable share of the drop. ⚠ The buoyant solve can take tens of minutes; Cancel
+is real, and closing the dialog mid-solve cancels.
 
 Ask for a result by size *and* load — `factor_for(d, gradient=...)` in the API.
 Asking by size alone is refused when that size has two answers, rather than
@@ -1312,7 +1356,7 @@ Simulation backends on native Windows:
 | **NEC2** | ✅ **one-click** — Solver Setup → **Install…**. Downloads nec2++ 2.3.4 (~1.5 MB, per-user, no admin rights), built from unmodified upstream source and published by the EMStudio project because no NEC engine has an official Windows build. Verified byte-identical to the Linux build on the shipped dipole deck. |
 | **Elmer, Gmsh** | ✅ **one-click** — Solver Setup → **Install…** downloads the official upstream builds (~160 MB and ~37 MB, per-user, no admin). Manual installers at elmerfem.org / gmsh.info still work. |
 | openEMS | ⚠️ prebuilt zips exist, but EMStudio's Python-driven pipeline isn't wired for them yet |
-| FastHenry | ⚠️ download FastFieldSolvers' own Windows build from fastfieldsolvers.com and point EMStudio at it. There is no Install button and there cannot be one — FastHenry carries an M.I.T. licence granting internal, noncommercial use only and prohibiting redistribution without written consent, so EMStudio may not ship the binary for you. |
+| FastHenry | ⚠️ build from source — Solver Setup's **Build…** button automates the whole compile when a MinGW toolchain is present (FastFieldSolvers' own Windows bundle cannot be driven: its FastHenry2 is a GUI/Automation application with command-line arguments removed in 2004). The licensing is resolved in writing — the M.I.T. material's 2003 re-release permits redistribution and FastFieldSolvers state their modifications are LGPL — so a one-click Install of an EMStudio-built CLI binary is prepared and ships once M.I.T.'s licensing office confirms the 2003 re-release. |
 | Palace | ❌ no upstream Windows support — WSL2 only |
 
 **The guided installs put binaries in `%LOCALAPPDATA%\EMStudio\solvers\` and

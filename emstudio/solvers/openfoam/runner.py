@@ -23,7 +23,9 @@ status is what gets recorded.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
+import time
 
 from emstudio import procutil
 from emstudio.setup import openfoam as _setup
@@ -45,9 +47,11 @@ from emstudio.solvers.openfoam.cht import (ChtCase, write_cht,
                                            write_region_fields,
                                            SOLID_REGION as _CHT_SOLID,
                                            FLUID_REGION as _CHT_FLUID)
+from emstudio.solvers.openfoam.solid import (SolidCase, SolidResult,
+                                             write_solid)
 
 __all__ = ["run_chain", "run_cavity", "run_cylinder", "run_bundle",
-           "run_wind"]
+           "run_wind", "run_solid"]
 
 #: The meshing + solving chain for the cavity. blockMesh only — no
 #: snappyHexMesh, which is what keeps this runnable as a gate.
@@ -78,11 +82,83 @@ def _command(info, script, case_dir):
     return ["bash", "-lc", full]
 
 
-def run_chain(case_dir, info=None, steps=CAVITY_STEPS, timeout=3600):
+def _kill_job(job, info=None, step=""):
+    """Terminate a chain step AND its children.
+
+    ⚠ The step is a sourcing bash whose CHILD is the actual solver, so
+    killing ``job.pid`` alone orphans the very process the user is trying to
+    stop — it keeps solving with its parent gone. POSIX: the step is started
+    as its own process group (``start_new_session``) and the whole group gets
+    the signal. Windows native/MSYS: ``taskkill /T`` walks the tree.
+
+    ⚠ The WSL route is the exception ``taskkill`` cannot cover: the solver is
+    a Linux process inside the distro's VM, invisible to the Windows process
+    tree — killing the ``wsl.exe`` relay orphans it and it keeps burning CPU
+    in Vmmem. So on that route the step binary is ALSO pkilled by name
+    inside the distro, best-effort.
+    """
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(job.pid)],
+                           capture_output=True,
+                           creationflags=procutil.CREATE_NO_WINDOW)
+            if step and info is not None and getattr(info, "wsl_distro", ""):
+                try:
+                    subprocess.run(
+                        [_setup._wsl_exe(), "-d", info.wsl_distro, "--",
+                         "pkill", "-f", step.split()[0]],
+                        capture_output=True, timeout=15,
+                        creationflags=procutil.CREATE_NO_WINDOW)
+                except (OSError, subprocess.SubprocessError):
+                    pass        # the relay is gone; nothing more to reach
+        else:
+            os.killpg(job.pid, signal.SIGTERM)
+            try:
+                job.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                pass
+            # ⚠ The LEADER's death is not the GROUP's: a child that shrugged
+            # off SIGTERM still holds the pgid (a pgid is not recycled while
+            # any member lives), so this KILL always lands on stragglers —
+            # and raises ESRCH into the except below when nobody is left.
+            os.killpg(job.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass                    # the group died between the check and the kill
+
+
+def _reap(job):
+    """Collect a killed step WITHOUT blocking on its pipes.
+
+    ⚠ A bare ``communicate()`` here waits for EOF on stdout/stderr, and a
+    grandchild that escaped the process group (or survived a partial kill)
+    holds those pipes open — turning "cancel" into a silent wait for the very
+    solve the user stopped. Bounded waits, then give up: the group has been
+    signalled, and a stray fd is the lesser evil than a frozen cancel.
+    """
+    try:
+        job.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        job.kill()
+        try:
+            job.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def run_chain(case_dir, info=None, steps=CAVITY_STEPS, timeout=3600,
+              cancel=None):
     """Run each step in order. Returns a report; does NOT raise on a bad step.
 
     The log of the step that failed is the thing worth reading, so a failure
     is reported rather than thrown.
+
+    ``cancel`` is anything with ``is_set()`` (a ``threading.Event``). When it
+    fires mid-step the step's whole process group is killed and the report
+    comes back ``ok=False`` with ``cancelled=True`` — distinguishable from a
+    failed solve, because "the user stopped it" and "it broke" call for
+    different messages.
     """
     info = info or _setup.find_openfoam()
     if not info.found:
@@ -95,15 +171,52 @@ def run_chain(case_dir, info=None, steps=CAVITY_STEPS, timeout=3600):
 
     report = {"ok": True, "install": info.describe(), "steps": []}
     for step in steps:
+        # A cancel that fired between steps (or before the chain started —
+        # the dialog closed the instant after Solve) must not spawn a doomed
+        # step just to kill it half a second later.
+        if cancel is not None and cancel.is_set():
+            report.update(ok=False, failed_at=step, cancelled=True,
+                          error="cancelled by user")
+            return report
         argv = _command(info, "%s > log.%s 2>&1; echo rc=$?"
                         % (step, step.split()[0]), case_dir)
+        # ⚠ Popen, not subprocess.run: a blocking run() gives the caller no
+        # moment in which a cancel could ever be honoured — which is exactly
+        # how the convection dialog shipped a Cancel button that could not
+        # work. `start_new_session` makes the step its own process group so
+        # `_kill_job` can take down the solver child, not just the bash
+        # (False on Windows — the default — where `taskkill /T` covers it).
         try:
-            job = subprocess.run(argv, capture_output=True, timeout=timeout,
-                                 creationflags=procutil.CREATE_NO_WINDOW)
+            job = subprocess.Popen(argv, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE,
+                                   start_new_session=(os.name != "nt"),
+                                   creationflags=procutil.CREATE_NO_WINDOW)
         except (OSError, subprocess.SubprocessError) as exc:
             report.update(ok=False, failed_at=step, error=str(exc))
             return report
-        out = (job.stdout or b"").decode("utf-8", "replace")
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                out_b, _err = job.communicate(timeout=0.5)
+                break
+            except subprocess.TimeoutExpired:
+                if cancel is not None and cancel.is_set():
+                    _kill_job(job, info, step)
+                    _reap(job)
+                    report.update(ok=False, failed_at=step, cancelled=True,
+                                  error="cancelled by user")
+                    return report
+                if time.monotonic() >= deadline:
+                    _kill_job(job, info, step)
+                    _reap(job)
+                    report.update(ok=False, failed_at=step,
+                                  error="timed out after %ds" % timeout)
+                    return report
+            except (OSError, subprocess.SubprocessError) as exc:
+                _kill_job(job, info, step)
+                report.update(ok=False, failed_at=step, error=str(exc))
+                return report
+        out = (out_b or b"").decode("utf-8", "replace")
         rc = 0 if "rc=0" in out else 1
         log = os.path.join(case_dir, "log.%s" % step.split()[0])
         tail = ""
@@ -282,7 +395,7 @@ BUNDLE_STEPS = ("blockMesh", "surfaceFeatureExtract", "snappyHexMesh -overwrite"
                 "checkMesh", "buoyantBoussinesqSimpleFoam")
 
 
-def run_bundle(case_dir, case=None, info=None, timeout=7200):
+def run_bundle(case_dir, case=None, info=None, timeout=7200, cancel=None):
     """Write, mesh, run and read a bundle case.
 
     Returns ``(report, BundleNusselt | MixedBundleNusselt | None)``.
@@ -301,7 +414,8 @@ def run_bundle(case_dir, case=None, info=None, timeout=7200):
     patch, so the measured ladder still describes exactly this path.
     """
     case = write_bundle(case_dir, case or BundleCase())
-    report = run_chain(case_dir, info=info, steps=BUNDLE_STEPS, timeout=timeout)
+    report = run_chain(case_dir, info=info, steps=BUNDLE_STEPS,
+                       timeout=timeout, cancel=cancel)
     nu_f, alpha_f = case.properties
     report["case"] = {"cables": case.n_cables, "d_cable": case.d_cable,
                       "box": (case.box_w, case.box_h),
@@ -412,16 +526,21 @@ CHT_MESH_STEPS = ("blockMesh", "topoSet",
 CHT_SOLVE_STEPS = ("chtMultiRegionSimpleFoam",)
 
 
-def run_cht(case_dir, case=None, info=None, timeout=3600):
+def run_cht(case_dir, case=None, info=None, timeout=3600, cancel=None):
     """Write, run and read a conjugate two-region case.
 
     Returns ``(report, {region: mean T})``. The means are the check: for a
     LINEAR profile on uniform cells the cell-average equals the analytic mean
     exactly, so they can be compared to closed form without a mesh-convergence
     argument. See :mod:`emstudio.solvers.openfoam.cht`.
+
+    ``cancel``: a ``threading.Event`` — same contract as ``run_solid`` and
+    the bundle chain, so the CHT dialog's Cancel actually kills the solver
+    (the 08-17 lesson: an uncancellable CFD freezes FreeCAD's Close button).
     """
     case = write_cht(case_dir, case or ChtCase())
-    report = run_chain(case_dir, info=info, steps=CHT_MESH_STEPS, timeout=timeout)
+    report = run_chain(case_dir, info=info, steps=CHT_MESH_STEPS,
+                       timeout=timeout, cancel=cancel)
     if report["ok"]:
         # The interface patch exists only now. Write the fields that name it,
         # then solve. A failure here is a case-setup failure, not a solver one,
@@ -433,11 +552,15 @@ def run_cht(case_dir, case=None, info=None, timeout=3600):
                           error=str(exc))
         else:
             solve = run_chain(case_dir, info=info, steps=CHT_SOLVE_STEPS,
-                              timeout=timeout)
+                              timeout=timeout, cancel=cancel)
             report["steps"].extend(solve["steps"])
             if not solve["ok"]:
+                # ``cancelled`` travels too — run_chain's contract is that it
+                # distinguishes "the user stopped it" from "it broke", and a
+                # solve-phase cancel must not read as a solver failure.
                 report.update(ok=False, failed_at=solve.get("failed_at"),
-                              error=solve.get("error"))
+                              error=solve.get("error"),
+                              cancelled=bool(solve.get("cancelled")))
     report["case"] = {
         "t_hot": case.t_hot, "t_cold": case.t_cold,
         "k_solid": case.k_solid, "k_fluid": case.k_fluid,
@@ -470,6 +593,94 @@ def run_cht(case_dir, case=None, info=None, timeout=3600):
     report["t_solid_mean"] = means[_CHT_SOLID]
     report["t_fluid_mean"] = means[_CHT_FLUID]
     return report, means
+
+
+#: Same chain as the bundle: snappy carves the solid out of the box.
+SOLID_STEPS = ("blockMesh", "surfaceFeatureExtract", "snappyHexMesh -overwrite",
+               "checkMesh", "buoyantBoussinesqSimpleFoam")
+
+
+def run_solid(case_dir, case, info=None, timeout=7200, cancel=None):
+    """Write, mesh, run and read an open-air solid-convection case.
+
+    Returns ``(report, SolidResult | None)`` — ``None`` whenever the chain
+    did not reach a surface reading, never a zero, for the same reason as
+    every other runner here: a zero dT is a physical claim and "nothing ran"
+    is not.
+
+    ⚠ No default case: this path exists to solve the USER'S geometry, and a
+    silent built-in default is exactly the confusion the reference-trefoil
+    episode taught (2026-08-17).
+    """
+    case = write_solid(case_dir, case)
+    report = run_chain(case_dir, info=info, steps=SOLID_STEPS,
+                       timeout=timeout, cancel=cancel)
+    report["case"] = {"power_w": case.power_w, "area_m2": case.area_m2,
+                      "flux_w_m2": case.flux_w_m2, "t_amb": case.t_amb,
+                      "open_air": case.open_air, "box_half": case.box_half,
+                      "cells_bg": case.cells_bg, "gravity": case.gravity,
+                      "triangles": len(case.triangles)}
+    if not report["ok"]:
+        return report, None
+
+    time_dir = latest_time_dir(case_dir)
+    if not time_dir:
+        report.update(ok=False, failed_at="write",
+                      error="the solver exited 0 but wrote no time directory")
+        return report, None
+    report["time_dir"] = time_dir
+
+    k, nu_f, alpha_f, _pr = case.air
+
+    def surface_mean(tdir):
+        values = read_patch_values(
+            os.path.join(case_dir, tdir, "T"), case.patch)
+        if not values:
+            raise ValueError("no surface values on patch %r" % case.patch)
+        return values
+
+    try:
+        values = surface_mean(time_dir)
+    except (OSError, ValueError) as exc:
+        report.update(ok=False, failed_at="read", error=str(exc))
+        return report, None
+
+    result = SolidResult(
+        t_mean=sum(values) / len(values), t_min=min(values),
+        t_max=max(values), t_amb=case.t_amb, flux_w_m2=case.flux_w_m2,
+        k_fluid=k, nu_fluid=nu_f, alpha_fluid=alpha_f, beta=case.beta,
+        gravity=case.gravity, faces=len(values),
+        provenance="open-air solid, %d triangles, box %.3g m, %s cells_bg %d"
+                   % (len(case.triangles), 2.0 * case.box_half,
+                      time_dir, case.cells_bg))
+    solve = [s for s in report["steps"] if s["step"].startswith("buoyant")]
+    report["converged"] = bool(solve and solve[0]["converged"])
+    result.converged = report["converged"]
+
+    # Drift of the surface mean between the last two snapshots — the same
+    # honesty the cylinder path records: residuals establish less than the
+    # quantity of interest having stopped moving.
+    report["dt_drift"] = None
+    times = sorted(
+        (t for t in (_as_time(n) for n in os.listdir(case_dir)
+                     if os.path.isdir(os.path.join(case_dir, n))) if t),
+        key=lambda p: p[0])
+    if len(times) >= 2:
+        try:
+            prev = surface_mean(times[-2][1])
+            dt_prev = sum(prev) / len(prev) - case.t_amb
+            if dt_prev:
+                result.drift = abs(result.dt - dt_prev) / abs(dt_prev)
+                report["dt_drift"] = result.drift
+                report["previous_time"] = times[-2][1]
+        except (OSError, ValueError):
+            pass                      # a snapshot we cannot read is not a claim
+    if not report["converged"] and report["dt_drift"] is None:
+        result.warnings.append(
+            "residualControl never fired in %d iterations and no intermediate "
+            "snapshot was written, so nothing here establishes convergence — "
+            "set write_interval to get a drift measurement" % case.iterations)
+    return report, result
 
 
 def run_wind(case_dir, case=None, info=None, timeout=3600):

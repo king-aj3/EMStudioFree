@@ -1108,6 +1108,17 @@ def _win_guided_install_contract():
                 "%r binary is published under tag %r but its source offer points "
                 "at %r — a rebuild left the source zip behind"
                 % (key, bin_tag, src_tag))
+            # Self-hosted implies PINNED. A GitHub release asset is mutable
+            # in place, so an unpinned self-hosted zip can be silently
+            # replaced under users and run_win_install would execute whatever
+            # is there. Upstream plans (elmer/gmsh) legitimately refresh
+            # their bytes and stay unpinned; ours must not.
+            sha = plan.get("sha256", "")
+            assert len(sha) == 64 and all(
+                c in "0123456789abcdef" for c in sha.lower()), (
+                "self-hosted %r has no sha256 pin (or a malformed one: %r) — "
+                "we publish this asset, so integrity is our obligation"
+                % (key, sha[:20]))
     if os.name != "nt":
         return
 

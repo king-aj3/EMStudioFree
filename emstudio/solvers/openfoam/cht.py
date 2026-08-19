@@ -56,7 +56,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-__all__ = ["ChtCase", "write_cht", "SOLID_REGION", "FLUID_REGION"]
+__all__ = ["ChtCase", "GapNusselt", "gap_nusselt", "write_cht",
+           "SOLID_REGION", "FLUID_REGION"]
 
 SOLID_REGION = "slab"
 FLUID_REGION = "gap"
@@ -214,6 +215,54 @@ class ChtCase:
     @property
     def t_fluid_mean(self):
         return 0.5 * (self.t_interface + self.t_cold)
+
+
+@dataclass(frozen=True)
+class GapNusselt:
+    """The convective measurement of a solved buoyant CHT case."""
+
+    q: float          # W/m^2 through-flux, recovered from the solid
+    t_interface: float  # K, the SOLVED mean interface temperature
+    dt_gap: float     # K, the drop the fluid actually sees
+    nu: float         # gap Nusselt number: actual flux / pure-conduction flux
+    ra: float         # Ra at dt_gap — the interface-referenced Rayleigh number
+
+
+def gap_nusselt(case, t_solid_mean):
+    """Nu of the fluid gap, recovered from the SOLVED solid mean temperature.
+
+    The solid cannot convect, so in steady state each of its columns is
+    linear and the solid mean identifies the mean interface temperature:
+
+        q     = 2*k_solid*(T_hot - mean(T_solid)) / L_solid
+        T_int = T_hot - q*R_solid
+        Nu    = q*R_fluid / (T_int - T_cold)
+        Ra    = rayleigh_for(T_int - T_cold)
+
+    ⚠ Nu is referenced to the SOLVED interface drop, not the nominal
+    hot-to-cold drop — the fluid never sees the full drop, the solid takes
+    its share, and quoting Ra/Nu at the nominal drop overstates both. This
+    is the exact recovery validated against the recorded 08-14 study run
+    (Nu 1.8768 / q 11.6040 / Ra 9.536e5 reproduced to the digit) and the
+    measurement behind the fixed-mesh verification (Nu 6.8529 at 40x60).
+
+    ⚠ Lateral (vertical) conduction inside the solid perturbs the
+    column-linearity this rests on; with k_solid 0.1 and A = 4 the effect is
+    far inside the correlation window the gate asserts. A second instrument
+    (a wallHeatFlux patch integral) agreed to 0.7 % when cross-checked
+    (2026-08-18 bisection, step 2).
+    """
+    q = 2.0 * case.k_solid * (case.t_hot - t_solid_mean) / case.l_solid
+    t_int = case.t_hot - q * case.r_solid
+    dt_gap = t_int - case.t_cold
+    if dt_gap <= 0:
+        raise ValueError(
+            "recovered gap drop %.4g K is not positive — the solid mean "
+            "%.4g K is not from a converged solve of this case" %
+            (dt_gap, t_solid_mean))
+    nu = q * case.r_fluid / dt_gap
+    return GapNusselt(q=q, t_interface=t_int, dt_gap=dt_gap, nu=nu,
+                      ra=case.rayleigh_for(dt_gap))
 
 
 def region_patches(case_dir, region):
@@ -423,10 +472,23 @@ def write_cht(case_dir, case=None):
            # Top and bottom are ADIABATIC walls: with gravity they are what
            # closes the convection cell, and the temperature drop must stay
            # between the hot and cold faces.
-           "    topBottom { type wall; faces ( (0 1 5 4) (4 5 9 8) "
-           "(3 7 6 2) (7 11 10 6) ); }\n"
-           "    frontAndBack { type empty; faces ( (0 4 7 3) (4 8 11 7) "
-           "(1 2 6 5) (5 6 10 9) ); }\n);\n\nmergePatchPairs ();\n")
+           #
+           # ⚠ THE FACE SETS BELOW WERE SWAPPED until 2026-08-18, and the bug
+           # cost four days of misdiagnosis. With vertices 1=(0,h,0) and
+           # 3=(0,0,w), the faces (0 1 5 4)... lie on the Z-planes and
+           # (0 4 7 3)... on the Y-planes. Labelling the y-planes `empty` put
+           # gravity's direction OUT of the solved plane and made the z-planes
+           # no-slip walls ONE CELL apart — Hele-Shaw drag that crushed the
+           # convection to Nu ~1.9 regardless of Ra, scale-invariantly, while
+           # every conduction anchor still passed exactly (conduction along x
+           # never touches the y/z labels). The solver never complained: empty
+           # faces just drop their boundary contribution. Verify GEOMETRY, not
+           # labels — the gate now recomputes each face's plane from the
+           # vertex coordinates.
+           "    topBottom { type wall; faces ( (0 4 7 3) (4 8 11 7) "
+           "(1 2 6 5) (5 6 10 9) ); }\n"
+           "    frontAndBack { type empty; faces ( (0 1 5 4) (4 5 9 8) "
+           "(3 7 6 2) (7 11 10 6) ); }\n);\n\nmergePatchPairs ();\n")
 
     # --- cellZones, one per region -----------------------------------------
     _put(case_dir, "system/topoSetDict",

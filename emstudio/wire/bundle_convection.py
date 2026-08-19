@@ -527,7 +527,8 @@ def _enclosure_for(centres, d_cable, clearance_ratio):
 def solve_bundle_factor(centres, d_cable, box_w=None, box_h=None,
                         clearance_ratio=5.0, gradient=400.0, runner=None,
                         case_factory=None, case_dir=None,
-                        joule_w_per_m=None, t_film_k=315.0, **case_kw):
+                        joule_w_per_m=None, t_film_k=315.0, cancel=None,
+                        **case_kw):
     """Solve the arrangement and return its :class:`BundleFactor`.
 
     Pass ``joule_w_per_m`` to drive the wall flux from the cable's ACTUAL I²R
@@ -559,7 +560,9 @@ def solve_bundle_factor(centres, d_cable, box_w=None, box_h=None,
         from emstudio.solvers.openfoam import BundleCase as _BC
         from emstudio.solvers.openfoam import run_bundle as _run
         case_factory = case_factory or _BC
-        runner = runner or _run
+        # ⚠ `cancel` rides only the DEFAULT runner. An injected runner keeps
+        # its two-argument contract untouched — the offline gates stub it.
+        runner = runner or (lambda cd, c: _run(cd, c, cancel=cancel))
     if case_dir is None:
         import tempfile
         case_dir = tempfile.mkdtemp(prefix="emstudio-bundlefactor-")
@@ -668,7 +671,8 @@ def _per_cable_gradients(cables, gradient, joule_w_per_m, t_film_k,
 def solve_mixed_bundle_factor(cables, box_w=None, box_h=None,
                               clearance_ratio=5.0, gradient=400.0, runner=None,
                               case_factory=None, case_dir=None,
-                              joule_w_per_m=None, t_film_k=315.0, **case_kw):
+                              joule_w_per_m=None, t_film_k=315.0, cancel=None,
+                              **case_kw):
     """Solve a bundle of unlike cables and return a :class:`MixedBundleFactor`.
 
     ``cables`` is ``[(x, y, d)]`` in metres — :func:`cables_from_bundle` gets
@@ -719,7 +723,8 @@ def solve_mixed_bundle_factor(cables, box_w=None, box_h=None,
         from emstudio.solvers.openfoam import BundleCase as _BC
         from emstudio.solvers.openfoam import run_bundle as _run
         case_factory = case_factory or _BC
-        runner = runner or _run
+        # ⚠ `cancel` rides only the DEFAULT runner, as in the uniform path.
+        runner = runner or (lambda cd, c: _run(cd, c, cancel=cancel))
     if case_dir is None:
         import tempfile
         case_dir = tempfile.mkdtemp(prefix="emstudio-mixedfactor-")

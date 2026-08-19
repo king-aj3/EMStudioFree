@@ -124,9 +124,14 @@ and on **Windows a one-click Install… button** for the backends whose binaries
 can be distributed — **NEC2, Elmer and Gmsh**. Those download into
 `%LOCALAPPDATA%\EMStudio\solvers\`, per-user, with no admin rights and no
 shell, and are detected without touching `PATH`. openEMS and Palace still need
-WSL2; FastHenry needs FastFieldSolvers' own Windows build, because its M.I.T.
-licence permits internal noncommercial use only and forbids redistribution, so
-EMStudio may not ship it for you.
+WSL2; FastHenry is built from source — Solver Setup's **Build…** button
+automates the compile when a MinGW toolchain is present (FastFieldSolvers'
+own Windows bundle ships a GUI/Automation FastHenry2 that EMStudio cannot
+drive as a subprocess). Its licensing is resolved — the 2003 M.I.T.
+re-release permits redistribution and FastFieldSolvers state their
+modifications are LGPL — and a one-click Install of an EMStudio-built CLI
+binary is prepared, shipping once M.I.T.'s licensing office confirms the
+2003 re-release.
 
 **On macOS**, run `xcode-select --install` first — several solvers have no
 Homebrew formula and are built from source. Detection looks in

@@ -34,3 +34,10 @@ Thumbs.db
 
 # Pro release artifacts — built by tools/build_pro_zip.py, uploaded to Gumroad
 dist/
+
+# Solver logs mirrored out of temp case dirs by the refinement study
+# (multi-MB; the digest in cht_refinement_fixedmesh.txt is what we keep)
+docs/results/cht_ref_*.log
+docs/results/cht_refinement_run.log
+docs/results/cht_refinement_run.log.err
+docs/results/mirror_*.log

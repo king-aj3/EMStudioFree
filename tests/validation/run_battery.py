@@ -46,6 +46,7 @@ FAST = {
     "freq_guard": None,
     "horn": None,
     "lfmf": None,
+    "openfoam_runner_cancel": None,
     "openfoam_setup": None,
     "p1546": None,
     "p1812": None,
@@ -55,6 +56,7 @@ FAST = {
     "pattern_sweep": None,
     "propagation": None,
     "small_antenna": None,
+    "solid_setup": None,
     "solver_progress": None,
     "thermal": None,
     "wind_transient": None,
@@ -63,7 +65,9 @@ FAST = {
 
 SOLVER = [
     "amr_palace", "antenna_from_selection", "openfoam_bundle", "openfoam_cavity", "openfoam_cht",
+    "openfoam_cht_convection",
     "openfoam_cylinder",
+    "openfoam_solid",
     "openfoam_wind",
     "openfoam_wind_transient",
     "bh_elmer", "cavity_palace", "circwaveguide_palace",
@@ -123,6 +127,7 @@ SOLVER_REQS = {
     "openfoam_bundle": "openfoam",
     "openfoam_wind": "openfoam",
     "openfoam_cht": "openfoam",
+    "openfoam_cht_convection": "openfoam",
     "openfoam_wind_transient": "openfoam",
     "patch_openems": "openems_python",
     "msl_notch_openems": "openems_python",

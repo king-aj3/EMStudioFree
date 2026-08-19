@@ -2767,6 +2767,69 @@ def _run_solver_openfoam_dispatch():
         FreeCAD.closeDocument(doc.Name)
 
 
+def _solid_convection_selection():
+    """Solid Convection tessellates the SELECTION, in metres (§8a).
+
+    WHY THIS EXISTS: the command bridges FreeCAD's document MILLIMETRES to
+    the case writer's METRES. A dropped 1e-3 gives a 10 m "coil" whose
+    open-air box is a 40 m hall — the case writes, meshes and solves
+    beautifully, and every number is 1000x wrong. Asserted BEHAVIOURALLY
+    with the dialog stubbed at the modal seam, like the other dialogs.
+    """
+    import FreeCAD
+    import FreeCADGui
+
+    from emstudio import commands as _cmds
+    from emstudio.ui import solid_convection_dialog as _sd
+
+    doc = FreeCAD.newDocument("gui_solid_conv")
+    real_build, real_warn = _sd.build_dialog, _cmds._warn
+    seen = {}
+    warnings = []
+    try:
+        box = doc.addObject("Part::Box", "TestSolid")   # 10 mm cube default
+        doc.recompute()
+
+        class _FakeDlg:
+            def exec(self):
+                return 0
+
+        def fake_build(triangles, label, doc=None, parent=None):
+            seen["triangles"] = triangles
+            seen["label"] = label
+            return _FakeDlg()
+
+        _sd.build_dialog = fake_build
+        _cmds._warn = lambda msg: warnings.append(msg)
+
+        # An empty selection must REFUSE with instructions, not open a dialog.
+        FreeCADGui.Selection.clearSelection()
+        _cmds._SolidConvection().Activated()
+        assert "triangles" not in seen and warnings \
+            and "ONE solid" in warnings[0], (
+            "empty selection did not refuse: {0}".format(warnings))
+
+        FreeCADGui.Selection.addSelection(box)
+        _cmds._SolidConvection().Activated()
+        tris = seen.get("triangles")
+        assert tris, "the dialog never received the selection's triangles"
+        assert seen.get("label") == box.Label, seen.get("label")
+        xs = [p[0] for t in tris for p in t]
+        ext = max(xs) - min(xs)
+        assert abs(ext - 0.010) < 1e-6, (
+            "a 10 mm box tessellated to {0:.6f} m across — the mm->m "
+            "conversion is wrong".format(ext))
+        area = _sd.SolidCase(triangles=tris).area_m2
+        assert abs(area - 6.0e-4) < 1e-6, (
+            "10 mm cube area {0:.3e} m^2, expected 6.0e-4".format(area))
+        return ("selection tessellated to metres: 10 mm cube -> "
+                "{0:.4f} m across, {1:.2e} m^2".format(ext, area))
+    finally:
+        _sd.build_dialog = real_build
+        _cmds._warn = real_warn
+        FreeCAD.closeDocument(doc.Name)
+
+
 def _solver_setup_dialog():
     """Solver Setup must build, and the Windows guided-install branch must
     actually produce Install buttons.
@@ -3043,6 +3106,8 @@ def main():
           _about_and_legal_dialogs)
     check("Run Solver routes an OpenFOAM solver instead of rejecting it",
           _run_solver_openfoam_dispatch)
+    check("Solid Convection command tessellates the selection in metres (§8a)",
+          _solid_convection_selection)
     check("Solver Setup dialog + Windows guided-install buttons",
           _solver_setup_dialog)
     _log("----------------------------")

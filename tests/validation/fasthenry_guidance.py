@@ -189,6 +189,154 @@ def main():
     finally:
         shutil.rmtree(d3, ignore_errors=True)
 
+    # --- the STAGED self-hosted install plan --------------------------------
+    # Redistribution was unblocked 2026-08-13/19 (vendor grant, see
+    # docs/launch/fasthenry-2003-licence-resolution.md), but the release asset
+    # publishes only after the M.I.T. TLO answers. Until then the plan is
+    # STAGED: complete, valid, and deliberately NOT in WIN_INSTALL_PLANS — a
+    # live Install button whose URL 404s is worse than none. These checks keep
+    # the staged entry ready-to-activate; at activation, move the entry into
+    # WIN_INSTALL_PLANS, flip the "not live" check below to membership, and add
+    # "Install button" to WINDOWS_HINTS["fasthenry"] (the smoke gate enforces
+    # that wording for every live plan).
+    print(" staged install plan:")
+    staged = solvers.FASTHENRY_WIN_INSTALL_STAGED
+    check("staged plan is complete",
+          bool(staged.get("url")) and bool(staged.get("estimate"))
+          and bool(staged.get("proof")))
+    check("staged plan is SELF-hosted",
+          staged.get("url", "").startswith(solvers.SELF_HOSTED_PREFIX),
+          "we are the distributor; an upstream URL here would be a lie")
+    check("proof is the managed-layout binary",
+          staged.get("proof") == os.path.join("bin", "fasthenry.exe"),
+          "detection probes <root>/fasthenry/bin — a flat zip would install "
+          "somewhere detection never looks")
+    offer = staged.get("source_offer", "")
+    bin_tag = solvers._release_tag(staged.get("url", ""))
+    src_tag = solvers._release_tag(offer)
+    check("source offer rides the SAME release tag",
+          offer.startswith("https://") and bin_tag and bin_tag == src_tag,
+          "binary tag {0!r} vs source tag {1!r}".format(bin_tag, src_tag))
+    sha = staged.get("sha256", "")
+    check("sha256 pin is a real digest",
+          len(sha) == 64 and all(c in "0123456789abcdef" for c in sha.lower()),
+          "sha256={0!r}".format(sha[:20]))
+    check("staged means NOT live",
+          "fasthenry" not in solvers.WIN_INSTALL_PLANS,
+          "the TLO hold: activation is a deliberate step, not a drive-by — "
+          "flip this check to membership when activating")
+    # The dist tool and the staged plan must agree on tag and zip name, or the
+    # uploaded asset and the pinned URL drift apart. The tool is Pro-repo
+    # only — but in the PRO repo (identified by the exporter's presence) its
+    # absence must FAIL, not skip: a silent skip is exactly how a rename
+    # would disarm these drift guards.
+    tool_path = os.path.join(_ROOT, "tools", "build_fasthenry_dist.py")
+    if os.path.isfile(os.path.join(_ROOT, "tools", "export_free.py")):
+        check("the dist tool exists in the Pro repo",
+              os.path.isfile(tool_path),
+              "renaming tools/build_fasthenry_dist.py silently disarms the "
+              "tag/zip-name drift guards below")
+    if os.path.isfile(tool_path):
+        sys.path.insert(0, os.path.dirname(tool_path))
+        try:
+            import build_fasthenry_dist as _bfd
+            check("dist tool and staged plan agree on the release tag",
+                  bin_tag == _bfd.RELEASE_TAG,
+                  "plan {0!r} vs tool {1!r}".format(bin_tag, _bfd.RELEASE_TAG))
+            check("dist tool and staged plan agree on the zip name",
+                  staged["url"].endswith("/" + _bfd.BIN_ZIP))
+        finally:
+            sys.path.remove(os.path.dirname(tool_path))
+
+    # --- sha256 verification in run_win_install (nt-only, real pipeline) ----
+    # The staged plan is the first pinned one, so the pin must actually bind:
+    # a wrong hash refuses BEFORE extraction and leaves nothing behind.
+    if os.name == "nt":
+        print(" download pinning (run_win_install):")
+        import zipfile as _zipfile
+
+        tmp_root = tempfile.mkdtemp(prefix="fh_pin_")
+        fake_zip = os.path.join(tmp_root, "fake.zip")
+        with _zipfile.ZipFile(fake_zip, "w") as zf:
+            zf.writestr("bin/fasthenry.exe", "@echo off\r\n")
+        # ⚠ Computed INDEPENDENTLY of solvers._file_sha256 — an expectation
+        # produced by the function under test is circular: swap its hashlib
+        # algorithm and sha-vs-same-sha still matches, while in production
+        # every pinned install would refuse forever against the published
+        # 64-hex sha256 literal.
+        import hashlib as _hashlib
+        with open(fake_zip, "rb") as fh:
+            good_sha = _hashlib.sha256(fh.read()).hexdigest()
+        base_plan = {
+            "estimate": "test",
+            "url": "file:///" + fake_zip.replace("\\", "/"),
+            "proof": os.path.join("bin", "fasthenry.exe"),
+        }
+        orig_root = solvers.win_install_root
+        orig_pref = solvers._pref_path
+        orig_path = os.environ.get("PATH", "")
+        orig_env = os.environ.pop("EMSTUDIO_FASTHENRY", None)
+        try:
+            managed = os.path.join(tmp_root, "managed")
+            solvers.win_install_root = lambda: managed
+            solvers._pref_path = lambda _key: ""
+            os.environ["PATH"] = ""
+
+            # (a) correct pin, UPPERCASE on purpose: comparison must normalise.
+            lines = []
+            plan = dict(base_plan, sha256=good_sha.upper())
+            info = solvers.run_win_install("fasthenry",
+                                           line_callback=lines.append,
+                                           _plan=plan)
+            check("correct pin installs and detection sees it",
+                  info.found and info.path.startswith(managed),
+                  repr(info))
+            check("the pin was actually checked",
+                  any("verifying sha256" in ln for ln in lines))
+            # Positive anchor for the literal the wrong-pin ordering check
+            # below matches against. Without this pairing, rewording
+            # say("extracting...") turns that must-NOT-contain check vacuous
+            # forever — the exact silent decay the gate conventions forbid.
+            check("extraction is logged on the success path",
+                  any("extracting" in ln for ln in lines),
+                  "if this wording changes, update the ordering check below "
+                  "IN THE SAME COMMIT")
+            shutil.rmtree(managed, ignore_errors=True)
+
+            # (b) wrong pin refuses, BEFORE extraction, leaving nothing.
+            bad = ("0" if good_sha[0] != "0" else "1") + good_sha[1:]
+            lines = []
+            raised = False
+            try:
+                solvers.run_win_install("fasthenry",
+                                        line_callback=lines.append,
+                                        _plan=dict(base_plan, sha256=bad))
+            except SolverError:
+                raised = True
+            check("wrong pin REFUSES to install", raised,
+                  "a hash that does not bind is decoration")
+            check("refusal happens BEFORE extraction",
+                  not any("extracting" in ln for ln in lines),
+                  "extraction is the first step that feeds untrusted bytes "
+                  "to code; verify-then-extract is the order that matters")
+            check("refusal leaves no install behind",
+                  not os.path.isdir(os.path.join(managed, "fasthenry")))
+
+            # (c) a plan WITHOUT a pin still installs — elmer/gmsh point at
+            # upstream URLs whose bytes legitimately shift; pinning is opt-in.
+            lines = []
+            info = solvers.run_win_install("fasthenry",
+                                           line_callback=lines.append,
+                                           _plan=dict(base_plan))
+            check("unpinned plans keep working", info.found, repr(info))
+        finally:
+            solvers.win_install_root = orig_root
+            solvers._pref_path = orig_pref
+            os.environ["PATH"] = orig_path
+            if orig_env is not None:
+                os.environ["EMSTUDIO_FASTHENRY"] = orig_env
+            shutil.rmtree(tmp_root, ignore_errors=True)
+
     print(" windows source build — offer only what can run:")
     real_tc = solvers.win_build_toolchain
     try:

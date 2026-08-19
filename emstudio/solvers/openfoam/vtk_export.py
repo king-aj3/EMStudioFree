@@ -26,19 +26,26 @@ import os
 from emstudio.solvers.base import SolverError
 
 
-def vtk_dir(case_dir):
-    """The VTK output directory for a case (may not exist yet)."""
-    return os.path.join(case_dir, "VTK")
+def vtk_dir(case_dir, region=""):
+    """The VTK output directory for a case (may not exist yet).
+
+    ``region``: a multi-region (CHT) case's region name. MEASURED on v2512
+    (2026-08-19, tiny conduction case): ``foamToVTK -region gap`` writes the
+    SAME layout one level deeper — ``VTK/gap/<case>_<time>/internal.vtu`` —
+    so region support is a path prefix, nothing else.
+    """
+    return os.path.join(case_dir, "VTK", region) if region else os.path.join(
+        case_dir, "VTK")
 
 
-def find_internal_vtu(case_dir):
+def find_internal_vtu(case_dir, region=""):
     """Newest ``internal.vtu`` under the case's VTK dir, or ''.
 
     Newest by the TIME in the directory name where that parses, because
     `<case>_300` and `<case>_400` sort lexically in an order that is only
     sometimes the physical one — `_1000` sorts before `_300`.
     """
-    root = vtk_dir(case_dir)
+    root = vtk_dir(case_dir, region)
     if not os.path.isdir(root):
         return ""
     found = []
@@ -56,9 +63,9 @@ def find_internal_vtu(case_dir):
     return found[-1][2]
 
 
-def boundary_vtps(case_dir):
+def boundary_vtps(case_dir, region=""):
     """Patch surface files beside the newest ``internal.vtu``. Possibly empty."""
-    vtu = find_internal_vtu(case_dir)
+    vtu = find_internal_vtu(case_dir, region)
     if not vtu:
         return []
     bdir = os.path.join(os.path.dirname(vtu), "boundary")
@@ -68,8 +75,13 @@ def boundary_vtps(case_dir):
                   if f.lower().endswith(".vtp"))
 
 
-def convert(case_dir, info=None, timeout=900, line_callback=None):
+def convert(case_dir, info=None, timeout=900, line_callback=None,
+            region=""):
     """Run ``foamToVTK -latestTime`` on ``case_dir``. Returns the internal.vtu.
+
+    ``region`` converts ONE region of a multi-region (CHT) case — without it
+    foamToVTK reads the parent mesh, which after splitMeshRegions carries no
+    solved fields at all, and the caller would get geometry with nothing on it.
 
     Raises :class:`SolverError` when the case is not there, OpenFOAM cannot be
     found, or the converter produced nothing.
@@ -95,7 +107,10 @@ def convert(case_dir, info=None, timeout=900, line_callback=None):
 
     # NOT piped: a pipeline's exit status is the LAST command's, which would
     # hide a converter that refused its arguments.
-    argv = of_runner._command(info, "foamToVTK -latestTime\n", case_dir)
+    cmd = "foamToVTK -latestTime"
+    if region:
+        cmd += " -region " + region
+    argv = of_runner._command(info, cmd + "\n", case_dir)
     say("converting case to VTK: " + case_dir)
     import subprocess
 
@@ -108,7 +123,7 @@ def convert(case_dir, info=None, timeout=900, line_callback=None):
         if line.strip():
             say(line)
 
-    vtu = find_internal_vtu(case_dir)
+    vtu = find_internal_vtu(case_dir, region)
     # Trust the OUTPUT over the exit code, but only in the direction that is
     # safe: a missing file is a failure whatever the code said.
     if not vtu:

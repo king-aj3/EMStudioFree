@@ -332,21 +332,23 @@ BACKENDS = {
         # only ever grows, so treat a new hard error here as expected
         # maintenance, not a surprise.
         #
-        # LICENCE — do NOT restate this as LGPL. It said "LGPL" from the first
-        # commit until 2026-08-04 and that was simply wrong. FastHenry2 ships NO
-        # licence file; the only licence text in the tree is an M.I.T. 1992/1994
-        # header on 18 source files: "Permission to use, copy and modify for
-        # internal, noncommercial purposes is hereby granted. Any distribution
-        # of this program or any part thereof is strictly prohibited without
-        # prior written consent of M.I.T." That is why FastHenry has no guided
-        # Windows install and never can have one on these terms: we may not ship
-        # the binary, and "any part thereof" covers the source too. The guided
-        # SOURCE BUILD is fine — the user compiles their own copy, which is the
-        # use-and-modify grant, not distribution.
+        # LICENCE — the story moved TWICE; state it precisely or not at all.
+        # It said "LGPL" from the first commit until 2026-08-04: wrong (no such
+        # grant exists for the M.I.T. material). Then "1994 M.I.T. header,
+        # redistribution prohibited" until 2026-08-19: ALSO wrong — the 1994
+        # header surviving on `master` is a backporting accident; the governing
+        # text is the 2003 M.I.T. re-release (use/copy/modify/sell/distribute
+        # for any purpose; notice must travel; no M.I.T. name in publicity),
+        # and FastFieldSolvers' own modifications are LGPL per their General
+        # Manager's written statement, 2026-08-13. Full record + email archive:
+        # docs/launch/fasthenry-2003-licence-resolution.md. So redistribution
+        # IS permitted; the guided Windows install is STAGED on the M.I.T. TLO
+        # confirmation (see FASTHENRY_WIN_INSTALL_STAGED). The source build
+        # stays as the route that works under EVERY reading — the user
+        # compiles their own copy.
         manual_hint=(
-            "Build from source — M.I.T. licence, internal NONCOMMERCIAL use "
-            "only, redistribution prohibited, so you build your own copy: "
-            "git clone https://github.com/ediloren/FastHenry2.git "
+            "Build from source (no compiled CLI is published for this "
+            "platform): git clone https://github.com/ediloren/FastHenry2.git "
             "&& cd FastHenry2/src/fasthenry "
             "&& make fasthenry CFLAGS=\"{0}\"".format(FASTHENRY_CFLAGS)
         ),
@@ -843,9 +845,8 @@ MACOS_HINTS = {
                  "implicit-* diagnostics errors, Apple clang 21 adds "
                  "return-mismatch, and GCC 15 defaults to C23 (which needs "
                  "-std=gnu17 or every K&R call becomes 'too many arguments'). "
-                 "Every flag shown is required, not optional. Note FastHenry "
-                 "is licensed by M.I.T. for internal, NONCOMMERCIAL use and "
-                 "may not be redistributed — you build your own "
+                 "Every flag shown is required, not optional. No compiled "
+                 "CLI is published for macOS — you build your own "
                  "copy.".format(FASTHENRY_CFLAGS),
     "elmer": "No Homebrew formula. CSC publishes macOS builds — see "
              "https://www.elmerfem.org/ (Download → macOS), or build with "
@@ -937,11 +938,15 @@ WINDOWS_HINTS = {
                  "the FastHenry2 GUI itself — "
                  "https://www.fastfieldsolvers.com/dwnld02.htm (direct "
                  "download, no registration; the site's own download.htm is a "
-                 "sign-up form that lists nothing, so use this page). There is "
-                 "no Install button: the M.I.T. material was re-released in "
-                 "2003 under terms that DO permit redistribution, but the "
-                 "licence covering FastFieldSolvers' own 64-bit modifications "
-                 "is unresolved, so EMStudio does not ship the binary for you.",
+                 "sign-up form that lists nothing, so use this page). The "
+                 "licensing is RESOLVED in writing: the M.I.T. material was "
+                 "re-released in 2003 under terms that permit redistribution, "
+                 "and FastFieldSolvers state their own modifications are LGPL "
+                 "(2026-08-13) — a one-click install of an EMStudio-built CLI "
+                 "binary is prepared and ships once M.I.T.'s Technology "
+                 "Licensing Office confirms the 2003 re-release. Until then, "
+                 "build from source (the Build… button automates it when a "
+                 "compiler is present).",
     "elmer": "One-click guided install available — the Install button downloads the "
              "official CSC Windows build (~122 MB zip, per-user, no admin rights) "
              "and EMStudio detects it automatically. Manual alternative: the "
@@ -1120,6 +1125,14 @@ WIN_INSTALL_PLANS = {
         # against a stale source zip.
         "source_offer": "https://github.com/king-aj3/EMStudioFree/releases/"
                         "download/nec2pp-2.3.4-win64/nec2pp-source-46f7fbd.zip",
+        # We publish this asset, and a GitHub release asset is mutable in
+        # place — the pin makes silent replacement fail loudly on the user's
+        # machine instead of executing. Hashed from the LIVE asset
+        # 2026-08-19 (1,529,511 bytes, contents verified: exe + 4 DLLs +
+        # COPYING + README). The smoke gate REQUIRES a pin on every
+        # self-hosted plan; a rebuild gets a new tag AND a new hash, edited
+        # together here.
+        "sha256": "2e7af13f5f3552150ba2a1ccdaf6437225c723c44bef0220888cb22c5f68c48c",
     },
 }
 
@@ -1142,11 +1155,62 @@ def _release_tag(url):
     return url.split(marker, 1)[1].split("/", 1)[0]
 
 
+#: FastHenry guided Windows install — STAGED, deliberately NOT in
+#: WIN_INSTALL_PLANS yet. Redistribution is fully permitted in writing
+#: (modifications LGPL + the 2003 M.I.T. re-release; the vendor's grant and
+#: the whole record: docs/launch/fasthenry-2003-licence-resolution.md and
+#: docs/launch/fasthenry-ffs-licence-email-archive.md), but the release asset
+#: publishes only after the M.I.T. TLO answers the confirmation request sent
+#: 2026-08-19 — and a live Install button whose URL 404s is worse than none.
+#:
+#: The assets are BUILT and VERIFIED (2026-08-19, tools/build_fasthenry_dist.py:
+#: fresh compile, upstream commit 363e43e, the shipped zip itself solves the
+#: closed-form copper bar on a bare PATH). ACTIVATION CHECKLIST, in order:
+#:   1. TLO confirms the 2003 re-release (or ~3 weeks of silence — permission
+#:      already exists in writing; the TLO ask was confirmation, not consent).
+#:   2. Re-run tools/build_fasthenry_dist.py; upload BOTH zips from that run
+#:      to the EMStudioFree release tag below; update sha256 here if it moved.
+#:   3. curl -sI both asset URLs — 200 before anything else changes.
+#:   4. Move this entry into WIN_INSTALL_PLANS (drop the _STAGED name).
+#:   5. Update WINDOWS_HINTS["fasthenry"] to mention the Install button (the
+#:      smoke gate REQUIRES that wording for every live plan) and rewrite the
+#:      source-build paragraph as the fallback it becomes.
+#:   6. Flip fasthenry_guidance's "staged means NOT live" check to membership.
+#:   7. Full battery + smoke x3 + gui_smoke, then the release sweep.
+#: sha256 is enforced by run_win_install: unlike elmer/gmsh (upstream URLs
+#: whose bytes legitimately shift), we publish this asset, and a GitHub
+#: release asset is mutable in place — the pin makes silent replacement fail
+#: loudly on the user's machine.
+FASTHENRY_WIN_INSTALL_STAGED = {
+    "estimate": "under 1 min (a ~0.24 MB download; no compile, no toolchain)",
+    "url": "https://github.com/king-aj3/EMStudioFree/releases/download/"
+           "fasthenry-3.0.1-win64/fasthenry-win64.zip",
+    "proof": os.path.join("bin", "fasthenry.exe"),
+    # LGPL corresponding source + the 2003 notice discipline: the exact
+    # patched tree the binary was compiled from, same release tag (the smoke
+    # gate enforces tag equality the moment this goes live).
+    "source_offer": "https://github.com/king-aj3/EMStudioFree/releases/"
+                    "download/fasthenry-3.0.1-win64/"
+                    "fasthenry-source-363e43e.zip",
+    "sha256": "a3a393a897ba762f16aa11b38f91f1bcb77354b5a2f5c31bdb404f8073e6e917",
+}
+
+
 def win_install_plan(key):
     """The guided Windows install for a backend, or None (always None off nt)."""
     if os.name != "nt":
         return None
     return WIN_INSTALL_PLANS.get(key)
+
+
+def _file_sha256(path):
+    """Hex sha256 of a file, chunked so a 200 MB zip does not load whole."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 _MSYS2_MINGW64 = "https://mirror.msys2.org/mingw/mingw64/"
@@ -1346,6 +1410,21 @@ def run_win_install(key, line_callback=None, _plan=None):
     tmp_dir = None
     try:
         _download_archive(plan["url"], tmp_zip, say)
+        # Verify BEFORE extraction, not after: extraction is the first step
+        # that feeds attacker-controllable bytes to code, and a GitHub release
+        # asset (the self-hosted plans) is mutable in place — a pinned hash is
+        # what makes "the zip we verified is the zip users get" checkable.
+        # Optional per plan: elmer/gmsh point at upstream URLs whose content
+        # legitimately shifts, so pinning those would break every refresh.
+        want = plan.get("sha256", "")
+        if want:
+            say("verifying sha256...")
+            got = _file_sha256(tmp_zip)
+            if got.lower() != want.lower():
+                raise SolverError(
+                    "download hash mismatch for {0}: expected {1}, got {2} — "
+                    "refusing to install; the published asset changed or the "
+                    "download was tampered with".format(key, want, got))
         say("extracting...")
         tmp_dir = tempfile.mkdtemp(dir=root)
         try:
@@ -1541,12 +1620,19 @@ def prepare_fasthenry_win_source(src, say=None):
         say("patched Makefile to link win_compat.o")
 
 
-def run_fasthenry_win_build(line_callback=None):
+def run_fasthenry_win_build(line_callback=None, src_zip=None):
     """Build FastHenry from source on native Windows. Returns its SolverInfo.
 
     Every step is the one MEASURED to work on 2026-08-13; see FASTHENRY_WIN_*
     for why each exists. Raises SolverError with a usable message rather than
     leaving a half-built tree.
+
+    ``src_zip``: path to an already-downloaded source archive. Exists for
+    tools/build_fasthenry_dist.py, which must compile the SAME bytes it
+    archives as corresponding source — the upstream URL is a moving branch
+    ref, so two independent downloads can straddle an upstream push and the
+    provenance claim would be silently false. The user-facing Build… button
+    passes nothing and downloads as before.
     """
     import tempfile
     import zipfile as _zipfile
@@ -1568,8 +1654,12 @@ def run_fasthenry_win_build(line_callback=None):
     tmp_dir = tempfile.mkdtemp(dir=root, prefix="fhbuild_")
     try:
         zip_path = os.path.join(tmp_dir, "src.zip")
-        say("downloading " + FASTHENRY_WIN_SRC_URL)
-        _download_archive(FASTHENRY_WIN_SRC_URL, zip_path, say)
+        if src_zip:
+            say("using provided source archive " + src_zip)
+            shutil.copy2(src_zip, zip_path)
+        else:
+            say("downloading " + FASTHENRY_WIN_SRC_URL)
+            _download_archive(FASTHENRY_WIN_SRC_URL, zip_path, say)
         say("extracting...")
         try:
             with _zipfile.ZipFile(zip_path) as zf:

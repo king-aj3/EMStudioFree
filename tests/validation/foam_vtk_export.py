@@ -39,10 +39,14 @@ def check(name, ok, detail=""):
         FAILURES.append(name)
 
 
-def _fake_vtk_tree(case, times):
-    """A case with VTK output for each of ``times``."""
+def _fake_vtk_tree(case, times, region=""):
+    """A case with VTK output for each of ``times``.
+
+    ``region`` reproduces the MEASURED v2512 multi-region layout: foamToVTK
+    -region <name> writes the same tree one level deeper, VTK/<region>/…
+    """
     for t in times:
-        d = os.path.join(case, "VTK", "case_%s" % t)
+        d = os.path.join(case, "VTK", region, "case_%s" % t)
         os.makedirs(os.path.join(d, "boundary"), exist_ok=True)
         with open(os.path.join(d, "internal.vtu"), "w") as fh:
             fh.write("<VTKFile/>")
@@ -118,6 +122,62 @@ def main():
               vtk_export.boundary_vtps(empty) == [])
     finally:
         shutil.rmtree(empty, ignore_errors=True)
+
+    # --- multi-region (CHT) output ----------------------------------------
+    # foamToVTK -region <name> writes the SAME layout one level deeper —
+    # VTK/<region>/<case>_<time>/… — MEASURED on v2512 (2026-08-19, tiny
+    # conduction case) and pinned here in BOTH directions: the region lookup
+    # must find the region tree, and the region-less lookup must NOT (a
+    # swapped path would show a CHT user the parent mesh with no fields, an
+    # hour after their solve started).
+    print(" multi-region output:")
+    rcase = tempfile.mkdtemp(prefix="vtkregion_")
+    try:
+        _fake_vtk_tree(rcase, ["300"], region="gap")
+        got = vtk_export.find_internal_vtu(rcase, region="gap")
+        check("region lookup resolves VTK/<region>/... ",
+              got.endswith("internal.vtu")
+              and os.path.join("VTK", "gap", "case_300") in got,
+              got)
+        check("region patches found beside it",
+              len(vtk_export.boundary_vtps(rcase, region="gap")) == 2)
+        check("the region-less lookup does NOT see region output",
+              vtk_export.find_internal_vtu(rcase) == "",
+              "the layouts are distinct trees, not aliases")
+
+        # The FLAG, behaviorally: the real convert() must ask foamToVTK for
+        # the region. The command builder is captured; the subprocess is a
+        # no-op; the pre-built tree satisfies the output check — everything
+        # else is the shipping path.
+        from emstudio.setup import openfoam as of_setup
+        from emstudio.solvers.openfoam import runner as of_runner
+
+        cmds = []
+        real_find, real_cmd = of_setup.find_openfoam, of_runner._command
+
+        class _Info:
+            bashrc = "fake"
+
+        try:
+            of_setup.find_openfoam = lambda: _Info()
+            of_runner._command = lambda info, cmd, cwd: (
+                cmds.append(cmd) or [sys.executable, "-c", "pass"])
+            os.makedirs(os.path.join(rcase, "system"), exist_ok=True)
+            vtu = vtk_export.convert(rcase, region="gap")
+            check("convert(region=...) passes -region to foamToVTK",
+                  any("-region gap" in c for c in cmds), str(cmds))
+            check("  ...and returns the REGION'S vtu",
+                  os.path.join("VTK", "gap") in vtu, vtu)
+            cmds[:] = []
+            _fake_vtk_tree(rcase, ["300"])          # plain output too
+            vtk_export.convert(rcase)
+            check("region-less convert stays region-less",
+                  cmds and all("-region" not in c for c in cmds), str(cmds))
+        finally:
+            of_setup.find_openfoam = real_find
+            of_runner._command = real_cmd
+    finally:
+        shutil.rmtree(rcase, ignore_errors=True)
 
     # --- refuse clearly, never show an empty view -------------------------
     print(" the converter refuses rather than showing nothing:")

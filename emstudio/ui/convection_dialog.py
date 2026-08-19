@@ -229,11 +229,17 @@ def summarise(result):
     return "\n".join(lines)
 
 
-def build_dialog(geometry, d_cable, box_w, box_h, parent=None):  # pragma: no cover
+def build_dialog(geometry, d_cable, box_w, box_h, parent=None,
+                 reference=False):  # pragma: no cover
     """The Qt dialog. Imported lazily so the module stays headless-testable.
 
     ``geometry`` is ``[(x, y, d)]`` (mixed diameters welcome) or ``[(x, y)]``
     with ``d_cable`` supplying the one diameter.
+
+    ``reference=True`` marks the geometry as the BUILT-IN reference trefoil
+    rather than anything from the user's document, and the dialog says so in
+    red — a user with a helical coil on screen read "3 cables" as a solve of
+    their document and had no way to know otherwise (AJ, 2026-08-17).
     """
     from PySide import QtCore, QtWidgets
 
@@ -256,6 +262,19 @@ def build_dialog(geometry, d_cable, box_w, box_h, parent=None):  # pragma: no co
                                                   box_h=box_h))
             plan.setWordWrap(True)
             lay.addWidget(plan)
+
+            if reference:
+                ref = QtWidgets.QLabel(
+                    "<b>⚠ This is the built-in REFERENCE trefoil — three "
+                    "20 mm cables at 30 mm pitch — NOT geometry from your "
+                    "document.</b> Nothing in the 3-D view is read by this "
+                    "solve. To solve your own bundle, open the Cable "
+                    "Designer's Bundle configuration and press its Solve "
+                    "convection button — that passes the real cable table "
+                    "to this dialog.")
+                ref.setWordWrap(True)
+                ref.setStyleSheet("color: #a00000;")
+                lay.addWidget(ref)
 
             cur = QtWidgets.QLabel(
                 "<b>What the ampacity uses today</b><br>"
@@ -291,33 +310,104 @@ def build_dialog(geometry, d_cable, box_w, box_h, parent=None):  # pragma: no co
             box = QtWidgets.QDialogButtonBox()
             self.solve_btn = box.addButton("Solve convection…",
                                            QtWidgets.QDialogButtonBox.ActionRole)
+            self.cancel_btn = box.addButton(
+                "Cancel solve", QtWidgets.QDialogButtonBox.ActionRole)
+            self.cancel_btn.setEnabled(False)
             box.addButton(QtWidgets.QDialogButtonBox.Close)
             box.rejected.connect(self.reject)
             self.solve_btn.clicked.connect(self._solve)
+            self.cancel_btn.clicked.connect(self._cancel_solve)
             lay.addWidget(box)
 
+            # ⚠ The solve runs on a WORKER THREAD, never the GUI thread. The
+            # first shipped version ran it synchronously with one
+            # processEvents() before the chain started, so the event loop was
+            # frozen for the whole multi-minute CFD — the Close button, while
+            # visibly present, could not be serviced until the very solve it
+            # was meant to stop had finished (AJ, 2026-08-17). Same disease
+            # installer_dialog.refresh() had; same worker + polling-timer
+            # idiom cures it.
+            self._timer = QtCore.QTimer(self)
+            self._timer.timeout.connect(self._poll)
+            # ⚠ Per-RUN state dict, captured by the worker's closure — the
+            # installer idiom, verbatim. An abandoned worker from an earlier
+            # run can then never scribble on a later run's flags, by
+            # construction rather than by invariant.
+            self._run = None
+
         def _solve(self):
+            import threading
+
+            state = {"done": False, "result": None, "error": None,
+                     "cancel": threading.Event()}
+            self._run = state
+
+            def work():
+                # Only the captured state dict is written from here — no
+                # widget is safe to touch off the GUI thread, and the dialog
+                # may already be closed by the time the chain winds down.
+                try:
+                    # ⚠ The MIXED entry point handles a uniform set too and
+                    # gives the identical answer, but the uniform path is kept
+                    # for the uniform case so the shipped single-factor result
+                    # type — the one SolverOpenFOAM caches — is unchanged.
+                    if mixed:
+                        state["result"] = bc.solve_mixed_bundle_factor(
+                            cables, box_w=box_w, box_h=box_h,
+                            cancel=state["cancel"])
+                    else:
+                        state["result"] = bc.solve_bundle_factor(
+                            [(c[0], c[1]) for c in cables], cables[0][2],
+                            box_w=box_w, box_h=box_h, cancel=state["cancel"])
+                except Exception as exc:        # a failed solve is REPORTED
+                    state["error"] = exc
+                finally:
+                    # ⚠ In a finally: a BaseException the except above misses
+                    # must not leave the dialog stuck "solving" forever with
+                    # Solve disabled and the bar spinning.
+                    state["done"] = True
+
             self.solve_btn.setEnabled(False)
+            self.cancel_btn.setEnabled(True)
             self.bar.show()
-            QtWidgets.QApplication.processEvents()
-            try:
-                # ⚠ The MIXED entry point handles a uniform set too and gives
-                # the identical answer, but the uniform path is kept for the
-                # uniform case so the shipped single-factor result type — the
-                # one SolverOpenFOAM caches — is unchanged.
-                if mixed:
-                    res = bc.solve_mixed_bundle_factor(cables, box_w=box_w,
-                                                       box_h=box_h)
-                else:
-                    res = bc.solve_bundle_factor(
-                        [(c[0], c[1]) for c in cables], cables[0][2],
-                        box_w=box_w, box_h=box_h)
-            except Exception as exc:            # a failed solve is REPORTED
-                self.out.setText("<b>The solve did not complete.</b><br>%s"
-                                 % exc)
-                self.bar.hide()
-                self.solve_btn.setEnabled(True)
+            self.out.setText("")
+            threading.Thread(target=work, daemon=True).start()
+            self._timer.start(200)
+
+        def _cancel_solve(self):
+            if self._run is not None:
+                self._run["cancel"].set()
+            self.cancel_btn.setEnabled(False)
+            self.out.setText("Cancelling — stopping the OpenFOAM chain…")
+
+        def reject(self):
+            # Closing the dialog mid-solve CANCELS the solve: a multi-minute
+            # chain grinding on behind a closed window is the worst of both
+            # worlds. The worker writes only its own state dict, so it is
+            # safe to let it wind down after the widgets are gone.
+            if self._run is not None and not self._run["done"]:
+                self._run["cancel"].set()
+            super(ConvectionDialog, self).reject()
+
+        def _poll(self):
+            state = self._run
+            if state is None or not state["done"]:
                 return
+            self._timer.stop()
+            self.bar.hide()
+            self.solve_btn.setEnabled(True)
+            self.cancel_btn.setEnabled(False)
+            if state["error"] is not None:
+                if state["cancel"].is_set():
+                    self.out.setText(
+                        "<b>Solve cancelled.</b> No factor was stored; a "
+                        "previously cached factor, if any, is untouched.")
+                else:
+                    self.out.setText(
+                        "<b>The solve did not complete.</b><br>%s"
+                        % state["error"])
+                return
+            res = state["result"]
             self.result_obj = res
             text = ("<b>" + summarise(res).replace("\n", "<br>")
                     + "</b><br><br>" + res.provenance)
@@ -331,8 +421,6 @@ def build_dialog(geometry, d_cable, box_w, box_h, parent=None):  # pragma: no co
             for w in res.warnings:
                 text += "<br><br>⚠ " + w
             self.out.setText(text)
-            self.bar.hide()
-            self.solve_btn.setEnabled(True)
 
     return ConvectionDialog()
 

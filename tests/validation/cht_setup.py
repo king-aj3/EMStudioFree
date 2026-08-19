@@ -163,6 +163,157 @@ def main():
     check("  ...and kappa follows that same mu, not a stale number",
           abs(ra.k_fluid - ra.cp_fluid * ra.mu / ra.pr_fluid) < 1e-15)
 
+    print(" the Nu recovery (gap_nusselt):")
+    # Fed the EXACT conduction solid mean, the recovery must return the
+    # closed-form conduction state: q = case.flux, T_int = case.t_interface,
+    # and Nu = 1 by definition (actual flux equals the pure-conduction flux).
+    # This is the identity that catches a factor slip or a swapped resistance
+    # in the recovery formulas the SOLVER gate and the dialog both lean on.
+    cond = cht.ChtCase(gravity=9.81, n_y=60, n_fluid=40, target_ra=1.0e6)
+    m = cht.gap_nusselt(cond, cond.t_solid_mean)
+    check("exact conduction mean recovers q = case.flux",
+          abs(m.q - cond.flux) / cond.flux < 1e-12,
+          "q {0:.6g} vs flux {1:.6g}".format(m.q, cond.flux))
+    check("  ...and T_int = case.t_interface",
+          abs(m.t_interface - cond.t_interface) < 1e-9)
+    check("  ...and Nu = 1 exactly (conduction is the definition of Nu 1)",
+          abs(m.nu - 1.0) < 1e-12, "Nu {0:.12f}".format(m.nu))
+    check("  ...and Ra is interface-referenced, so BELOW the nominal Ra",
+          0 < m.ra < cond.rayleigh,
+          "Ra_int {0:.4g} vs nominal {1:.4g} — the solid takes part of the "
+          "drop".format(m.ra, cond.rayleigh))
+    # Order alone cannot catch a dt-scaling slip (Ra from dt/2 still sits
+    # below nominal — proven by mutation). Ra is LINEAR in dt at fixed
+    # written properties, and the round-trip check above pins the nominal
+    # exactly, so this pins the interface Ra to machine precision.
+    want_ra = cond.rayleigh * m.dt_gap / (cond.t_hot - cond.t_cold)
+    check("  ...and Ra scales EXACTLY linearly with the recovered gap dT",
+          abs(m.ra - want_ra) <= 1e-9 * want_ra,
+          "Ra_int {0:.10g} vs nominal*dt_gap/dt_nominal {1:.10g}".format(
+              m.ra, want_ra))
+    # A COLDER solid mean means MORE flux left the solid: convection. The
+    # recovery must move Nu UP for it, and refuse an unphysical mean.
+    m2 = cht.gap_nusselt(cond, cond.t_solid_mean - 1.0)
+    check("a colder solid mean reads as MORE convection", m2.nu > m.nu,
+          "Nu {0:.4f} -> {1:.4f}".format(m.nu, m2.nu))
+    raised = False
+    try:
+        # A solid mean this cold implies the interface AT/BELOW the cold face
+        # (q*R_solid >= the whole drop) — no steady conjugate state does that.
+        cht.gap_nusselt(cond, 320.0)
+    except ValueError:
+        raised = True
+    check("an unphysical solid mean REFUSES rather than returning a number",
+          raised)
+
+    print(" the dialog's headless contract (ui.cht_dialog):")
+    from emstudio.ui import cht_dialog
+
+    dlg_case = cht_dialog.make_case(t_hot=350.0, t_cold=300.0,
+                                    l_solid_m=0.020, k_solid=0.10,
+                                    l_fluid_m=0.005, height_m=0.020,
+                                    buoyant=True)
+    check("the dialog's buoyant case IS buoyant", dlg_case.buoyant)
+    # ⚠ The gates derive an artificial mu to HIT a target Ra; the dialog
+    # must solve REAL air and report the Ra that results. A derived mu here
+    # would make every user answer quietly wrong for their actual gap.
+    check("the dialog solves REAL air — mu is never derived",
+          dlg_case.target_ra == 0.0 and dlg_case.mu == dlg_case.mu_fluid,
+          "mu {0:.3g} vs air {1:.3g}".format(dlg_case.mu, dlg_case.mu_fluid))
+    cond_case = cht_dialog.make_case(t_hot=350.0, t_cold=300.0,
+                                     l_solid_m=0.020, k_solid=0.10,
+                                     l_fluid_m=0.005, height_m=0.020,
+                                     buoyant=False)
+    check("buoyancy OFF gives the exact-conduction shape",
+          not cond_case.buoyant and cond_case.n_y == 1
+          and cond_case.gravity == 0.0,
+          "gravity or cells left on would break the closed-form claim")
+
+    prose = cht_dialog.describe_case(cond_case)
+    check("the plan says it does NOT read the document",
+          "NOT read from the document" in prose,
+          "the reference-trefoil lesson: a parametric solve must say so")
+    check("the plan carries the exact conduction reference",
+          ("%.3f" % cond_case.flux) in prose
+          and ("%.2f" % cond_case.t_interface) in prose,
+          "prose that does not show the numbers cannot be checked against "
+          "them")
+    check("the buoyant plan names the nominal Ra",
+          ("%.3g" % dlg_case.rayleigh) in cht_dialog.describe_case(dlg_case))
+
+    check("no note inside the validated envelope",
+          cht_dialog.regime_note(dlg_case, ra=8.5e5) == "")
+    # ⚠ On a case whose ASPECT IS OFF-RANGE, or coincidence passes this:
+    # a conduction stack with aspect 4 returns "" through the fall-through
+    # path whether or not the not-buoyant guard exists (proven by mutation
+    # in review — the guard was deletable). The closed form applies at any
+    # aspect, so conduction must stay silent even where buoyant would warn.
+    check("conduction mode never warns — even at an off-range aspect",
+          cht_dialog.regime_note(cht_dialog.make_case(
+              t_hot=350.0, t_cold=300.0, l_solid_m=0.020, k_solid=0.10,
+              l_fluid_m=0.005, height_m=0.100, buoyant=False)) == "")
+    note = cht_dialog.regime_note(dlg_case, ra=1.0e8)
+    check("beyond-laminar Ra is called UNVALIDATED", "UNVALIDATED" in note,
+          note[:60])
+    wide = cht_dialog.make_case(t_hot=350.0, t_cold=300.0,
+                                l_solid_m=0.020, k_solid=0.10,
+                                l_fluid_m=0.005, height_m=0.100,
+                                buoyant=True)
+    check("an off-range aspect is named (H/L 20)",
+          "aspect" in cht_dialog.regime_note(wide, ra=8.5e5))
+
+    # Straddle every envelope edge — a bound only tested far from itself
+    # can drift 9x and still pass (proven by mutation in review).
+    check("Ra edge: 1.01e7 warns, 0.99e7 is silent",
+          "UNVALIDATED" in cht_dialog.regime_note(dlg_case, ra=1.01e7)
+          and cht_dialog.regime_note(dlg_case, ra=0.99e7) == "")
+
+    def _at_height(h_m, buoyant=True):
+        return cht_dialog.make_case(t_hot=350.0, t_cold=300.0,
+                                    l_solid_m=0.020, k_solid=0.10,
+                                    l_fluid_m=0.005, height_m=h_m,
+                                    buoyant=buoyant)
+    check("aspect LOW edge: 1.9 warns, 2.1 is silent",
+          "aspect" in cht_dialog.regime_note(_at_height(0.0095), ra=8.5e5)
+          and cht_dialog.regime_note(_at_height(0.0105), ra=8.5e5) == "")
+    check("aspect HIGH edge: 10.1 warns, 9.9 is silent",
+          "aspect" in cht_dialog.regime_note(_at_height(0.0505), ra=8.5e5)
+          and cht_dialog.regime_note(_at_height(0.0495), ra=8.5e5) == "")
+
+    # The temperature axis — the review's high finding: 300 K constants
+    # under a UI that accepts 1000 K.
+    hot_film = cht_dialog.make_case(t_hot=420.0, t_cold=360.0,
+                                    l_solid_m=0.020, k_solid=0.10,
+                                    l_fluid_m=0.005, height_m=0.020,
+                                    buoyant=True)
+    check("a film far from 300 K names the property drift",
+          "air properties" in cht_dialog.regime_note(hot_film, ra=8.5e5))
+    raised = False
+    try:
+        cht_dialog.make_case(t_hot=700.0, t_cold=300.0,
+                             l_solid_m=0.020, k_solid=0.10,
+                             l_fluid_m=0.005, height_m=0.020, buoyant=True)
+    except ValueError:
+        raised = True
+    check("a hot face past the Boussinesq limit REFUSES",
+          raised, "rho0*(1-beta*(T-300)) hits zero at ~603 K — a solve "
+          "there prints confident numbers from negative-density air")
+    check("  ...but the SAME temperatures are fine as pure conduction",
+          not cht_dialog.make_case(t_hot=700.0, t_cold=300.0,
+                                   l_solid_m=0.020, k_solid=0.10,
+                                   l_fluid_m=0.005, height_m=0.020,
+                                   buoyant=False).buoyant,
+          "the EOS limit is a buoyancy problem; conduction has no EOS")
+
+    # The instrument floor: a near-zero-resistance solid leaves gap_nusselt
+    # dividing solver noise (the anchor's solid takes 2.6 % — measurable).
+    metal = cht_dialog.make_case(t_hot=350.0, t_cold=300.0,
+                                 l_solid_m=0.0001, k_solid=500.0,
+                                 l_fluid_m=0.005, height_m=0.020,
+                                 buoyant=True)
+    check("an unmeasurably conductive solid is named",
+          "noise" in cht_dialog.regime_note(metal, ra=8.5e5))
+
     print(" the written case:")
     d = tempfile.mkdtemp(prefix="chtw_")
     try:
@@ -227,6 +378,47 @@ def main():
               "one cell up the cavity cannot convect")
         check("front and back are EMPTY, so it is a 2-D solve",
               "frontAndBack { type empty;" in bm)
+
+        # ⚠ THE CHECK ABOVE ASSERTS A LABEL, AND A LABEL CANNOT FAIL: the
+        # writer shipped with the empty faces on the Y-planes (gravity's own
+        # direction OUT of the solved plane, the z-walls one no-slip cell
+        # apart — Hele-Shaw drag, Nu pinned at ~1.9 at ANY Ra and ANY scale)
+        # and this gate stayed green for four days of misdiagnosis, because
+        # the string "frontAndBack { type empty;" was present either way.
+        # So verify the GEOMETRY: recompute every face's plane from the
+        # vertex coordinates.
+        import re as _re
+        verts = [tuple(float(x) for x in m.groups())
+                 for m in _re.finditer(
+                     r"\(\s*([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s*\)",
+                     bm.split("vertices", 1)[1].split(");", 1)[0])]
+
+        def _face_axis(idx):
+            """The axis (0=x,1=y,2=z) all four corners share, or None."""
+            pts = [verts[i] for i in idx]
+            for ax in range(3):
+                if len({p[ax] for p in pts}) == 1:
+                    return ax
+            return None
+
+        def _faces(patch):
+            blk = _re.search(patch + r"\s*\{[^}]*faces\s*\(([^;]*)\);", bm,
+                             _re.S).group(1)
+            return [[int(i) for i in m.group(1).split()]
+                    for m in _re.finditer(r"\(([\d\s]+)\)", blk)]
+
+        for f in _faces("frontAndBack"):
+            check("empty face %s lies on a Z-plane (the 1-cell direction)"
+                  % f, _face_axis(f) == 2,
+                  "it lies on axis %s — gravity or the flow plane is wrong"
+                  % _face_axis(f))
+        for f in _faces("topBottom"):
+            check("wall face %s lies on a Y-plane (closing the cell)"
+                  % f, _face_axis(f) == 1,
+                  "it lies on axis %s" % _face_axis(f))
+        for f in _faces("hot") + _faces("cold"):
+            check("driven face %s lies on an X-plane" % f,
+                  _face_axis(f) == 0, "axis %s" % _face_axis(f))
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
