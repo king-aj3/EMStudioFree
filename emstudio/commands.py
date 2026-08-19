@@ -748,9 +748,18 @@ class _ChtConvection:
     ⚠ PARAMETRIC, and honest about it: this command solves a planar stack
     the user types in — it does NOT read document geometry (the
     reference-trefoil lesson). CHT on a selected assembly is the extension
-    this rung anchors: conduction is exact (gated), the buoyant gap sits
-    mid-window of the vertical-cavity correlations (gated live: Nu 6.8529
-    at interface Ra 8.49e5, A = 4, 2026-08-19).
+    this rung anchors: conduction is exact (gated), and the buoyant gap
+    agrees with the vertical-cavity correlations within their own scatter —
+    the gate's 40x60 mesh reads Nu 6.85 at interface Ra 8.49e5, A = 4, and a
+    three-grid refinement study puts the mesh-independent value at about 6.5,
+    between the two in-range correlations (Berkovsky-Polevikov 6.64,
+    ElSherbiny-class 6.41).
+
+    ⚠ Do NOT restore the words "mid-window" here, and do not cite MacGregor &
+    Emery (~8.4) as the upper bracket: it is published for 10 < H/L < 40 and
+    1 < Pr < 2e4, and this case is A = 4, Pr = 0.7 — out of range on both.
+    "Mid-window" was only true while that out-of-range value was treated as
+    a bound. See docs/results/cht_refinement_fixedmesh.txt.
     """
 
     def GetResources(self):

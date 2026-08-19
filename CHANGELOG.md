@@ -38,9 +38,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   (q, T_interface, Nu, Ra) via the validated solid-mean recovery — an
   engine function, so the coming dialog and the gates measure through one
   door. New SOLVER gate `openfoam_cht_convection`: the 40x60 gap at
-  interface Ra ~8.5e5 must land Nu in **[5.5, 8.6]** (Berkovsky-Polevikov
-  6.6-6.9 at A=4, MacGregor & Emery ~8.4 at the interface Ra / ~8.7 at
-  nominal, measured 6.85 mid-window), the
+  interface Ra ~8.5e5 must land Nu in **[5.5, 8.6]** — a window deliberately
+  wider than every in-range reference (Berkovsky-Polevikov 6.64 at A=4,
+  ElSherbiny-class 6.41), because its job is to keep a geometry artifact
+  near the conduction limit dead rather than to certify a correlation; the
+  gate's 40×60 mesh measures 6.85, and the
   interface-referenced Ra in [5e5, 9e5] (independently kills both the
   conduction limit and a nominal-drop referencing slip), and the interface
   temperature must drop below the conduction answer. FAST identity checks

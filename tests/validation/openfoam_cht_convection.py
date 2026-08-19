@@ -7,40 +7,53 @@ gravity on, target Ra 1e6 nominal, H/L 4, the 40x60 mesh — through
 `cht.gap_nusselt` from the solved solid mean.
 
 WHY THE WINDOW IS [5.5, 8.6] AND NOT A TIGHT PIN. Unlike the g = 0 anchor
-(closed form, exact), a convective Nu has no exact answer at this Ra; the
-honest references bracket it — each evaluated AT THIS CASE (A = H/L = 4,
-Pr = 0.7, interface-referenced Ra ~8.5e5):
+(closed form, exact), a convective Nu has no exact answer here, so the
+window is deliberately WIDER than every reference. Its job is to catch the
+failure this gate exists for — a geometry/physics artifact that parks Nu
+near the conduction limit — NOT to certify agreement with a correlation.
 
-  * Berkovsky-Polevikov, Nu = 0.22*(Pr*Ra/(0.2+Pr))^0.28 * A^(-1/4):
-    6.6-6.9 across Ra 8.5e5-1e6 (the aspect factor MATTERS — without it
-    the same fit reads ~9.5);
-  * MacGregor & Emery, Nu = 0.42*Ra^(1/4)*Pr^0.012*A^(-0.3): 8.4 at the
-    interface Ra, 8.7 at the nominal 1e6 — the HIGH reference, and the
-    fit earlier session notes misattributed to "Berkovsky 8.549";
-  * ElSherbiny-class vertical-slot fits (A = 5 nearest tabulated): ~6;
-  * the incompressible single-region reference on the donor mesh: 6.99;
-  * this exact coupled case, measured 2026-08-18 on the FIXED mesh: 6.8529.
+References at THIS case (A = H/L = 4, Pr = 0.7, interface Ra ~8.5e5):
+  * Berkovsky-Polevikov, Nu = 0.22*(Pr*Ra/(0.2+Pr))^0.28 * A^(-1/4): 6.638
+    (the aspect factor MATTERS — without it the same fit reads ~9.5);
+  * ElSherbiny-Raithby-Hollands at its nearest VALID aspect (A = 5): 6.411;
+  * the incompressible single-region reference on the donor mesh: 6.99.
+  ⚠ MacGregor & Emery (~8.4) is NOT quoted as a reference here: it is
+    published for 10 < H/L < 40 and 1 < Pr < 2e4, and this case is A = 4,
+    Pr = 0.7 — out of range on BOTH, so evaluating it here is a double
+    extrapolation, not an evaluation. The 8.6 upper edge is therefore
+    deliberate slack, not a correlation value. ⚠ A solve reading ~8.5 would
+    PASS this gate while sitting ~28 % above every in-range reference; that
+    is accepted, because tightening the top edge around fits this case is
+    outside their validity would trade a real guarantee for a false one.
 
-The window contains every one of those and EXCLUDES the one number this
-gate exists to keep dead: the swapped-face-sets mesh (topBottom/frontAndBack
-exchanged, shipped until `69b65e5`) pinned Nu at 1.86-1.88 at ANY scale and
-ANY solver route — Hele-Shaw drag from walls one cell apart, with gravity
-pointing out of the solved plane. `cht_setup` catches that bug structurally
-(face planes recomputed from vertex coordinates); this gate is the LIVE
-confirmation that the physics actually convects.
+WHAT THIS GATE'S OWN MESH READS, and why it is not "the" answer. The gate
+runs 40x60 and measures ~6.85. The 3-grid refinement study
+(docs/results/cht_refinement_fixedmesh.txt, 2026-08-19: 40x60 6.8529 ->
+60x90 6.6957 -> 80x120 6.6387, all converged) puts the mesh-independent
+value at **~6.5** (bracket 6.47-6.56 across defensible GCI conventions),
+so **this gate's mesh reads roughly 5 % high**. That is fine for a
+pass/fail window, but:
+  ⚠ DO NOT quote 6.85 as "the" Nusselt number anywhere user-facing, and do
+    not cite it as one of the references that bracket this window — the
+    gate's own measurement cannot justify the gate's own bounds.
+  ⚠ The scheme is FIRST-ORDER upwind in div(phi,U|h|e), so the formal order
+    is 1; the study's observed p = 1.90 is about twice that, which is why
+    its extrapolate is reported as a bracket rather than a single value.
 
 ⚠ Ra and Nu are INTERFACE-referenced (the fluid never sees the nominal
 hot-to-cold drop; the solid takes its share). The conduction limit of this
 same recovery is Nu = 1 exactly, gated FAST in `cht_setup`.
 
-MESH SENSITIVITY, MEASURED 2026-08-19 on the fixed mesh (refinement study,
-`docs/results/cht_refinement_fixedmesh.txt`): 40x60 -> 60x90 moves Nu
-6.8529 -> 6.6957, **-2.3 %**, both fully converged (drift ~0, residuals
-~1e-8). So this gate's window must stay wide enough to tolerate a couple of
-percent of mesh sensitivity — do not tighten it around the 40x60 value.
-⚠ Contrast the BROKEN-mesh era, where refinement collapsed Nu 1.8768 ->
-1.2001 toward the conduction limit; that signature is what a geometry
-artifact looks like, and it is now dead.
+THE FAILURE THIS EXISTS TO CATCH: the swapped-face-sets mesh
+(topBottom/frontAndBack exchanged, shipped until `69b65e5`) pinned Nu at
+1.86-1.88 at ANY scale and ANY solver route — Hele-Shaw drag from walls one
+cell apart, with gravity pointing out of the solved plane. `cht_setup`
+catches that structurally (face planes recomputed from vertex coordinates);
+this gate is the LIVE confirmation that the physics actually convects.
+⚠ Note the honest form of the 08-17 rebuttal: refinement DOES move Nu
+  slightly toward the conduction limit (-2.3 %, then -0.85 %) — the same
+  SIGN as the broken mesh's -36 %. What distinguishes them is magnitude and
+  that the increments shrink. Do not restate this as a direction argument.
 """
 import os
 import shutil
@@ -98,11 +111,13 @@ def main():
         check("Nu {0:.4f} inside the correlation window [{1}, {2}]".format(
                   m.nu, NU_LO, NU_HI),
               NU_LO <= m.nu <= NU_HI,
-              "at A=4, interface Ra: Berkovsky-Polevikov 6.6-6.9, "
-              "MacGregor-Emery ~8.4, ElSherbiny-class ~6; measured refs "
-              "6.85 (this case, fixed mesh) / 6.99 (incompressible "
-              "reference); the broken-mesh signature 1.86-1.88 must stay "
-              "dead")
+              "in-range refs at A=4, Pr=0.7: Berkovsky-Polevikov 6.638, "
+              "ElSherbiny-class (A=5) 6.411, incompressible reference "
+              "6.99; mesh-independent value ~6.5 (this gate's 40x60 "
+              "mesh reads ~5 % high, which is expected). The window is "
+              "deliberately wider than every reference — its job is to "
+              "keep the broken-mesh signature 1.86-1.88 dead, not to "
+              "certify a correlation")
         # An INDEPENDENT second kill, not a restatement of the Nu window:
         # the conduction limit of this case sits at Ra_int 9.75e5 and a
         # nominal-drop referencing regression returns 1e6 — both FAIL this

@@ -445,9 +445,10 @@ interface-referenced Rayleigh number, solved with **real air near 300 K**
 (constant properties, never a tuned viscosity — the dialog warns when your
 temperatures pull the film far from 300 K, and refuses a hot face the
 Boussinesq air model cannot represent at all), plus *Show gap field in 3-D
-view*. Anchored live: Nu 6.853 at Ra 8.49e5, aspect 4 — mid-window of the
-vertical-cavity correlations (Berkovsky-Polevikov 6.6–6.9, MacGregor &
-Emery ≈8.4, both at that same interface Ra). The dialog names it when your
+view*. Anchored live: the gate's 40×60 mesh reads Nu 6.853 at Ra 8.49e5,
+aspect 4; a three-grid refinement study puts the **mesh-independent value
+at about 6.5**, between the two in-range correlations (Berkovsky-Polevikov
+6.64, ElSherbiny-class at A = 5 6.41). The dialog names it when your
 case leaves that envelope: Ra beyond laminar, aspect outside 2–10, film
 temperature far off the property table, or a solid layer too conductive to
 carry a measurable share of the drop. ⚠ The buoyant solve can take tens of minutes; Cancel

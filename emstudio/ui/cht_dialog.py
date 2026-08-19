@@ -12,11 +12,14 @@ What makes it shippable is the ladder under it:
   * conduction (buoyancy off): the answer is CLOSED FORM and the solve
     reproduces the analytic means to 5 decimals (gated, `openfoam_cht`);
   * natural convection: the gap Nusselt number recovered by
-    `cht.gap_nusselt` sits mid-window of the vertical-cavity correlations —
-    measured live 2026-08-19: Nu 6.8529 at interface Ra 8.49e5, A = 4,
-    between Berkovsky-Polevikov (6.6-6.9) and MacGregor & Emery (~8.4 at
-    that same interface Ra — both fits quoted at the Ra the measurement
-    references) (gated, `openfoam_cht_convection`).
+    `cht.gap_nusselt` lands between the in-range vertical-cavity
+    correlations — measured live 2026-08-19 on the gate's 40x60 mesh: Nu 6.8529 at
+    interface Ra 8.49e5, A = 4. ⚠ That is the GATE MESH's value; the
+    3-grid study (docs/results/cht_refinement_fixedmesh.txt) puts the
+    mesh-independent number at ~6.5, i.e. the gate mesh reads ~5 % high.
+    ~6.5 sits between the two in-range references, Berkovsky-Polevikov
+    6.64 and ElSherbiny-class at A=5 6.41 (gated,
+    `openfoam_cht_convection`).
 Off that anchor the dialog does not go silent — `regime_note` names when
 the entered case leaves the validated envelope.
 
