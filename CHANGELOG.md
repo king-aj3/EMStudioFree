@@ -41,6 +41,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   A1-B1 line crosses zero at x ≈ 0.09 m; #9's "< 1 %" belongs to the ENGINE
   tier and the template tier is gated at 4 %; and a closed coil's field SIGN is
   mesh-arbitrary, so the gate compares magnitudes on purpose.
+* **Tutorial #12 — a resonant cavity, the fairest test a full-wave solver
+  faces.** A closed PEC box has an exact analytic answer with no fitted
+  constant and no measurement uncertainty: fundamental TE101 **4.50386 GHz**
+  vs 4.50382 GHz analytic (**+0.001 %**), and all ten modes within **0.020 %**
+  of their nearest closed form, against a 1 % window. Measured live on this
+  box. The tutorial spends as much space on the mode ORDERING as on the
+  number — a cavity mis-scaled by 10x is still self-consistent and will report
+  beautifully converged nonsense.
 * **A gate for the tutorials themselves.** `tests/validation/tutorials_doc.py`
   (FAST) asserts every numbered tutorial keeps the four-part shape, that each
   "Prove it" names a gate file **that exists**, that no number is used twice

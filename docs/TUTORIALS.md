@@ -407,6 +407,55 @@ solenoid, a Helmholtz pair whose on-axis flatness is asserted at
 Bz(±10 mm)/Bz(0) − 1 ≈ −1.15e-4, and an off-axis loop against the
 elliptic-integral field.
 
+## 12. A resonant cavity, and the mode you can compute by hand
+
+**Needs:** **Palace**.
+
+⛳ **Why a cavity is the fairest test a full-wave solver ever faces.** A closed
+rectangular box has an *exact* analytic answer — no approximation, no fitted
+constant, no measurement uncertainty:
+
+> f(m,n,p) = (c/2)·√[ (m/a)² + (n/b)² + (p/d)² ]
+
+There is nowhere for a solver to hide. If it cannot land on that, nothing it
+tells you about a geometry you *cannot* solve by hand is worth much.
+
+**Do**
+1. **Templates ▸ Template: Resonant Cavity**, or open
+   `examples/cavity_rect.FCStd`. It is a PEC box **40 × 20 × 60 mm**.
+2. **Run Solver**. Around a minute and a half for ten modes.
+
+**You should see** the fundamental land on TE101, and every mode agree with its
+closed form:
+
+| quantity | gate window | reference run |
+|---|---|---|
+| fundamental (TE101) | < 1 % | **4.50386 GHz** vs analytic 4.50382 GHz (**+0.001 %**) |
+| all ten modes vs nearest analytic | < 1 % | worst **0.020 %** |
+
+**Read the ordering, not just the first number.** With a = 40, b = 20, d = 60 mm
+the lowest mode uses the two LONGEST dimensions and puts no variation across the
+short one — that is TE101, and it should come out first. If your fundamental
+arrives somewhere else, suspect the geometry or the units before the solver:
+a cavity mis-scaled by 10× is still a perfectly self-consistent cavity, and it
+will report beautifully converged nonsense.
+
+⛳ **Try breaking it.** Double `a` and the fundamental must fall — not by half,
+because the mode depends on the *sum of squares* of the reciprocals. Predict the
+new value with the formula above before you re-run, then check. Getting that
+prediction right is worth more than the solve.
+
+⛳ **A cylindrical companion ships too** (`examples/cavity_cyl.FCStd`,
+**Templates ▸ Template: Cylindrical Cavity**), whose modes fall out of Bessel
+zeros rather than a sum of squares — the same exactness on a geometry with
+curvature, which is where a mesher's quality actually shows.
+
+**Prove it** — `tests/validation/cavity_palace.py` (SOLVER tier). Gate A solves
+this exact box and asserts both rows above against the closed form; a second
+gate runs the same geometry through the FreeCAD template path under
+`freecadcmd`. ⛳ The 39 GHz and 57 GHz cavities in tutorial 6 are the same check
+carried up to mmWave — same physics, same window, two decades higher.
+
 ---
 
 # The rest of the series — planned order
@@ -432,7 +481,6 @@ alternative is named where one exists.
 |---|---|---|---|---|
 | 10 | **OpenFOAM — CFD on your own solid** | Analysis | free | +4.3 % vs Churchill (sphere anchor) |
 | 11 | **OpenFOAM — CHT** | Analysis | free | Nu ≈ 6.56 ± 1.5 % (⚠ NOT the gate's 6.85) |
-| 12 | **Palace — cavity eigenmodes** | Templates | free | first six modes, TE101 lowest |
 | 13 | **Cable Designer — litz** | Tools | free | IEC 60287 worked examples |
 | 14 | **Cable Designer — bundles/crosstalk** | Tools | free | MoM insulated-C, mixed-mode pairs |
 | 15 | **Small-Antenna Designer (VLF/LF)** | Tools | free | Watt §4 — efficiency ladder, Chu Q |
@@ -471,3 +519,12 @@ you volunteered.
 
 ⛳ **Order by install burden.** Every tutorial that needs nothing installed
 should come before every tutorial that needs a backend.
+
+⛳ **Gate files are named after the PHYSICS, not the capability — search by
+content before concluding one is missing.** There is no `link_budget.py`, and
+it is easy to conclude the Link Budget tool is ungated; the anchors it needs
+(Friis FSPL, ITU-R P.526 knife-edge, the two-ray d⁴ law, the ITU field-strength
+relation) are all in `propagation.py`, measured and green. Likewise litz has no
+`litz.py` — it lives in `cable.py` and `thermal.py`. ⚠ *"No gate exists"* is a
+FINDING about a capability and it changes what a tutorial may claim, so it must
+be established by grepping the gate bodies, not by looking for a filename.
