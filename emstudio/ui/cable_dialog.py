@@ -2507,6 +2507,21 @@ class CableDesignerDialog(QtWidgets.QDialog):
 
         from emstudio.ui import run_gui
 
+        # ONE FastHenry run, and the measure says so: conductors x nhinc. The
+        # sibling bundle-coupling paths quote ``2 * len(positions) * 5`` for
+        # TWO runs of N conductors at nhinc=5; this path passes fmin == fmax
+        # with ndec=1, so ``sweep_frequencies`` yields a single frequency and
+        # ``run_parallel_sweep`` spawns exactly one process -- hence no factor
+        # of 2. N is ``op.count`` and not a guess: ``bundle_paths_for_construction``
+        # builds its paths with ``for k in range(op.count)``.
+        # Keyed under "fasthenry" ON PURPOSE, so the three FastHenry paths in
+        # this dialog share one timing history rather than each starting cold
+        # and quoting "no history" for its first several runs.
+        if not run_gui.confirm_solve_work(
+                self, "fasthenry", float(con.ops[-1].count * 5),
+                label="Current sharing ({0} members, FastHenry)".format(
+                    con.ops[-1].count)):
+            return
         run_gui.run_generic_gui(
             "Current sharing ({0} members)".format(con.ops[-1].count), run_fn,
             self._show_sharing, parent=self)

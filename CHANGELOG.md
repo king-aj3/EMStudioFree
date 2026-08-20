@@ -3,6 +3,66 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased] — worked 2026-08-20, in no tag yet
+
+> ⚠ **Rename this heading to the version that ships it.** A section sat here
+> titled "Unreleased" through the whole of 1.0.0 once already — see the note on
+> that section below.
+
+### Added
+* **A gate that ENFORCES "every solve asks first", instead of re-auditing it by
+  eye.** `tests/validation/solve_confirm_coverage.py` (FAST tier) AST-walks
+  every `run_generic_gui` call site and fails unless a `confirm_solve_work` /
+  `confirm_solve` guard **precedes** it in the same function **and its answer is
+  acted on** — the guard call must sit in the test of an `if` whose body
+  returns, so asking the question and discarding the bool cannot pass. Callers
+  that launch no solver are allowlisted by `(file, class, function)` with a
+  written reason, never by line number; and an allowlist entry whose function
+  has stopped calling the launcher is itself a failure, so an exemption cannot
+  outlive the code it exempted. **5/5 mutations caught**, including a guard
+  moved to AFTER the launch and a brand-new unguarded caller.
+  ⛳ It exists because eye-auditing this failed three times running: 2026-08-19
+  swept the solver-object paths and missed the three OpenFOAM dialogs, which
+  launch directly; 2026-08-20 swept those and found four more; the audit OF
+  that sweep still missed a fifth (below). Every sweep was careful and every
+  one was incomplete, because reading has no way to fail loudly when a NEW
+  caller appears.
+
+### Fixed
+* **A fifth solve path started FastHenry without asking.** The Cable Designer's
+  **current sharing** (`_current_sharing`) called `run_generic_gui` with no
+  pre-solve estimate anywhere in the method, while its four siblings in the
+  same dialog were all gated. It is a real external solve —
+  `analyze_construction` -> `analyze_paths` -> `run_parallel_sweep`, one
+  FastHenry process per frequency fanned across every core. Its measure is
+  `conductors x nhinc` with **no** factor of two, because this path passes
+  `fmin == fmax` with `ndec=1`, so `sweep_frequencies` yields a single
+  frequency — ONE run, where the bundle-coupling siblings genuinely make two.
+  Keyed under `fasthenry` so all three paths feed one measured history rather
+  than each starting cold.
+* **A far-field check that could not fail.** `pattern_sweep`'s *"results come
+  back sorted by frequency"* asserted `== sorted(...)` against a fixture that
+  was **already ascending**, so it held whether or not the parser sorted:
+  deleting `out.sort(...)` from `parse_radiation_patterns_all` left the entire
+  gate green. The identical lesson had already been learned for the CURRENT
+  parser on 2026-08-07 — `gate_currents_blocks` builds its fixture descending
+  for exactly this reason — and was never carried across to the far-field one.
+  The sort is now proven on a DESCENDING file, plus a second check that each
+  block keeps its OWN gains through the sort: sorting the frequencies while
+  leaving the gain arrays where they were would satisfy a frequency-only check
+  and silently pair every pattern with the wrong frequency. **3/3 mutations
+  caught** — and that third mutation is caught ONLY by the gains check.
+* **`CLAUDE.md` documented an `export_free.py` invocation that does not run.**
+  `--check DIR` exits 2 with *unrecognized arguments* (`--check` is
+  `store_true`); the working form is `--out DIR --check`. The next session
+  would have copied the broken line straight out of the file — and the correct
+  form immediately earned itself by catching that the new gate above was
+  untracked and would have been silently missing from the free export.
+* **Gate counts re-derived, not trusted.** 88 gate files -> **89**, FAST 38 ->
+  **39** (`CLAUDE.md`, `README.md`), and the public `CAPABILITIES.md` claim for
+  `pattern_sweep.py` corrected from *54 checks* to **79** — it had gone stale
+  across two rewrites while nothing measured it.
+
 ## [1.2.0] — 2026-08-20 — a real `.sNp`: every port solved, and every solve priced first
 
 ### Added

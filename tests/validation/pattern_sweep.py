@@ -103,6 +103,33 @@ def gate_parser():
     check("results come back sorted by frequency",
           [f.freq for f in ffs] == sorted(f.freq for f in ffs))
 
+    # ⚠ That check CANNOT fail on _TWO_BLOCK alone — the fixture is already
+    # ascending, so ``== sorted(...)`` holds whether the parser sorts or not.
+    # Proven blind on 2026-08-20: deleting ``out.sort(key=...)`` from
+    # ``parse_radiation_patterns_all`` left this gate exit 0. The identical
+    # lesson was learned for the CURRENT parser on 2026-08-07 (see
+    # gate_currents_blocks, which builds its fixture descending for exactly
+    # this reason) and was never carried across to the far-field parser. The
+    # far-field sort is load-bearing for the same reason the current one is:
+    # the results dialog aligns currents to far fields BY INDEX.
+    half = _TWO_BLOCK.index("                               ---------"
+                            " FREQUENCY --------", 100)
+    reversed_file = _TWO_BLOCK[half:] + _TWO_BLOCK[:half]
+    rpath = os.path.join(tempfile.mkdtemp(), "case_ff_desc.out")
+    with open(rpath, "w", encoding="utf-8") as fh:
+        fh.write(reversed_file)
+    rffs = parser.parse_radiation_patterns_all(rpath)
+    check("a file whose blocks arrive DESCENDING still returns ascending",
+          [round(f.freq / 1e6) for f in rffs] == [200, 400],
+          [f.freq for f in rffs])
+    # Sorting the frequencies while leaving the gain arrays where they were
+    # would satisfy the check above and silently pair every pattern with the
+    # wrong frequency — the one failure mode a frequency-only check cannot see.
+    check("and each DESCENDING block keeps its OWN gains through the sort",
+          (round(float(rffs[0].gain.max()), 2),
+           round(float(rffs[1].gain.max()), 2)) == (1.0, 5.0),
+          [float(f.gain.max()) for f in rffs])
+
     # The trap: the single-block parser on the SAME file returns one pattern
     # whose gains are the LAST frequency's, labelled with whatever frequency it
     # was told. It is not wrong-looking, which is the whole problem.
