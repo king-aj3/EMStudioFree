@@ -6,11 +6,22 @@ claimed working without a gate behind it.
 
 ## Frequency range & validity (DC → mmWave)
 
-**Short version:** EMStudio's **full-wave** engines (openEMS FDTD, NEC2 MoM, Palace
-FEM) work from HF through **millimetre-wave** — Palace is **validated sub-0.01 % at
-39 GHz and 57 GHz**, so the "DC to 40 GHz and beyond" target is met for full-wave
-analyses; the practical upper bound is mesh resolution and memory, not any physics
-assumption. The **quasi-static** engines (Elmer magnetics, FastHenry R/L) are
+**Short version:** EMStudio's **full-wave** engines reach mmWave, but **which
+engine and what kind of structure** both matter, so the honest form is per-engine
+rather than one span:
+
+* **Palace (FEM)** — **validated sub-0.01 % at 39 GHz and 57 GHz**, on **closed**
+  structures: waveguide and cavity. This is what meets the "DC to 40 GHz and
+  beyond" target.
+* **openEMS (FDTD)** — the highest gated point is a **3.68 GHz** microstrip notch
+  filter; the highest gated **radiating** structure is the **2.45 GHz** patch.
+* **NEC2 (MoM)** — wire antennas, gated at 296 MHz.
+
+⚠ **No radiating structure is gated above 2.45 GHz.** Full-wave Maxwell has no
+physics break at mmWave and the only real cost is mesh resolution — but *"no
+reason it should fail"* is not the same as *"checked"*, and this project claims
+only the second. mmWave **antenna** work (28 GHz patches, handset PIFAs, arrays)
+is not something it has earned the right to claim yet. The **quasi-static** engines (Elmer magnetics, FastHenry R/L) are
 **inherently low-frequency by design** and must not be pushed past their
 quasi-static validity — that is the one hard limitation to know.
 

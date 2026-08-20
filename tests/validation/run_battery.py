@@ -66,6 +66,7 @@ FAST = {
     "wind_transient": None,
     "ui_attr_collisions": None,
     "solve_confirm_coverage": None,
+    "tutorials_doc": None,
 }
 
 SOLVER = [

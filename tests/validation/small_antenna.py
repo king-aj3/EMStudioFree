@@ -110,6 +110,24 @@ def main():
     check("summary_text renders a Band/Recommended block",
           "Band:" in bp.summary_text(r_vlf) and "Recommended:" in bp.summary_text(r_vlf))
 
+    # ⚠ The rationale strings are USER-VISIBLE, and one of them printed
+    # "10.71 mm m wavelength" at mmWave for as long as the mmWave branch has
+    # existed: ``_fmt_wavelength`` already carries its unit and the format
+    # string appended a literal " m" after it. Nothing gated the prose, only
+    # the routing, so a reader saw it long before a test did. Sweep every
+    # decade rather than the one frequency that was reported.
+    import re as _re
+    _dbl = _re.compile(r"\b(km|m|mm|um)\s+(km|m|mm|um)\b")
+    _bad = []
+    for _f in (24e3, 3e6, 300e6, 2.4e9, 28e9, 40e9, 100e9):
+        _r = bp.recommend_method(_f)
+        for _key in ("rationale", "validity"):
+            _hit = _dbl.search(_r.get(_key, ""))
+            if _hit:
+                _bad.append("%g Hz %s: %r" % (_f, _key, _hit.group(0)))
+    check("no doubled unit in any band-picker rationale (10.71 mm m)",
+          not _bad, "; ".join(_bad[:3]))
+
     # ================= §4 breadth: top-loading capacitance =================
     # (verified from the reference page images with exact-identity
     # cross-checks — docs/upstream/watt-topload-anchors.md)

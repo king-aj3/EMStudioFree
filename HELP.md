@@ -1,7 +1,7 @@
 # EMStudio — Quick Help
 
-New here? **[docs/TUTORIALS](docs/TUTORIALS.md)** — five tutorials, each
-ending in a number you can check, ordered by what you need installed.
+New here? **[docs/TUTORIALS](docs/TUTORIALS.md)** — tutorials that each end
+in a number you can check, ordered by what you need installed.
 Full reference: [docs/USER_MANUAL](docs/USER_MANUAL.md)
 
 > 🎓 **For educational, hobbyist and experimental use — and under active

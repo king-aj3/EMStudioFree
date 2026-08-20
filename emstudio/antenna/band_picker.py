@@ -124,7 +124,9 @@ def recommend_method(freq_hz, max_dim_m=None, wire_structure=True):
         methods = ["palace", "openems"]
         primary = "palace"
         rationale = (
-            "Microwave/mmWave band ({0} m wavelength at {1}). Use the full-wave "
+            # ``_fmt_wavelength`` already carries the unit ("10.71 mm"), so a
+            # literal " m" after it printed "10.71 mm m wavelength" at mmWave.
+            "Microwave/mmWave band ({0} wavelength at {1}). Use the full-wave "
             "FEM/FDTD engines: Palace (FEM) is validated to 57 GHz for "
             "cavities/waveguides/driven S-parameters; openEMS (FDTD) covers "
             "planar/antenna geometry.".format(_fmt_wavelength(lam), _fmt_freq(f)))

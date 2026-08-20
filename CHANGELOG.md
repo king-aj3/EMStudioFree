@@ -28,7 +28,52 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   one was incomplete, because reading has no way to fail loudly when a NEW
   caller appears.
 
+* **Three more tutorials, and the anchors were re-measured rather than copied.**
+  **#7 induction heating** against TEAM Problem 7 — the only anchor in the
+  series compared to a *bench measurement* rather than a formula: RMS error
+  **2.83 %** of the 7.811 mT measured peak, window ≤ 10 %. **#8 wireless power**
+  — L, M and k against Grover's GMD and Maxwell's elliptic-integral formulas
+  independently (k = **0.26243** vs 0.26195 at a 20 mm gap), plus the k-vs-gap
+  sweep. **#9 the 3-D solenoid** — the general solids path, centre Bz **−1.26 %**
+  against the exact closed form on the template's fast mesh.
+  ⚠ Each tutorial states the trap that would otherwise mislead: TEAM 7's metric
+  is an RMS normalised by the measured PEAK, never point-wise, because the
+  A1-B1 line crosses zero at x ≈ 0.09 m; #9's "< 1 %" belongs to the ENGINE
+  tier and the template tier is gated at 4 %; and a closed coil's field SIGN is
+  mesh-arbitrary, so the gate compares magnitudes on purpose.
+* **A gate for the tutorials themselves.** `tests/validation/tutorials_doc.py`
+  (FAST) asserts every numbered tutorial keeps the four-part shape, that each
+  "Prove it" names a gate file **that exists**, that no number is used twice
+  between the written and the planned lists, and that **no tutorial COUNT
+  appears in the prose**. **5/5 mutations caught.** The near-term table had
+  carried two `#7` rows and numbered induction heating as 12 while the master
+  list called it 7.
+
 ### Fixed
+* **A reply went out with a stale count, and the counts are now gone.** A
+  drafted r/rfelectronics reply said *"Five of them"* on the day the sixth
+  tutorial shipped — in a post whose whole argument was that this project's
+  claims are checkable. Counts removed from `HELP.md`, the public README and
+  `TUTORIALS.md`; the new gate above stops them coming back.
+* **mmWave was overstated in two reader-facing documents.** `CAPABILITIES.md`
+  and `ROADMAP.md` both said the full-wave engines "work from HF through
+  millimetre-wave" as one span, citing only Palace's validation. The honest
+  form is per engine and per structure class, and it is now written that way:
+  **Palace sub-0.01 % at 39 and 57 GHz on CLOSED structures**; **openEMS gated
+  to 3.68 GHz** (microstrip notch) and **2.45 GHz radiating** (patch); **NEC2
+  at 296 MHz**. ⚠ **Nothing radiating is gated above 2.45 GHz** — tutorial 6
+  said "above 6 GHz", which was true but generous, and is corrected to the real
+  ceiling. The ROADMAP already applied exactly this standard to VLF
+  ("unproven until gated") two paragraphs earlier.
+* **`band_picker` printed a doubled unit at mmWave** — *"10.71 mm m
+  wavelength"*, because `_fmt_wavelength` already carries its unit and the
+  format string appended another. User-visible, and present for as long as the
+  mmWave branch has existed, because the gate checked the ROUTING and never the
+  prose. Now swept across seven decades in `small_antenna.py`, mutation-proven.
+* **The v1.2.0 tutorial-6 runtime is a band, not a stopwatch reading.** "About
+  45 seconds" was measured on one machine and is roughly half what this one
+  takes. Wall-clock is machine-dependent and was deleted rather than re-stated
+  once already this month; the same rule now applies here.
 * **A fifth solve path started FastHenry without asking.** The Cable Designer's
   **current sharing** (`_current_sharing`) called `run_generic_gui` with no
   pre-solve estimate anywhere in the method, while its four siblings in the
