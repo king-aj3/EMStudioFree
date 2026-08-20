@@ -456,6 +456,101 @@ gate runs the same geometry through the FreeCAD template path under
 `freecadcmd`. ⛳ The 39 GHz and 57 GHz cavities in tutorial 6 are the same check
 carried up to mmWave — same physics, same window, two decades higher.
 
+# 🔒 The Pro capabilities — what they measure
+
+These four are **EMStudio Pro**. The stubs below say what each one does and the
+number it measured, so you can judge whether it is worth anything to you; the
+step-by-step walkthroughs ship with Pro.
+
+**EMStudio Pro is $149, one-time, perpetual — no subscription and no account.**
+That is the last you will hear about the price in this file.
+
+⛳ **Every number below is already public** — it is in [PRO.md](PRO.md), on the
+product page, and in the automated gates that run before each release. Nothing
+here is a claim you are being asked to take on trust; they are all measured on
+live solver runs, and each names the gate that pins it.
+
+---
+
+## 24. 🔒 System Matching Designer
+
+**What it does.** Your dipole reads 71.9 Ω and your radio wants 50 Ω. It
+synthesises the network — L, π, T, quarter-wave, binomial multisection,
+single-stub, hairpin — recommends a topology, snaps the values to real E6–E96
+parts, and then shows the VSWR you will get **after** that rounding rather than
+before it.
+
+**What it measured.** The shipped 71.9 Ω dipole, matched end to end and
+verified on a live sweep: **VSWR 1.010**.
+
+**Free alternative:** none for synthesis — but the free tier gives you the
+dipole's impedance in the first place (tutorial 2), which is the input this
+needs. **Gate:** `system_matching.py`.
+
+---
+
+## 25. 🔒 Array Designer
+
+**What it does.** An array is specified in element *currents*; NEC2 drives
+*voltages*. Pro solves **V = Z·I** through the real mutual-impedance matrix, so
+the pattern you asked for is the pattern you get.
+
+**What it measured.** The difference is not subtle, and it is the same wires and
+the same solver both times: a cardioid pair reaches **29.6 dB front-to-back
+through the current solve, against 3.4 dB** for the naive equal-voltage drive.
+With amplitude tapers, a steered 8-element Dolph–Chebyshev array holds its
+**−26.02 dB sidelobe floor to 0.04 dB on real coupled dipoles** — against
+−12.7 dB for the uniform control, i.e. **13.4 dB of measured suppression for
+0.58 dB of peak gain**.
+
+**Free alternative:** the free tier models any array you can draw as wires and
+gives you its pattern; what it will not do is solve the drive currents for you.
+**Gate:** `system_arrays.py`, `system_tapers.py`.
+
+---
+
+## 26. 🔒 RF Direction Finding
+
+**What it does.** Watson-Watt / Adcock with the octantal spacing error
+*computed* from the exact crossed-pair response rather than assumed away;
+multi-baseline interferometry with ambiguity resolution; pseudo-Doppler ring
+sizing; and a correlative-interferometer manifold built from per-element NEC2
+patterns — so mutual coupling and platform scattering are inside the manifold
+instead of being wished away.
+
+**What it measured.** That manifold decodes an independent receive simulation at
+**0.00° bearing error, correlation 1.000000** — and it also prices the
+alternative: assuming ideal elements costs you **1.78°**.
+
+**Free alternative:** none. **Gate:** `system_rfdf.py`.
+
+---
+
+## 27. 🔒 The AI Assistant — and the one thing worth saying in public
+
+⚠ **The Assistant does not validate anything. The gates do.**
+
+That sentence belongs in the open, not behind a paywall, because it is what
+makes every other number in this file mean something. Everything trustworthy in
+EMStudio is trustworthy because a validation gate re-measures it before every
+release — that is what the "Prove it" line on every tutorial above points at,
+and the Assistant is **not** in that chain.
+
+**What it does.** Helps you set a case up, explains what a control does, and
+points you at the right template — inside the workbench, with the document in
+front of it. It has **no** privileged access to the physics, it does not check
+results, and nothing it says has been verified by anything. If it hands you a
+number, that number is worth exactly what an unchecked number is worth: run the
+gate.
+
+**What it measured.** Nothing about the physics, and that is the honest answer.
+What *is* measured is its plumbing: **167 checks, 16 mutations proven** — that
+it refuses what it should refuse and cannot silently act on your document.
+
+**Free alternative:** all of it, in the sense that matters — the gates, the
+templates and the tutorials are free, and they are the part that is checked.
+**Gate:** `assistant.py`.
+
 ---
 
 # The rest of the series — planned order
@@ -492,10 +587,6 @@ alternative is named where one exists.
 | 21 | **Antenna from Selection** | Analysis | free | thin-wire d/a report on a real curve |
 | 22 | **Pattern Frequencies / scrubbing** | Analysis | free | N patterns from ONE run (201 in 7.18 s) |
 | 23 | **Solver Setup / install** | Setup | free | the workflow, not a number |
-| 24 | 🔒 **System Matching Designer** 🔒 | System | **Pro** | predicted-vs-achieved curves |
-| 25 | 🔒 **Array Designer** 🔒 | System | **Pro** | cardioid 3.4 → 29.6 dB F/B; Dolph −26.02 dB to 0.04 dB |
-| 26 | 🔒 **RF Direction Finding** 🔒 | System | **Pro** | manifold decode at 0.00° error |
-| 27 | 🔒 **The AI Assistant** 🔒 | Help | **Pro** | ⚠ **AJ NAMED THIS ONE EXPLICITLY** — see below |
 
 ⚠ **#23 (Solver Setup) is the one exception** — it documents a workflow, not a
 number, because installing a backend has no measurable output to pin. It says

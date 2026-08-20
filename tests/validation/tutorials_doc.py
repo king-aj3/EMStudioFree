@@ -60,6 +60,19 @@ def check(name, ok, detail=""):
 #: preamble's own table names these, so the gate and the contract cannot drift.
 _PARTS = ("**Needs:**", "**Do**", "**You should see**", "**Prove it**")
 
+#: A Pro stub is marked with the padlock in its heading.
+_PRO_MARK = "🔒"
+
+#: What a Pro stub MUST carry: what it does, the measured number, the tier it
+#: is in (stated, never coy -- a teaser that hides its tier is the
+#: "crippled free version" accusation waiting to happen), and the gate.
+_STUB_PARTS = ("**What it does.**", "**What it measured.**",
+               "**Free alternative:**", "**Gate:**")
+
+#: What a Pro stub must NOT carry. These are the headings that turn a teaser
+#: into a walkthrough; their presence means the how-to has leaked out of Pro.
+_PRO_FORBIDDEN = ("**Do**", "**You should see**")
+
 #: Number words that have actually appeared in front of "tutorial(s)" here.
 #: A deny-list rather than a regex for any digit, because "#12" and "TN-688"
 #: are legitimate and a blanket digit rule would fire on every anchor.
@@ -92,15 +105,36 @@ def main():
         print("TUTORIALS DOC GATE FAILED")
         return 1
 
-    # 1. shape
+    # 1. shape -- and Pro STUBS have their own, stricter contract.
+    #
+    # ⚠ A 🔒 stub is NOT a tutorial with parts missing. AJ's 2026-08-20 ruling
+    # is that the Pro four get a public taste of WHAT the capability does and
+    # WHAT IT MEASURED, with the steps Pro-side: "if a stub would let someone
+    # reproduce the result without Pro, it has gone too far." So the absence of
+    # a "Do" section is the POINT, and this gate enforces that absence rather
+    # than tolerating it -- otherwise the paywall erodes one helpful edit at a
+    # time and nobody notices until it is published.
     for num, title, body in secs:
+        if _PRO_MARK in title:
+            leaked = [p for p in _PRO_FORBIDDEN if p in body]
+            check("#%d (Pro stub) gives the WHAT, never the HOW" % num,
+                  not leaked, title[:40] if not leaked else
+                  "leaks " + ", ".join(leaked))
+            missing = [p for p in _STUB_PARTS if p not in body]
+            check("#%d (Pro stub) keeps the stub contract" % num, not missing,
+                  title[:40] if not missing else "missing " + ", ".join(missing))
+            continue
         missing = [p for p in _PARTS if p not in body]
         check("#%d keeps the four-part shape" % num, not missing,
               title[:44] if not missing else "missing " + ", ".join(missing))
 
     # 2. every named gate file exists
     for num, title, body in secs:
-        m = re.search(r"\*\*Prove it\*\*(.+?)(?=\n---|\Z)", body, re.S)
+        if _PRO_MARK in title:
+            # Stubs name their gate on a "**Gate:**" line instead.
+            m = re.search(r"\*\*Gate:\*\*(.+?)(?=\n\n|\n---|\Z)", body, re.S)
+        else:
+            m = re.search(r"\*\*Prove it\*\*(.+?)(?=\n---|\Z)", body, re.S)
         if not m:
             continue                      # already reported by the shape check
         named = set(re.findall(r"`?tests/validation/([A-Za-z0-9_]+\.py)`?",

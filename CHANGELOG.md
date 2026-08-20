@@ -67,6 +67,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   **Gate `declared_ports` (FAST), 11 checks, 5/5 mutations** on an asymmetric
   3-port fixture. ⚠ Its scope is the selection logic — a live 3+-port solve has
   not been run, and no measured N-port result is claimed.
+* **The four Pro capabilities get public stubs, and the paywall is now
+  machine-checked.** Per AJ's ruling, #24 Matching, #25 Array Designer, #26
+  RFDF and #27 the Assistant each get a public stub giving the WHAT and the
+  MEASURED NUMBER, with the steps Pro-side — VSWR **1.010** on the shipped
+  71.9 Ω dipole; cardioid **29.6 dB F/B against 3.4 dB** on the same wires;
+  a Dolph floor of **−26.02 dB held to 0.04 dB**; a manifold decoding an
+  independent receive run at **0.00° bearing error**. Every figure was already
+  public in `PRO.md` and on the product page, so the stubs leak nothing.
+  ⛳ **The ruling is enforced rather than trusted:** `tutorials_doc` now applies
+  a separate contract to any 🔒 section — it must carry *What it does*, *What it
+  measured*, the free alternative (stating the tier plainly, never coyly) and
+  its gate, and it must **NOT** contain a *Do* or *You should see* section.
+  A leaked walkthrough now fails the battery. **3/3 mutations.**
+  ⛳ #27 is the split AJ called for: the sentence that matters — **the Assistant
+  does not validate anything, the gates do** — is public, because it is what
+  makes every other number in the file mean something.
 * **A gate for the tutorials themselves.** `tests/validation/tutorials_doc.py`
   (FAST) asserts every numbered tutorial keeps the four-part shape, that each
   "Prove it" names a gate file **that exists**, that no number is used twice
