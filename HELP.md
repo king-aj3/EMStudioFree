@@ -196,10 +196,30 @@ Per-strand current sharing (twist quality): the **Current Sharing…** button
 (runs FastHenry — minutes) or the `emstudio.wire.current_sharing` API +
 `tests/validation/wire_current_sharing.py`.
 
+## Before a solve starts: "how long will this take?"
+
+Every solve asks first, showing what it is expected to cost and letting you
+back out. Two things about that number are worth knowing:
+
+* **It comes from YOUR machine's measured history, not a formula.** A cost
+  model can give the shape of a problem but never a duration — the constant is
+  the machine. So the first run of a given size on a new machine says it has
+  **no estimate yet** rather than inventing one, and gets more useful as you
+  run more. An estimate borrowed from a neighbouring problem size is labelled
+  EXTRAPOLATED.
+* **A full S-matrix costs one solve per port.** Both full-wave backends excite
+  a single port per run, so `FullSMatrix` on a 4-port is four solves, and the
+  estimate says so.
+
+Tick *Don't ask again* in the dialog to silence it (preference
+`MuteSolveEstimate`). It can never block a solve: if the estimate itself
+fails, the run proceeds.
+
 ## Where results live
 
 Every run's working directory (deck, raw solver output, `port_1.csv`,
-`port_1.s1p`, `farfield_port_1.csv`) is printed in the Report view.
+`port_1.s1p` — or `.s2p`/`.s3p` when the full S-matrix was solved —
+`farfield_port_1.csv`) is printed in the Report view.
 
 ## Troubleshooting
 

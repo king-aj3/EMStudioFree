@@ -217,6 +217,16 @@ def _warn(text):
 
 
 # --- commands ------------------------------------------------------------------
+
+def _iso_work(analysis):
+    """Work measure for an N-antenna isolation matrix: it is N solves, not one."""
+    try:
+        from emstudio.objects import query
+        n = max(1, len(list(query.get_ports(analysis))))
+    except Exception:                                      # noqa: BLE001
+        n = 1
+    return float(n * n * 100)
+
 class _AntennaFromSelection:
     """One click: selection -> a runnable NEC2 wire-antenna analysis.
 
@@ -1134,7 +1144,9 @@ class _RunSolver:
             from emstudio.solvers import openems
 
             def run_fn(a, s, cb):
-                return openems.run(a, s, line_callback=cb)
+                return openems.run(
+                    a, s, line_callback=cb,
+                    full_smatrix=bool(getattr(s, "FullSMatrix", False)))
         elif stype == "EMStudio::SolverElmer":
             # magnetics result is not an S11 sweep — generic runner + own dialog
             from emstudio.solvers import elmer
@@ -1152,8 +1164,19 @@ class _RunSolver:
                         result.meta.get("workdir", "?")))
                 MagneticsResultsDialog(result, parent=FreeCADGui.getMainWindow()).exec()
 
+            if not run_gui.confirm_solve(FreeCADGui.getMainWindow(), "elmer",
+                                         ana, solver, label=solver.Label):
+                FreeCAD.Console.PrintMessage(
+                    "EMStudio: solve cancelled before it started.\n")
+                return
+
+            def on_success_timed(result):
+                run_gui.record_solve("elmer", ana, solver, result)
+                on_success(result)
+
             run_gui.run_generic_gui("Running {0}".format(solver.Label), run_elmer,
-                                    on_success, parent=FreeCADGui.getMainWindow())
+                                    on_success_timed,
+                                    parent=FreeCADGui.getMainWindow())
             return
         elif stype == "EMStudio::SolverPalace":
             from emstudio.solvers import palace
@@ -1189,8 +1212,19 @@ class _RunSolver:
                             result.meta.get("workdir", "?")))
                     EigenModeResultsDialog(result, parent=FreeCADGui.getMainWindow()).exec()
 
+            if not run_gui.confirm_solve(FreeCADGui.getMainWindow(), "palace",
+                                         ana, solver, label=solver.Label):
+                FreeCAD.Console.PrintMessage(
+                    "EMStudio: solve cancelled before it started.\n")
+                return
+
+            def on_success_timed(result):
+                run_gui.record_solve("palace", ana, solver, result)
+                on_success(result)
+
             run_gui.run_generic_gui("Running {0}".format(solver.Label), run_palace,
-                                    on_success, parent=FreeCADGui.getMainWindow())
+                                    on_success_timed,
+                                    parent=FreeCADGui.getMainWindow())
             return
         elif stype == "EMStudio::SolverOpenFOAM":
             # Convection is not a sweep: it runs through its OWN dialog, which
@@ -1562,6 +1596,10 @@ class _IsolationMatrix:
             dlg.resize(520, 380)
             dlg.exec()
 
+        if not run_gui.confirm_solve_work(
+                FreeCADGui.getMainWindow(), "nec2", _iso_work(ana),
+                label="Antenna isolation matrix (NEC2)"):
+            return
         run_gui.run_generic_gui("Antenna isolation matrix", run_iso, on_success,
                                 parent=FreeCADGui.getMainWindow())
 
@@ -1618,6 +1656,10 @@ class _SweepGap:
 
             GapSweepDialog(curve, parent=FreeCADGui.getMainWindow()).exec()
 
+        if not run_gui.confirm_solve_work(
+                FreeCADGui.getMainWindow(), "elmer", float(len(gaps)) * 1000.0,
+                label="WPT gap sweep ({0} Elmer solves)".format(len(gaps))):
+            return
         run_gui.run_generic_gui("WPT gap sweep ({0} points)".format(len(gaps)),
                                 run_fn, on_success,
                                 parent=FreeCADGui.getMainWindow())

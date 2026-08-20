@@ -186,7 +186,7 @@ def _port_span(port):
     )
 
 
-def _collect_ports(analysis):
+def _collect_ports(analysis, excite_port=None):
     ports = []
     for port in query.get_ports(analysis):
         start, stop = _port_span(port)
@@ -202,7 +202,12 @@ def _collect_ports(analysis):
             "start": start,
             "stop": stop,
             "axis": axis,
-            "excite": excite if port.Excited else 0.0,
+            # ``excite_port`` overrides the document's own Excited flags so a
+            # caller can drive each port in turn for a full S-matrix. openEMS
+            # solves ONE excitation per run, so an N-port needs N runs.
+            "excite": excite if (
+                int(port.PortNumber) == int(excite_port) if excite_port
+                else port.Excited) else 0.0,
             "edges2grid": edges2grid,
             "type": ptype,
         }
@@ -231,7 +236,11 @@ def _collect_ports(analysis):
             entry["start"], entry["stop"] = tuple(s), tuple(e)
         ports.append(entry)
     if not any(p["excite"] for p in ports):
-        raise OpenEMSModelError("the analysis needs exactly one excited port")
+        raise OpenEMSModelError(
+            "the analysis needs exactly one excited port"
+            + ("" if not excite_port else
+               " — port {0} was requested but the analysis has no such port"
+               .format(excite_port)))
     return ports
 
 
@@ -257,7 +266,7 @@ def _dielectric_thin_axis_lines(prim):
 
 
 # --------------------------------------------------------------------------- writer
-def write_deck(analysis, solver, workdir):
+def write_deck(analysis, solver, workdir, excite_port=None):
     """Write case_openems.py + geometry files. Returns (deck_path, z0)."""
     f1, f2, npts = Analysis.freq_range_hz(analysis)
     f0 = 0.5 * (f1 + f2)
@@ -266,7 +275,7 @@ def write_deck(analysis, solver, workdir):
         raise OpenEMSModelError("FrequencyStop must be greater than FrequencyStart")
 
     mats = _collect_materials(analysis, workdir)
-    ports = _collect_ports(analysis)
+    ports = _collect_ports(analysis, excite_port=excite_port)
     z0 = [p["R"] for p in ports if p["excite"]][0]
 
     # Trace-aware meshing for microstrip (MSL) ports: resolve the grid in the

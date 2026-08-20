@@ -60,7 +60,7 @@ deterministic requirements→family recommender (`emstudio/antenna/element_picke
 carries a printable rationale per rule, the NBS TN-688 boom-class hint for gain
 targets, honest ships-in-E4/E5 flags for unbuilt families, and the Chu
 bandwidth guardrail. Gates: picker scenario tier + template-override tier in
-`element_designer.py`; gui_smoke 24 checks / 33 commands.
+`element_designer.py`; gui_smoke 38 checks / 47 commands.
 
 **Yagi-Uda synthesis (Element Designer E3) — ✅ validated (v0.59.0):**
 `emstudio/antenna/yagi.py` + `templates/yagi.py` + the Yagi dialog family — NBS
@@ -291,9 +291,9 @@ remain planned** (see [ROADMAP](ROADMAP.md)).
 | VSWR | ✅ | derived | — |
 | Input impedance R+jX | ✅ validated | openEMS, NEC2 | dipole 71.9 Ω at resonance |
 | Resonance detection | ✅ | derived | dipole 296 MHz |
-| Touchstone (.s1p) export | ✅ | — | — |
+| Touchstone (`.sNp`) export | ✅ validated | order follows what was SOLVED; refuses an order it cannot support, naming the missing terms | `touchstone_export` + `n_port_smatrix`: 1/2/3/5-port layouts, row-major wrap, S11 S21 S12 S22 quirk order |
 | **Far-field radiation pattern** | ✅ validated | openEMS NF2FF, NEC2 RP | dipole 2.13 dBi + axial null; patch 6.6 dBi; full sphere 37×72 |
-| **3-D pattern balloon (rotate/zoom/pan)** | ✅ validated (v0.72.0) | mplot3d tab + FreeCAD viewport object; reachable from Results, Element Designer and Array Designer | `pattern_vtu.py`: 27 checks — radius follows the gain law pointwise, phase-centre registration, closed-phi wrap, read back by our own VTU parser; mutation-tested 7/7 |
+| **3-D pattern balloon (rotate/zoom/pan)** | ✅ validated (v0.72.0) | mplot3d tab + FreeCAD viewport object; reachable from Results, Element Designer and Array Designer | `pattern_vtu.py`: 46 checks — radius follows the gain law pointwise, phase-centre registration, closed-phi wrap, read back by our own VTU parser; mutation-tested 7/7 |
 | **3-D currents / field plane in viewport** | ✅ validated (v0.72.0) | FemPostPipeline VTU | `pattern_vtu.py`: polyline cell + m→mm + mA conversion; quad cells, fixed-axis offset, dB self-normalisation |
 | **Pattern per swept frequency + picker** | ✅ validated (v0.90.0–0.91.0) | NEC2 multi-frequency `FR`+`RP`; **Pattern Frequencies…** dialog with editable band + a recommended step landing on S11 sample points; both pattern tabs and the 3-D export share one selection | `pattern_sweep.py`: 54 checks — N patterns from ONE run (201 in 7.18 s), per-frequency gains pinned, band round-trip; 11/11 + 5/5 mutations caught |
 | **NEC-2 thin-wire validity check** | ✅ validated (v0.91.0) | `thin_wire_report()` from the GW cards actually written; warning under the result plots when d/a < 8 (Burke & Poggio) | polyline chords freed of the lone-wire 3-seg floor: real 72-chord helix 240→80 segments, d/a 2.63→8.19; dipole frozen deck byte-identical (2.13 dBi) |

@@ -27,10 +27,9 @@ import math
 from emstudio.meshing.gmsh_box import (
     VOLUME_ATTR,
     WALL_ATTR,
-    WG_PORT1_ATTR,
-    WG_PORT2_ATTR,
     WG_VOLUME_ATTR,
-    WG_WALL_ATTR,
+    wg_port_attr,
+    wg_wall_attr,
 )
 from emstudio.meshing.gmsh_coax import (
     COAX_PORT1_ATTR,
@@ -167,19 +166,65 @@ def _driven_block(f1_ghz, f2_ghz, step_ghz, fast_sweep=False, adaptive_tol=1.0e-
     }
 
 
+def set_excitation(ports, excite_port):
+    """Drive exactly ``excite_port``; every other port becomes passive.
+
+    Palace's contract is that ``Excitation`` must equal the port ``Index``, and
+    a port with no ``Excitation`` key is a matched termination. A full N-port
+    S-matrix therefore takes N solves — one per excitation — because a single
+    run yields only the column belonging to the driven port. See
+    ``emstudio.post.sparams.merge_excitations`` for the join.
+
+    ⚠ **An unknown port is REFUSED, not ignored.** Clearing every excitation
+    and driving none is a config Palace will happily solve, and what comes back
+    is a matrix of numbers with nothing behind them. This only became reachable
+    once the excitation list stopped being the literal ``[1, 2]``: an off-by-one
+    in a loop over N ports asks for port N+1, and silence there would produce
+    a plausible, wrong .sNp rather than a stack trace.
+
+    Mutates and returns the list, so a config builder can apply it inline.
+    """
+    want = int(excite_port)
+    known = [int(p.get("Index", 0)) for p in ports]
+    if want not in known:
+        raise ValueError(
+            "cannot excite port {0}: this config has ports {1}. Driving no "
+            "port at all would still solve, and the S-column it produced "
+            "would mean nothing.".format(want, known))
+    for p in ports:
+        idx = int(p.get("Index", 0))
+        if idx == want:
+            p["Excitation"] = idx
+        else:
+            p.pop("Excitation", None)
+    return ports
+
+
 def build_driven_config(mesh_name, f1_ghz, f2_ghz, step_ghz, order=3,
+                        excite_port=1,
                         eps_r=1.0, mu_r=1.0, loss_tan=0.0, output="postpro",
                         fast_sweep=False, adaptive_tol=1.0e-3,
-                        mesh_refinement=0, refinement_tol=0.01):
-    """Return a Palace driven (S-parameter) config for a 2-port waveguide.
+                        mesh_refinement=0, refinement_tol=0.01,
+                        n_ports=2):
+    """Return a Palace driven (S-parameter) config for an N-port waveguide.
 
-    Port 1 (the min-axis face, attr {port1}) is the driven wave port; port 2
-    (attr {port2}) is passive. The two ports absorb the fundamental (Mode 1 =
-    TE10) via their built-in Robin impedance BC — no separate absorbing BC.
-    Frequencies are in GHz (Palace's Driven sweep unit).
+    Port ``excite_port`` is the driven wave port; every other port is passive.
+    All ports absorb the fundamental (Mode 1 = TE10) via their built-in Robin
+    impedance BC — no separate absorbing BC. Frequencies are in GHz (Palace's
+    Driven sweep unit).
+
+    ``n_ports`` must be the count the MESH was written with: the port and wall
+    attributes are derived from it (``gmsh_box.wg_port_attr`` /
+    ``wg_wall_attr``), and a config that disagrees with its mesh tags the wrong
+    faces. Two is the default because both bundled geometries — the box
+    waveguide section and the coax — have exactly two ends.
 
     :param mesh_refinement: AMR iterations (0 = off; opt-in adaptive refinement).
+    :param n_ports: number of ports in the mesh (2 for the box waveguide).
     """
+    n = int(n_ports)
+    if n < 1:
+        raise ValueError("n_ports must be >= 1; got {0}".format(n_ports))
     return _apply_refinement({
         "Problem": {"Type": "Driven", "Verbose": 2, "Output": output},
         "Model": {"Mesh": mesh_name, "L0": 1.0e-3},
@@ -194,21 +239,15 @@ def build_driven_config(mesh_name, f1_ghz, f2_ghz, step_ghz, order=3,
             ]
         },
         "Boundaries": {
-            "PEC": {"Attributes": [WG_WALL_ATTR]},
-            "WavePort": [
-                {
-                    "Index": 1,
-                    "Attributes": [WG_PORT1_ATTR],
-                    "Mode": 1,
-                    "Excitation": 1,  # driven port; must equal Index
-                },
-                {
-                    "Index": 2,
-                    "Attributes": [WG_PORT2_ATTR],
-                    "Mode": 1,
-                    # no Excitation key -> passive (measured for S21)
-                },
-            ],
+            # ⚠ The wall attribute MOVES with the port count — see
+            # gmsh_box.wg_wall_attr. A literal 4 here would be port 3's
+            # attribute on a 3-port mesh, and Palace does not report a face
+            # that is both a port and PEC as the error it is.
+            "PEC": {"Attributes": [wg_wall_attr(n)]},
+            # Exactly one port is driven per solve — see set_excitation().
+            "WavePort": set_excitation(
+                [{"Index": k, "Attributes": [wg_port_attr(k)], "Mode": 1}
+                 for k in range(1, n + 1)], excite_port),
         },
         "Solver": {
             "Order": int(order),
@@ -225,6 +264,7 @@ def build_driven_config(mesh_name, f1_ghz, f2_ghz, step_ghz, order=3,
 
 
 def build_lumped_coax_config(mesh_name, f1_ghz, f2_ghz, step_ghz, a_mm, b_mm,
+                             excite_port=1,
                              order=2, eps_r=1.0, mu_r=1.0, loss_tan=0.0,
                              r_ohm=None, output="postpro",
                              fast_sweep=False, adaptive_tol=1.0e-3,
@@ -236,6 +276,13 @@ def build_lumped_coax_config(mesh_name, f1_ghz, f2_ghz, step_ghz, a_mm, b_mm,
     impedance defaults to the analytic coax Z0 so the uniform line is matched
     (S11 measures only discretization). Frequencies in GHz. Verified against the
     AWS Palace ``coaxial`` example on 2026-07-07.
+
+    ⚠ **This one stays 2-port on purpose, unlike ``build_driven_config``.** A
+    coaxial section has two ends and there is no third face to put a port on;
+    an ``n_ports`` argument here could only ever be given a 2, or be given a 3
+    and produce a config naming a mesh attribute ``gmsh_coax`` never wrote. The
+    excitation still loops — either end can be driven — which is all a full
+    2x2 needs.
 
     :param mesh_refinement: AMR iterations (0 = off; opt-in adaptive refinement).
     """
@@ -256,22 +303,13 @@ def build_lumped_coax_config(mesh_name, f1_ghz, f2_ghz, step_ghz, a_mm, b_mm,
         },
         "Boundaries": {
             "PEC": {"Attributes": [COAX_WALL_ATTR]},
-            "LumpedPort": [
-                {
-                    "Index": 1,
-                    "Attributes": [COAX_PORT1_ATTR],
-                    "R": float(r_ohm),
-                    "Direction": "+R",   # coaxial radial lumped port
-                    "Excitation": 1,     # driven; must equal Index
-                },
-                {
-                    "Index": 2,
-                    "Attributes": [COAX_PORT2_ATTR],
-                    "R": float(r_ohm),
-                    "Direction": "+R",
-                    # no Excitation -> passive (matched termination for S21)
-                },
-            ],
+            # Exactly one port is driven per solve — see set_excitation().
+            "LumpedPort": set_excitation([
+                {"Index": 1, "Attributes": [COAX_PORT1_ATTR], "R": float(r_ohm),
+                 "Direction": "+R"},    # coaxial radial lumped port
+                {"Index": 2, "Attributes": [COAX_PORT2_ATTR], "R": float(r_ohm),
+                 "Direction": "+R"},
+            ], excite_port),
         },
         "Solver": {
             "Order": int(order),

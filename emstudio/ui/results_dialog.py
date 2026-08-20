@@ -442,7 +442,8 @@ class SweepResultsDialog(QtWidgets.QDialog):
         self._maybe_pro_hint(layout, result)
 
         buttons = QtWidgets.QHBoxLayout()
-        export_btn = QtWidgets.QPushButton("Export Touchstone (.s1p)…")
+        export_btn = QtWidgets.QPushButton(
+            "Export Touchstone (.s%dp)…" % self.result.max_complete_ports())
         export_btn.clicked.connect(self._export_touchstone)
         report_btn = QtWidgets.QPushButton("Save PDF Report…")
         report_btn.setToolTip("A build-house-ready document: summary, S11/Zin, "
@@ -981,13 +982,39 @@ class SweepResultsDialog(QtWidgets.QDialog):
         layout.addWidget(hint)
 
     def _export_touchstone(self):
+        """Export the highest-order Touchstone this solve actually completed.
+
+        The order is decided by the DATA, not by the user: a single-excitation
+        run gives one column of the S-matrix, so it exports .s1p even though it
+        knows S21. Offering .s2p there would be offering a file we would then
+        have to invent S12 and S22 for.
+        """
+        n = self.result.max_complete_ports()
+        ext = "s%dp" % n
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Export Touchstone", os.path.expanduser("~/port_1.s1p"),
-            "Touchstone 1-port (*.s1p)",
+            self, "Export Touchstone",
+            os.path.expanduser("~/port_1." + ext),
+            "Touchstone %d-port (*.%s)" % (n, ext),
         )
-        if path:
-            self.result.write_touchstone(path)
-            QtWidgets.QMessageBox.information(self, "EMStudio", "Saved " + path)
+        if not path:
+            return
+        try:
+            written = self.result.write_touchstone(path)
+        except ValueError as exc:                     # nothing can reach this
+            QtWidgets.QMessageBox.warning(self, "EMStudio", str(exc))
+            return
+
+        msg = "Saved " + path
+        # Say WHY it is 1-port while an S21 curve is plotted right there, or
+        # the export looks like it dropped data the user can see.
+        missing = self.result.missing_s_terms(written + 1)
+        if written == 1 and self.result.s_others:
+            msg += ("\n\nThis is a 1-port file. The solve excited one port, "
+                    "which gives S11 and the transmission terms plotted here "
+                    "but not %s — a full %d-port Touchstone needs an "
+                    "excitation per port."
+                    % (", ".join("S%d%d" % t for t in missing), written + 1))
+        QtWidgets.QMessageBox.information(self, "EMStudio", msg)
 
     def _show_in_3d(self):
         """Write result VTUs into the workdir and load them into the 3D viewport."""

@@ -24,15 +24,59 @@ from emstudio.solvers.base import SolverError, SolverJob
 #: MFEM attribute numbers (physical tags) the config writer references
 VOLUME_ATTR = 1
 WALL_ATTR = 2
-#: waveguide (driven) attributes: interior 1, port1 2, port2 3, side walls 4
+#: waveguide (driven) attributes. The interior is always 1 and the ports run
+#: consecutively from :data:`WG_PORT_ATTR_BASE`; the side walls take whatever
+#: number is left after the ports, so the numbering DERIVES from the port count
+#: instead of being fixed at two.
 WG_VOLUME_ATTR = 1
-WG_PORT1_ATTR = 2
-WG_PORT2_ATTR = 3
-WG_WALL_ATTR = 4
+WG_PORT_ATTR_BASE = 2
 
 
 class BoxMeshError(ValueError):
     """The box cannot be meshed as requested."""
+
+
+def wg_port_attr(index):
+    """MFEM boundary attribute for 1-based port ``index``.
+
+    Ports are numbered the way Palace numbers them — ``Index`` 1 upward — and
+    the attribute is just that shifted past the interior's 1.
+    """
+    idx = int(index)
+    if idx < 1:
+        raise BoxMeshError("port index is 1-based; got {0}".format(index))
+    return WG_PORT_ATTR_BASE + idx - 1
+
+
+def wg_wall_attr(n_ports=2):
+    """MFEM boundary attribute for the side walls of an ``n_ports`` mesh.
+
+    ⚠ **The wall attribute MOVES when the port count does** — it is whatever
+    number sits immediately after the last port, because the ports have to be
+    consecutive for the config writer to name them. A 3-port mesh puts its
+    walls on 5, not on 4.
+
+    That is the trap this function exists to close: the walls used to be the
+    literal constant 4, correct only for two ports, and a hard-coded 4 on a
+    3-port mesh would tag the walls with PORT 3's attribute. Palace would then
+    see a port face that is also PEC, which is not an error it reports as one.
+    Take the wall attribute from HERE, with the same port count the mesh was
+    written with, never from a remembered number.
+    """
+    n = int(n_ports)
+    if n < 1:
+        raise BoxMeshError("a mesh needs at least one port; got {0}".format(n_ports))
+    return WG_PORT_ATTR_BASE + n
+
+
+#: The 2-port names, kept because the box and coax geometries ARE 2-port by
+#: construction (a box section has two end faces; a coax has two ends) and
+#: every existing caller means exactly these.
+WG_PORT1_ATTR = wg_port_attr(1)
+WG_PORT2_ATTR = wg_port_attr(2)
+#: ⚠ **2-PORT ONLY** — see :func:`wg_wall_attr`. Correct for the box and coax
+#: meshes; wrong for anything with a different port count.
+WG_WALL_ATTR = wg_wall_attr(2)
 
 
 def write_geo(size_mm, path, elem_mm=None, origin_mm=(0.0, 0.0, 0.0)):

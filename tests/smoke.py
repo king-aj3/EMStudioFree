@@ -1514,6 +1514,29 @@ def _analysis_roundtrip():
     assert "Driven S-parameters (coax)" in \
         solver_pal.getEnumerationsOfProperty("AnalysisType"), \
         "SolverPalace missing the coax AnalysisType"
+    # --- Full2Port -> FullSMatrix migration (v1.2.0) ---
+    # ⚠ Lives here rather than in a validation gate because it needs a REAL
+    # document object: the migration runs from onDocumentRestored, and the
+    # failure mode is that it silently never runs at all — which no FreeCAD-free
+    # gate can see. The switch never reached a customer, so the only documents
+    # carrying the old name are the ones saved on the dev machines while the
+    # 2-port path was being proven; losing their setting would quietly turn a
+    # full-matrix solve back into a single column.
+    for _sv, _who in ((solver_pal, "SolverPalace"), (solver_oe, "SolverOpenEMS")):
+        assert "FullSMatrix" in _sv.PropertiesList, \
+            "%s is missing FullSMatrix" % _who
+        assert "Full2Port" not in _sv.PropertiesList, \
+            "%s still carries the pre-1.2.0 Full2Port name" % _who
+        assert bool(_sv.FullSMatrix) is False, \
+            "%s must default to a single excitation" % _who
+        _sv.addProperty("App::PropertyBool", "Full2Port", "EMStudio", "legacy")
+        _sv.Full2Port = True
+        _sv.Proxy.onDocumentRestored(_sv)
+        assert bool(_sv.FullSMatrix) is True, \
+            "%s: a pre-1.2.0 Full2Port=True was DROPPED, not migrated" % _who
+        assert "Full2Port" not in _sv.PropertiesList, \
+            "%s: the migrated property was left behind" % _who
+        _sv.FullSMatrix = False          # leave the default for later checks
     # --- SolverOpenFOAM: the convection solve behind the ampacity factor ---
     # ⚠ Unlike every other solver object this one CACHES a result, because the
     # factor it produces is consumed inside solve_steady's ~80-evaluation

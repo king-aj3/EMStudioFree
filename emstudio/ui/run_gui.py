@@ -146,12 +146,127 @@ def _remember_and_finish(state, parent, analysis):
     _finish(state, parent)
 
 
+#: Preference that mutes the pre-solve estimate dialog, like the Pattern
+#: Frequencies prompt. Muting is per-user and never per-run: a user who has
+#: seen it once should not have to keep dismissing it.
+MUTE_PREF = "MuteSolveEstimate"
+
+
+def confirm_solve_work(parent, backend, work, label=""):
+    """Pre-solve estimate for a caller that knows its own work measure.
+
+    The parametric CFD dialogs have no analysis or solver object to read a size
+    from — they are typed-in stacks — so they state their work directly. Those
+    are also the LONGEST solves in the product (the CHT dialog's own docs say
+    tens of minutes), which makes them the ones that most need asking first.
+    """
+    try:
+        from emstudio.solvers import estimate as est
+
+        params = None
+        try:
+            import FreeCAD as _FC
+            params = _FC.ParamGet(est.PREF_GROUP)
+            if params.GetBool(MUTE_PREF, False):
+                return True
+        except Exception:                                  # noqa: BLE001
+            params = None
+
+        hist = est.freecad_history()
+        box = QtWidgets.QMessageBox(parent)
+        box.setWindowTitle("EMStudio")
+        box.setIcon(QtWidgets.QMessageBox.Information)
+        box.setText("Run {0}?".format(label or backend))
+        box.setInformativeText(
+            "{0}\n\nProgress is reported as a percentage with a live ETA "
+            "once the solve is under way, and Cancel stops it.".format(
+                est.describe(backend, work, hist)))
+        run_btn = box.addButton("Run solver", QtWidgets.QMessageBox.AcceptRole)
+        box.addButton(QtWidgets.QMessageBox.Cancel)
+        mute = QtWidgets.QCheckBox("Don't ask again")
+        box.setCheckBox(mute)
+        box.exec_()
+        if params is not None and mute.isChecked():
+            params.SetBool(MUTE_PREF, True)
+        return box.clickedButton() is run_btn
+    except Exception as exc:                               # noqa: BLE001
+        FreeCAD.Console.PrintWarning(
+            "EMStudio: pre-solve estimate unavailable ({0}); running anyway.\n"
+            .format(exc))
+        return True
+
+
+def record_solve_work(backend, work, seconds):
+    """Remember a completed solve whose caller knows its own work measure."""
+    try:
+        from emstudio.solvers import estimate as est
+        est.freecad_history().record(backend, work, seconds)
+    except Exception:                                      # noqa: BLE001
+        pass
+
+
+def confirm_solve(parent, backend, analysis, solver_obj=None, label=""):
+    """Show what this solve is expected to cost, and let the user back out.
+
+    Returns True to proceed. Answers the question a user actually has before
+    a long run — thirty seconds or forty minutes — using measured history and
+    saying plainly when there is none. See :mod:`emstudio.solvers.estimate`
+    for why it does not fall back to a cost model.
+
+    Never blocks a solve on its own failure: anything unexpected here returns
+    True, because a broken estimate must not stop work.
+    """
+    try:
+        from emstudio.solvers import estimate as est
+
+        params = None
+        try:
+            import FreeCAD as _FC
+            params = _FC.ParamGet(est.PREF_GROUP)
+            if params.GetBool(MUTE_PREF, False):
+                return True
+        except Exception:                                  # noqa: BLE001
+            params = None
+
+        return confirm_solve_work(parent, backend,
+                                  est.work_of(analysis, solver_obj), label)
+    except Exception as exc:                               # noqa: BLE001
+        FreeCAD.Console.PrintWarning(
+            "EMStudio: pre-solve estimate unavailable ({0}); running anyway.\n"
+            .format(exc))
+        return True
+
+
+def record_solve(backend, analysis, solver_obj, result):
+    """Remember how long a completed solve took, for the next estimate.
+
+    Best effort by construction — a result with no duration, or an unwritable
+    preference, simply teaches it nothing.
+    """
+    try:
+        from emstudio.solvers import estimate as est
+
+        secs = (result.meta or {}).get("duration_s")
+        est.freecad_history().record(
+            backend, est.work_of(analysis, solver_obj), secs)
+    except Exception:                                      # noqa: BLE001
+        pass
+
+
 def run_solver_gui(analysis, solver_obj, run_fn, parent=None):
     """Run ``run_fn(analysis, solver_obj, line_callback)`` off the GUI thread.
 
     Shows an indeterminate progress dialog with Cancel; on success opens the
     SweepResultsDialog.
     """
+    backend = str(getattr(solver_obj, "Backend", "") or
+                  getattr(solver_obj, "Label", "solver"))
+    if not confirm_solve(parent, backend, analysis, solver_obj,
+                         label=getattr(solver_obj, "Label", backend)):
+        FreeCAD.Console.PrintMessage("EMStudio: solve cancelled before it "
+                                     "started.\n")
+        return _JobState()
+
     state = _JobState()
 
     line_cb = _Reporter(state, "solver")
@@ -159,6 +274,7 @@ def run_solver_gui(analysis, solver_obj, run_fn, parent=None):
     def work():
         try:
             state.result = run_fn(analysis, solver_obj, line_cb)
+            record_solve(backend, analysis, solver_obj, state.result)
         except Exception as exc:  # noqa: BLE001 - surfaced to the user below
             state.error = exc
         finally:

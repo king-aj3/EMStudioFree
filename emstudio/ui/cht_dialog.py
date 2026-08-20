@@ -280,6 +280,16 @@ def build_dialog(doc=None, parent=None):  # pragma: no cover
                 self.out.setText((prior + "<br><br>" if prior else "")
                                  + "⚠ %s" % exc)
                 return
+            # This one can run for tens of minutes; asking first is the
+            # whole point of the pre-solve estimate.
+            from emstudio.ui import run_gui
+            work = float(getattr(case, "iterations", 0) or 1) * float(
+                max(1, getattr(case, "nx", 1) * getattr(case, "ny", 1)))
+            if not run_gui.confirm_solve_work(
+                    self, "openfoam", work,
+                    label="Conjugate heat transfer (OpenFOAM)"):
+                return
+
             case_dir = tempfile.mkdtemp(prefix="emstudio-cht-")
             state = {"done": False, "report": None, "error": None,
                      "case_dir": case_dir, "case": case,

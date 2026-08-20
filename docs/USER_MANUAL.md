@@ -78,7 +78,9 @@ You can start with only NEC2 installed — the dipole tutorial needs nothing els
      **R ≈ 72 Ω** — the textbook half-wave dipole feedpoint resistance.
    - **Pattern** — polar gain plot: the classic dipole donut, **2.13 dBi** peak
      broadside, deep nulls off the wire ends.
-4. **Export Touchstone** saves an industry-standard `.s1p` file for any RF tool.
+4. **Export Touchstone** saves an industry-standard Touchstone file for any
+   RF tool — `.s1p` from a one-port solve, `.s2p` and beyond once every port
+   has been excited (see **`FullSMatrix`** below).
 
 *What just happened:* EMStudio extracted the wire from your document, wrote a NEC2
 (Method-of-Moments) deck, ran it, computed a second radiation-pattern pass at the
@@ -1330,6 +1332,49 @@ region- and method-dependent — each preset names its source and context; pick 
 matching your service and regulator rather than assuming one universal number. Station
 locations, frequencies and ground are entirely user-supplied.
 
+## 6q. Before the solve: what it will cost, and the full S-matrix
+
+**Every solve asks first.** A short dialog states the expected cost and lets
+you back out; it also says that progress is a live percentage with an ETA and
+that Cancel works, because "how long is this?" and "can I stop it?" are the
+same question asked twice.
+
+⚠ **The number comes from your own machine's measured history, not a
+formula.** A cost model gives the *shape* of a problem — NEC2 is O(N³) in
+segments, openEMS is timesteps × cells — but never a duration, because the
+constant is the machine: cores, clock, memory bandwidth, whether something
+else is running. So:
+
+- the **first** run of a given size on a machine says **no estimate yet**
+  rather than inventing one, and the estimate gets better as you run more;
+- an estimate taken from a neighbouring problem size is scaled by the size
+  ratio and labelled **EXTRAPOLATED**; two sizes away it declines to guess;
+- the estimate is the **median** of past runs at that size, so one run on a
+  laptop that went to sleep cannot move it.
+
+It can never block a solve — every error path in the estimator proceeds, since
+a broken estimate stopping real work would be the worse bug. Tick *Don't ask
+again* to silence it (preference `MuteSolveEstimate`).
+
+### `FullSMatrix` — one solve per port
+
+Both full-wave backends (openEMS and Palace) excite exactly **one port per
+run** by construction. One excitation gives one **column** of the S-matrix:
+S11, S21, S31 … and nothing at all about S12 or S22. Reciprocity does not
+close that gap — it gives S12 = S21 for a passive structure and still leaves
+S22 unknown.
+
+So a complete N-port S-matrix is **N solves**. Set **`FullSMatrix`** on the
+openEMS or Palace solver to run them: each excitation solves on the *same
+mesh* (which is what makes the merged matrix mean anything) and writes to its
+own output directory. The pre-solve estimate multiplies its cost by the port
+count accordingly — a 4-port is four solves and roughly four times the time.
+
+⚠ **Without it you get an honest `.s1p`, not a padded `.s2p`.** Asking for an
+order the solve cannot support is refused with the missing terms named. That
+refusal is deliberate: writing zeros, or mirroring S21 into S12 and guessing
+S22, produces a file a VNA comparison would read as measured data.
+
 ## 7. Understanding the results
 
 - **S11 (dB)**: reflection at the port; below −10 dB is a usable match.
@@ -1338,8 +1383,13 @@ locations, frequencies and ground are entirely user-supplied.
 - **Impedance**: R + jX at the feed. Resonance = X through zero.
 - **Pattern (dBi)**: gain relative to isotropic at the best-match frequency; θ is
   measured from +Z, cuts at φ = 0°/90°.
-- **Touchstone (.s1p)**: standard S-parameter exchange format (references your port
-  impedance, default 50 Ω).
+- **Touchstone (`.sNp`)**: standard S-parameter exchange format (references your
+  port impedance, default 50 Ω). The ORDER follows what was actually solved:
+  a single excitation gives one column of the S-matrix, so it writes `.s1p`.
+  Set **`FullSMatrix`** on the solver to excite every port in turn and get a
+  complete `.s2p` (or `.s3p`, `.s4p` …). Asking for an order the solve cannot
+  support is REFUSED with the missing terms named, rather than filled in — a
+  mirrored S21 or a zeroed S22 would read as measurement in a VNA comparison.
 - All solver artifacts (decks, raw outputs, CSVs) stay in the working directory
   printed in the Report view — nothing is hidden.
 

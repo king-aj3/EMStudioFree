@@ -33,6 +33,33 @@ class _SolverBase:
                 "Solver working directory (empty = temp dir beside nothing, recreated per run)",
             )
 
+    def _migrate_full_2port(self, obj):
+        """Carry a pre-v1.2.0 ``Full2Port`` value onto ``FullSMatrix``, then drop it.
+
+        The switch was named for two ports while two was the only order the
+        solvers could do. It never reached a customer — the 2-port work was
+        still unreleased when the N-port work landed — so the rename is clean
+        rather than a deprecation. What DOES exist is documents saved on the
+        dev machines while the 2-port path was being proven, and silently
+        resetting their setting to False would turn a full-matrix solve into a
+        single-column one with no sign that anything changed.
+
+        Runs from ``onDocumentRestored``, so a restored document is migrated
+        before any solve reads the property.
+        """
+        if "Full2Port" not in obj.PropertiesList:
+            return
+        try:
+            if bool(getattr(obj, "Full2Port", False)):
+                obj.FullSMatrix = True
+            obj.removeProperty("Full2Port")
+        except Exception:                       # noqa: BLE001 - see below
+            # A property that cannot be removed (older FreeCAD, read-only doc)
+            # is cosmetic clutter; the VALUE is already carried across, which
+            # is the part that changes what the solver does. Never let a
+            # migration stop a document from opening.
+            pass
+
     def onDocumentRestored(self, obj):
         self._ensure_properties(obj)
 
@@ -55,6 +82,21 @@ class SolverOpenEMS(_SolverBase):
     def _ensure_properties(self, obj):
         self._ensure_common(obj)
         props = obj.PropertiesList
+        if "FullSMatrix" not in props:
+            obj.addProperty(
+                "App::PropertyBool",
+                "FullSMatrix",
+                _GROUP,
+                "Multi-port analyses: run one EXTRA FDTD simulation per "
+                "remaining port, giving the complete NxN S-matrix instead of "
+                "the single column one excitation gives. Required for a "
+                "multi-port Touchstone (.sNp) export — a VNA comparison needs "
+                "S12 and S22, and no assumption recovers them from a port-1 "
+                "solve. openEMS solves one excitation per run, so this is "
+                "genuinely N simulations: roughly N times the time.",
+            )
+            obj.FullSMatrix = False
+        self._migrate_full_2port(obj)
         if "EndCriteriaDB" not in props:
             obj.addProperty(
                 "App::PropertyFloat",
@@ -398,6 +440,20 @@ class SolverPalace(_SolverBase):
                 "(much faster over wide bands). Off = one full solve per point.",
             )
             obj.FastSweep = False
+        if "FullSMatrix" not in props:
+            obj.addProperty(
+                "App::PropertyBool",
+                "FullSMatrix",
+                _GROUP,
+                "Driven S-parameters only: solve EVERY excitation to get the "
+                "complete NxN S-matrix instead of the single column one "
+                "excitation gives. Required for a multi-port Touchstone "
+                "(.sNp) export — a VNA comparison needs S12 and S22, and no "
+                "assumption can recover them from a port-1 solve. Costs one "
+                "solve per port on the same mesh, so roughly N times the time.",
+            )
+            obj.FullSMatrix = False
+        self._migrate_full_2port(obj)
         if "AdaptiveTol" not in props:
             obj.addProperty(
                 "App::PropertyFloat",

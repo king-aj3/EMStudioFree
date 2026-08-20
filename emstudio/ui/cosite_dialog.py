@@ -234,6 +234,10 @@ class CositeDialog(QtWidgets.QDialog):
 
         from emstudio.ui import run_gui
 
+        if not run_gui.confirm_solve_work(
+                self, "nec2", 10000.0,
+                label="Co-site isolation matrix (NEC2 multi-port)"):
+            return
         run_gui.run_generic_gui("Isolation matrix (NEC2 multi-port)",
                                 run_iso, on_ok, parent=self)
 

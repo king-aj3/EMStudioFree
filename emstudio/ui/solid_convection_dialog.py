@@ -152,6 +152,16 @@ def build_dialog(triangles, label, doc=None, parent=None):  # pragma: no cover
                              t_film_k=float(self.ambient.value()) + 15.0,
                              iterations=DEFAULT_ITERATIONS,
                              write_interval=DEFAULT_WRITE_INTERVAL)
+            # The longest solves in the product ask first — see
+            # emstudio.solvers.estimate for why the number is measured or
+            # absent rather than modelled.
+            from emstudio.ui import run_gui
+            work = float(DEFAULT_ITERATIONS) * max(1, len(triangles))
+            if not run_gui.confirm_solve_work(
+                    self, "openfoam", work,
+                    label="Convection on the selected solid (OpenFOAM)"):
+                return
+
             case_dir = tempfile.mkdtemp(prefix="emstudio-solidconv-")
             state = {"done": False, "result": None, "error": None,
                      "report": None, "case_dir": case_dir, "case": case,

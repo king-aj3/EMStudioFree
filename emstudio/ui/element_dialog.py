@@ -1540,6 +1540,12 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         # cleanup on EVERY exit path: success closes the doc above; error/cancel
         # close it here (run_generic_gui otherwise only shows a message box, and
         # a canceled daemon worker would otherwise strand the doc).
+        # A live full-wave verify — openEMS on a patch is minutes, not seconds.
+        if not run_gui.confirm_solve_work(
+                self, "element_verify", 1000.0,
+                label="Element verify ({0})".format(label)):
+            self._close_verify_doc()
+            return
         run_gui.run_generic_gui(
             "Element verify ({0})".format(label),
             run_fn, on_success, parent=self,

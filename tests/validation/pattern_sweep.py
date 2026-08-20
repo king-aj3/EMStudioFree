@@ -114,53 +114,279 @@ def gate_parser():
                                                  merged.freq / 1e6))
 
 
+def _dipole_analysis(doc):
+    """A minimal, real half-wave dipole analysis. Returns ``(analysis, solver)``.
+
+    Deliberately the simplest thing the deck writer will accept: one straight
+    wire, one PEC material, one centre feed. The point is a REAL deck to read
+    cards back out of, not a physically interesting antenna — the physics is
+    `dipole_nec2`'s job.
+    """
+    import FreeCAD
+    import Part
+
+    from emstudio.objects import analysis as analysis_mod
+    from emstudio.objects import material as material_mod
+    from emstudio.objects import ports as ports_mod
+    from emstudio.objects import solver_objs
+
+    wire = doc.addObject("Part::Feature", "DipoleWire")
+    wire.Shape = Part.makePolygon([FreeCAD.Vector(0, 0, -250),
+                                   FreeCAD.Vector(0, 0, 250)])
+    ana = analysis_mod.makeAnalysis(doc)
+    ana.FrequencyStart = "200 MHz"
+    ana.FrequencyStop = "400 MHz"
+    ana.FrequencyPoints = 21
+    mat = material_mod.makeMaterial(doc, ana, name="FFPEC",
+                                    category="Metal (PEC)")
+    mat.References = [(wire, "")]
+    mat.WireRadius = "1 mm"
+    port = ports_mod.makeLumpedPort(doc, ana, name="FFFeed")
+    port.References = [(wire, "Edge1")]
+    solver = solver_objs.makeSolverNEC2(doc, ana)
+    doc.recompute()
+    return ana, solver
+
+
 def gate_writer():
-    """The multi-frequency deck, and the byte-identical single-frequency one."""
+    """The multi-frequency deck, and the byte-identical single-frequency one.
+
+    ⚠ **REWRITTEN 2026-08-20 — this used to read `writer.py` and assert it
+    CONTAINED four literal lines.** That tests what the file SAYS. It now
+    writes REAL DECKS and reads the cards back, which is the artefact nec2c
+    actually consumes — the same standard `team7_elmer` applies to its `.sif`.
+
+    Needs FreeCAD for a real analysis (the deck is built from geometry), so it
+    skips under plain python exactly as `gate_polyline_deck` does.
+    """
+    try:
+        import FreeCAD
+    except Exception:                                           # noqa: BLE001
+        print("  skip  writer deck — needs FreeCAD (run under freecadcmd)")
+        return
+
     import tempfile
+
+    import FreeCAD
+    import Part
 
     from emstudio.solvers.nec2 import writer
 
-    src = open(os.path.join(_ROOT, "emstudio", "solvers", "nec2", "writer.py"),
-               encoding="utf-8").read()
-    check("write_nec_farfield can sweep (npts/f2_hz)",
-          "def write_nec_farfield(analysis, solver, path, f_hz, npts=1, "
-          "f2_hz=None):" in src)
-    check("npts=1 still emits the one-point FR card every frozen deck expects",
-          'lines.append("FR 0,1,0,0,{0:.6f},0.".format(f_hz / 1e6))' in src)
-    check("the swept form emits an N-point FR card with a real step",
-          'lines.append("FR 0,{0:d},0,0,{1:.6f},{2:.6f}".format(' in src)
-    # The RP card must still be there — an FR sweep with no RP emits no
-    # patterns at all, which is how the first probe of this measured zero.
-    check("an RP card is still emitted (FR without RP yields NO patterns)",
-          '"RP 0,37,72,1000,0.,0.,5.,5."' in src
-          and '"RP 0,19,72,1000,0.,0.,5.,5."' in src)
+    doc = FreeCAD.newDocument("ff_writer_gate")
+    try:
+        ana, solver = _dipole_analysis(doc)
+        tmp = tempfile.mkdtemp()
+
+        one = os.path.join(tmp, "one.nec")
+        writer.write_nec_farfield(ana, solver, one, 300e6)
+        d1 = open(one, encoding="utf-8").read()
+        fr1 = [l for l in d1.splitlines() if l.startswith("FR ")]
+        check("npts=1 emits exactly ONE FR card [%d]" % len(fr1), len(fr1) == 1)
+        check("...in the one-point form every frozen deck expects [%s]"
+              % (fr1[0] if fr1 else "-"),
+              bool(fr1) and fr1[0] == "FR 0,1,0,0,300.000000,0.")
+
+        many = os.path.join(tmp, "many.nec")
+        writer.write_nec_farfield(ana, solver, many, 200e6, npts=5, f2_hz=400e6)
+        d5 = open(many, encoding="utf-8").read()
+        fr5 = [l for l in d5.splitlines() if l.startswith("FR ")]
+        check("the swept form emits ONE N-point FR card [%s]"
+              % (fr5[0] if fr5 else "-"),
+              len(fr5) == 1 and fr5[0].startswith("FR 0,5,0,0,200.000000,"))
+        # The step must be real and correct: (400-200)/(5-1) = 50 MHz. A step
+        # of 0 emits five patterns at ONE frequency — five copies of the same
+        # answer, labelled as a sweep, which is exactly the plausible-looking
+        # failure this whole feature can produce.
+        step = float(fr5[0].split(",")[-1]) if fr5 else -1.0
+        check("...with the REAL step, not 0 [%g MHz]" % step,
+              abs(step - 50.0) < 1e-6)
+
+        # An FR sweep with no RP card emits no patterns at all — how the first
+        # probe of this feature measured zero.
+        for label, deck in (("single", d1), ("swept", d5)):
+            rp = [l for l in deck.splitlines() if l.startswith("RP ")]
+            check("the %s deck still carries an RP card [%d]" % (label, len(rp)),
+                  len(rp) >= 1)
+    finally:
+        FreeCAD.closeDocument(doc.Name)
+
+
+#: A two-point sweep whose BEST MATCH is the SECOND point (400 MHz, ~50 ohm)
+#: and whose first point is badly mismatched (~75+j10). Deliberate: it makes
+#: "the best-match pattern" different from "the first pattern", so a selection
+#: that just took farfields[0] is visible. With a matched first point the two
+#: answers coincide and the check would prove nothing.
+_SWEEP_TWO_POINT = (
+    "                        --------- FREQUENCY --------\n"
+    "                               FREQUENCY=  2.0000E+02 MHZ\n\n"
+    "                        --------- ANTENNA INPUT PARAMETERS ---------\n"
+    "  TAG   SEG       VOLTAGE (VOLTS)         CURRENT (AMPS)         "
+    "IMPEDANCE (OHMS)        ADMITTANCE (MHOS)     POWER\n"
+    "    1    11  1.0000E+00  0.0000E+00  1.3128E-02 -1.7160E-03  "
+    "7.4894E+01  9.7899E+00  1.3128E-02 -1.7160E-03  6.5639E-03\n\n"
+    "                        --------- FREQUENCY --------\n"
+    "                               FREQUENCY=  4.0000E+02 MHZ\n\n"
+    "                        --------- ANTENNA INPUT PARAMETERS ---------\n"
+    "  TAG   SEG       VOLTAGE (VOLTS)         CURRENT (AMPS)         "
+    "IMPEDANCE (OHMS)        ADMITTANCE (MHOS)     POWER\n"
+    "    1    11  1.0000E+00  0.0000E+00  2.0000E-02  0.0000E+00  "
+    "5.0000E+01  0.0000E+00  2.0000E-02  0.0000E+00  1.0000E-02\n"
+)
+
+
+class _StubSolver:
+    """Only the attributes the runner actually reads off a solver object."""
+
+    def __init__(self, n_pat=0, f1=0.0, f2=0.0):
+        self.PatternFrequencies = n_pat
+        self.PatternFreqStart = f1
+        self.PatternFreqStop = f2
+
+
+class _StubAnalysis:
+    Label = "ff-wiring-fixture"
+
+
+def _drive_runner(n_pat, band=(0.0, 0.0)):
+    """Run the REAL runner with only the BINARY and the DECK WRITER stubbed.
+
+    Everything under test — reading ``PatternFrequencies``, resolving the
+    pattern band, choosing the multi vs single branch, populating
+    ``farfields`` / ``farfield`` / ``currents_all`` — is the shipped code.
+    What is replaced is exactly the two things a FAST gate cannot have: nec2c
+    itself (a fake job drops canned NEC2 output where the run expects it) and
+    the deck writer (it needs real FreeCAD geometry; its own cards are gated
+    for real in ``gate_writer``).
+
+    The stub writer RECORDS its arguments, which is how the runner's decisions
+    become observable without a solver: if the runner asks for ``npts=1`` when
+    five patterns were requested, that is the multi-branch failing, and it
+    shows up here as a recorded call rather than as a missing string.
+
+    Returns ``(result, calls)``.
+    """
+    import tempfile
+
+    from emstudio.solvers.base import SolverJob as _RealJob
+    from emstudio.solvers.nec2 import runner
+
+    calls = []
+
+    class _StubInfo:
+        found = True
+        path = "nec2-stub"
+        backend = "nec2"
+
+    class _StubSetup:
+        @staticmethod
+        def find_backend(_name):
+            return _StubInfo()
+
+        @staticmethod
+        def install_hint(_backend):
+            return ""
+
+    class _StubWriter:
+        @staticmethod
+        def write_nec(_ana, _solver, path, report=None):
+            open(path, "w", encoding="utf-8").write("CM stub deck\nCE\nEN\n")
+            if report is not None:
+                report["thin_wire"] = {"ok": True, "ratio": 9.0, "segments": 11}
+            return None, (200e6, 400e6, 2), 50.0
+
+        @staticmethod
+        def write_nec_farfield(_ana, _solver, path, f_hz, npts=1, f2_hz=None):
+            calls.append({"f_hz": f_hz, "npts": npts, "f2_hz": f2_hz})
+            open(path, "w", encoding="utf-8").write("CM stub ff deck\nCE\nEN\n")
+
+    class _StubJob:
+        """Writes the canned output the real binary would have produced."""
+
+        duration_s = 0.0
+
+        def __init__(self, argv, cwd=None, line_callback=None):
+            # ⚠ nec2_argv passes BASENAMES and relies on cwd — macOS temp paths
+            # overflow nec2c's fixed filename buffer. A stub that ignores cwd
+            # writes the canned output into the wrong directory and the run
+            # fails with FileNotFoundError, which looks like a parser bug.
+            out = [a for a in argv if str(a).endswith(".out")][-1]
+            self.out = os.path.join(cwd or ".", os.path.basename(out))
+
+        def run_blocking(self, timeout=None):
+            body = (_TWO_BLOCK_CURRENTS
+                    if os.path.basename(self.out) == "case_ff.out"
+                    else _SWEEP_TWO_POINT)
+            open(self.out, "w", encoding="utf-8").write(body)
+
+    saved = (runner.solver_setup, runner.writer, runner.SolverJob)
+    try:
+        runner.solver_setup = _StubSetup
+        runner.writer = _StubWriter
+        runner.SolverJob = _StubJob
+        result = runner.run(_StubAnalysis(),
+                            _StubSolver(n_pat, band[0], band[1]),
+                            workdir=tempfile.mkdtemp())
+    finally:
+        (runner.solver_setup, runner.writer, runner.SolverJob) = saved
+        assert runner.SolverJob is _RealJob, "the real SolverJob was not restored"
+    return result, calls
 
 
 def gate_wiring():
-    src = open(os.path.join(_ROOT, "emstudio", "solvers", "nec2", "runner.py"),
-               encoding="utf-8").read()
-    check("the runner reads the solver's PatternFrequencies",
-          'getattr(solver, "PatternFrequencies", 0)' in src)
-    check("a swept run parses with the PER-FREQUENCY parser",
-          "parse_radiation_patterns_all" in src)
-    check("result.farfield stays the single best-match pattern (compat)",
-          "result.farfield = min(result.farfields," in src)
-    check("result.farfields is always populated, even for one pattern",
-          "result.farfields = [result.farfield]" in src)
+    """The runner's pattern pass, DRIVEN — not read.
 
-    props = open(os.path.join(_ROOT, "emstudio", "objects", "solver_objs.py"),
-                 encoding="utf-8").read()
-    check("PatternFrequencies defaults to 0 (every old document unchanged)",
-          "obj.PatternFrequencies = 0" in props)
-    check("the pattern BAND is a property pair, defaulting to follow the sweep",
-          '"PatternFreqStart"' in props and '"PatternFreqStop"' in props
-          and "setattr(obj, _name, 0.0)" in props)
-    check("the runner resolves the band through pattern_band, not inline",
-          "pattern_band.resolve_band(solver, f1, f2)" in src)
+    ⚠⚠ **REWRITTEN 2026-08-20, and the old version was measurably theatre.**
+    It opened `runner.py` and asserted it CONTAINED lines like
+    `"result.farfields = [result.farfield]"`. Three behaviour-destroying
+    mutations were run against it and **all three stayed green**: commenting
+    out the farfields population, commenting out the per-frequency currents,
+    and — worst — turning `if multi:` into `if False:`, which makes the entire
+    multi-frequency branch unreachable while every asserted substring survives
+    untouched. A source-text check proves the file SAYS something; only running
+    it proves the code DOES it.
+    """
+    # -- five patterns requested: the MULTI branch --------------------------
+    res, calls = _drive_runner(5)
+    check("a 5-pattern request reaches the writer as ONE swept deck [%d call(s)]"
+          % len(calls), len(calls) == 1)
+    got = calls[0] if calls else {}
+    check("...asking for 5 points, not 1 [npts=%s]" % got.get("npts"),
+          got.get("npts") == 5)
+    check("...across the sweep band, so f2 is passed [f2=%s]" % got.get("f2_hz"),
+          got.get("f2_hz") is not None and abs(got["f2_hz"] - 400e6) < 1.0)
+    check("every frequency block becomes its own pattern [%d]"
+          % len(res.farfields), len(res.farfields) == 2)
+    check("...each carrying its OWN frequency, not the caller's",
+          [round(f.freq / 1e6) for f in res.farfields] == [200, 400],
+          [f.freq for f in res.farfields])
+    # The fixture's best match is the SECOND point, so "best match" and
+    # "the first one" are different objects here — which is the only way
+    # this check can see a selection that quietly takes farfields[0].
+    check("result.farfield is the BEST-MATCH pattern, not simply the first "
+          "[%.0f MHz]" % (res.farfield.freq / 1e6),
+          abs(res.farfield.freq - 400e6) < 1.0)
+    check("per-frequency currents ride the same run [%d]"
+          % len(res.currents_all), len(res.currents_all) == 2)
     check("the deck's thin-wire measurement reaches the result",
-          'result.meta["thin_wire"] = deck_report["thin_wire"]' in src)
-    check("the runner carries per-frequency currents (currents_all)",
-          "result.currents_all = parser.parse_currents_all(ff_out)" in src)
+          isinstance(res.meta.get("thin_wire"), dict))
+
+    # -- the default: no pattern sweep asked for ----------------------------
+    res1, calls1 = _drive_runner(0)
+    check("with PatternFrequencies=0 the writer is asked for ONE point "
+          "[npts=%s]" % (calls1[0].get("npts") if calls1 else None),
+          len(calls1) == 1 and calls1[0].get("npts") == 1)
+    check("...and farfields is STILL populated, with exactly one entry [%d]"
+          % len(res1.farfields), len(res1.farfields) == 1)
+    check("...which is the same object as result.farfield",
+          res1.farfields[0] is res1.farfield)
+
+    # -- the band narrows the pattern pass ----------------------------------
+    _res2, calls2 = _drive_runner(5, band=(250e6, 350e6))
+    b = calls2[0] if calls2 else {}
+    check("a narrowed PatternFreqStart/Stop reaches the deck [%s-%s MHz]"
+          % (b.get("f_hz", 0) / 1e6, (b.get("f2_hz") or 0) / 1e6),
+          abs(b.get("f_hz", 0) - 250e6) < 1.0
+          and abs((b.get("f2_hz") or 0) - 350e6) < 1.0)
 
     ui = open(os.path.join(_ROOT, "emstudio", "ui", "results_dialog.py"),
               encoding="utf-8").read()

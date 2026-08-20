@@ -338,6 +338,13 @@ def build_dialog(geometry, d_cable, box_w, box_h, parent=None,
         def _solve(self):
             import threading
 
+            # Minutes, not seconds — ask before committing the user to it.
+            from emstudio.ui import run_gui
+            if not run_gui.confirm_solve_work(
+                    self, "openfoam", _trefoil_work(self),
+                    label="Convection on the reference trefoil (OpenFOAM)"):
+                return
+
             state = {"done": False, "result": None, "error": None,
                      "cancel": threading.Event()}
             self._run = state
@@ -438,3 +445,33 @@ def enclosure_side(geometry, d_cable, clearance_ratio):
     """
     return bc._enclosure_for(as_cables(geometry, d_cable), d_cable,
                              clearance_ratio)
+
+
+def _trefoil_work(dlg):
+    """A work measure for the reference-trefoil CFD.
+
+    The dialog is parametric, so there is no mesh to count yet. Cable count
+    times whatever iteration budget the dialog exposes is monotonic in cost,
+    which is all a history key needs — see emstudio.solvers.estimate.
+    """
+    n = 1
+    for name in ("count", "n_cables", "cables"):
+        w = getattr(dlg, name, None)
+        try:
+            v = int(w.value()) if hasattr(w, "value") else int(w)
+            if v > 0:
+                n = v
+                break
+        except (TypeError, ValueError):
+            continue
+    iters = 1
+    for name in ("iterations", "iters"):
+        w = getattr(dlg, name, None)
+        try:
+            v = int(w.value()) if hasattr(w, "value") else int(w)
+            if v > 0:
+                iters = v
+                break
+        except (TypeError, ValueError):
+            continue
+    return float(n * iters)

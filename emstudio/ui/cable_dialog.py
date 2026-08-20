@@ -1811,6 +1811,14 @@ class CableDesignerDialog(QtWidgets.QDialog):
 
             from emstudio.ui import run_gui
 
+            # TWO FastHenry runs, and the measure says so: 2 x conductors x
+            # nhinc (the filaments per conductor this call asks for). Keyed
+            # under its own backend, so it learns FastHenry's own timings
+            # rather than borrowing another solver's.
+            if not run_gui.confirm_solve_work(
+                    self, "fasthenry", float(2 * len(positions) * 5),
+                    label="Bundle coupling (FastHenry, 2 runs)"):
+                return
             run_gui.run_generic_gui(
                 "FastHenry bundle coupling (2 runs)", run_fn,
                 lambda rl_mats: self._show_bundle_coupling(
@@ -1910,6 +1918,12 @@ class CableDesignerDialog(QtWidgets.QDialog):
 
             from emstudio.ui import run_gui
 
+            # Same two runs as the coupling page — same measure, so both pages
+            # feed one history for this backend.
+            if not run_gui.confirm_solve_work(
+                    self, "fasthenry", float(2 * len(positions) * 5),
+                    label="Bundle coupling (FastHenry, 2 runs)"):
+                return
             run_gui.run_generic_gui(
                 "FastHenry bundle coupling (2 runs)", run_fn,
                 lambda rl_mats: self._show_bundle_diff(
@@ -2361,6 +2375,16 @@ class CableDesignerDialog(QtWidgets.QDialog):
 
         from emstudio.ui import run_gui
 
+        # ⚠ This is a real Palace FEM solve, not a formula — the longest thing
+        # this dialog can start. The work measure mirrors `estimate.work_of`
+        # for Palace (frequency points x mesh order) so it shares the backend's
+        # measured history rather than starting a private bucket; run_coax's
+        # order defaults to 2 and this call does not override it.
+        if not run_gui.confirm_solve_work(
+                self, "palace", float(max(2, int(self.fw_pts.value())) * 2),
+                label="Coax full-wave verify (Palace, {0:g}-{1:g} GHz)".format(
+                    params["f1_ghz"], params["f2_ghz"])):
+            return
         run_gui.run_generic_gui(
             "Full-wave verify (Palace, {0:g}-{1:g} GHz)".format(
                 params["f1_ghz"], params["f2_ghz"]),

@@ -3,6 +3,184 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.0] — 2026-08-20 — a real `.sNp`: every port solved, and every solve priced first
+
+### Added
+* **A pre-solve time estimate, measured or absent — never guessed.** A solve
+  asks first, showing what it is expected to cost and letting you back out; the dialog also states that progress is a live percentage with an
+  ETA and that Cancel works, because "how long" and "can I stop it" are the
+  same question asked twice. Muteable per-user with *Don't ask again*.
+  `solvers/progress.py` already answered "is it hung?" once a run was under
+  way, but its live ETA needs 3 s and 5 % done before it will speak — by which
+  time the decision is made. The tempting fix is a cost model (NEC2 is O(N³)
+  in segments, openEMS is timesteps × cells); that gives a shape, never a
+  duration, because the constant is the machine. So estimates come from **this
+  machine's own measured history**, bucketed logarithmically per backend by a
+  scalar work measure, taken as the **median** so one run on a machine that
+  slept cannot move it, and borrowed from a neighbouring size only one bucket
+  away, only scaled by the work ratio, and only labelled EXTRAPOLATED. With no
+  history it says so. Wired into all four solver paths — NEC2 and openEMS via
+  `run_solver_gui`, Elmer and Palace at their own call sites (not inside
+  `run_generic_gui`, which also serves non-solve work like fetching a model
+  list). ⚠ It can never block a solve: every error path returns "proceed",
+  because a broken estimate stopping real work would be the worse bug. New
+  FAST gate `solve_estimate`, 8 mutations caught.
+* **The full 2-port solve — two excitations (Palace AND openEMS).** Both
+  backends solve ONE excitation per run by construction, so the complete 2x2
+  S-matrix is two solves. Both solver objects gain **`FullSMatrix`**, off by
+  default. (It was called `Full2Port` while two ports were the only order the
+  solvers could do; see the N-port entry below for the rename.)
+  * **Palace** takes it as a config parameter: `set_excitation()` drives
+    exactly one port and clears any other (its contract is `Excitation ==
+    Index`, and a port without the key is a matched termination). Every
+    excitation runs against the **same mesh** — the property that makes the
+    merged matrix mean anything — and writes to its own `postpro_eN`.
+  * **openEMS** takes its excitation from the port object's `Excited` flag, so
+    `_collect_ports()` gained an override that drives the requested port
+    regardless of the document. The second FDTD run lives in `exc2/` and only
+    its two NEW terms are taken (S22 from its driven-port file, S12 from
+    `sparam_1_2.csv`); run 1 still writes exactly what it always did, in
+    exactly the same place. ⚠ Fixed on the way past: the runner hardcoded a
+    `.s1p` filename, which would have written a genuine 2-port matrix into a
+    file named `.s1p`.
+  `merge_excitations()` joins the columns and **refuses** rather than guessing:
+  a frequency-grid mismatch is refused instead of resampled (two sweeps on
+  different grids are two different experiments, and interpolating one onto
+  the other manufactures a `.s2p` that looks measured), and two runs claiming
+  the same term are refused because that means the excitations were not
+  distinct. ⚠ **Costs a second solve**, and the pre-solve estimate counts it.
+  New FAST gate `two_port_excitation` (5 mutations) plus live SOLVER gates
+  `two_port_palace` (|S11| −28.0 dB, |S21| within 0.334 dB of 0, S12−S21
+  4.2e−08) and `two_port_openems` (worst |S| 1.0053, S12−S21 7.0e−07,
+  S11−S22 4.2e−07) — **both measured on real solves, not asserted**.
+
+  ⚠ **Both live gates are built around a trap worth knowing.** A uniform coax
+  and a symmetric filter both give S11 == S22 and S12 == S21 *by physics*, so
+  a swapped-column mislabelling is INVISIBLE in the values. The proof is
+  structural instead — each excitation's own output must carry its own column
+  and the sets must be disjoint. Palace names the terms in its CSV header;
+  openEMS names them in its filenames.
+* **Touchstone export follows what was actually solved.** `write_touchstone`
+  now writes `.sNp` for whatever order the solve COMPLETED and refuses
+  otherwise, naming the missing terms. Both full-wave backends excite exactly
+  one port by construction — openEMS refuses anything else, Palace marks port
+  1 excited with the rest passive — so a run yields one **column** of the
+  S-matrix. S11 and S21 are real; S12 and S22 do not exist anywhere, and
+  reciprocity does not close the gap (it gives S12 = S21 and leaves S22
+  unknown). A `.s2p` written today would have a fabricated half, and a VNA
+  comparison would read it as measurement. ⚠ The default order is the largest
+  **complete** matrix, not the largest port index mentioned — without that,
+  today's S11+S21 result would have stopped writing the `.s1p` it always has.
+  New FAST gate `touchstone_export`, 5 mutations caught including a transposed
+  S11/S21/S12/S22 column order, which is the format's own trap.
+* **N ports, not two.** The S-matrix chain was written 2-port-first and had
+  four places where "two" was a literal rather than a count. All four now
+  derive it, so a 3-port junction or a 4-port coupler runs the same path a
+  2-port does:
+  * **Mesh attributes are derived** (`gmsh_box.wg_port_attr` /
+    `wg_wall_attr`): interior 1, ports 2..N+1, walls N+2. For N = 2 that is
+    exactly the historical `interior=1, port1=2, port2=3, walls=4`, so every
+    existing mesh and config is byte-identical. ⚠ **The wall attribute moves
+    with the port count**, and the old constant `WG_WALL_ATTR` is 4 — which is
+    PORT 3's attribute on a 3-port mesh. Tagging walls with it would hand
+    Palace a face that is both a port and PEC, which it does not report as the
+    error it is. The gate pins that collision so the constant cannot creep
+    back.
+  * **The BREP mesher takes N port faces** (`gmsh_brep.normalise_port_faces`),
+    either as `(axis, at_max)` — the same slab query the 2-port path always
+    used, which covers T and Y junctions and crosses — or as an explicit
+    bounding box for what that shorthand cannot say. `ports=None` still means
+    the two ends of `axis`, so nothing existing moves.
+  * **`build_driven_config` takes `n_ports`** and builds that many wave ports.
+  * **The excitation list follows the mesh** instead of being `[1, 2]`, and
+    `set_excitation` now **refuses** an unknown port rather than clearing every
+    excitation and driving none — a config Palace solves happily, returning a
+    column of numbers with nothing behind them. Only reachable once the list
+    stopped being a literal, which is precisely when an off-by-one becomes
+    possible.
+  * **openEMS loops** over the remaining ports (`exc<N>/` each) instead of
+    hardcoding port 2, driving the document's own port NUMBERS — a user who
+    deletes a port leaves 1 and 3 behind, and `range(1, n+1)` would ask for a
+    port 2 that does not exist.
+  * **The estimate prices N solves**, not two. It multiplied by 2 for a full
+    matrix, which is right only for a 2-port and would have been the largest
+    under-estimate in the product on a 4-port. ⚠ It falls back to **1**, not to
+    a port count invented here, when an analysis cannot be counted.
+  `Full2Port` is renamed **`FullSMatrix`** to match. Renamed outright rather
+  than deprecated because it never reached a customer — the 2-port work is
+  still unreleased — but documents saved while it was being proven are
+  migrated on restore, since silently resetting the switch would turn a
+  full-matrix solve back into a single column with nothing to show for it.
+  New FAST gate `n_port_smatrix` (49 checks, **10 mutations caught**) built on
+  a deliberately ASYMMETRIC 3-port fixture, plus a migration check in the
+  FreeCAD smoke (1 mutation). ⚠ **Three is the smallest order that can catch
+  any of this**: a uniform 2-port is symmetric, so a transpose is invisible in
+  the values; the 2-port file is one line, so the layout rule never fires; and
+  4 is the correct wall attribute for a 2-port, so the constant looks right
+  forever.
+  ⚠ **Scope, stated rather than implied:** the engine is N-port end to end
+  (mesh → config → excitation loop → merge → `.sNp`), but the DOCUMENT still
+  has no way to say which face is port 3 — `build_waveguide_model` infers two
+  ports from the longest bounding-box axis, so every solve driven from the GUI
+  is still a 2-port. The seam is wired; the face picker is not built.
+
+### Fixed
+* **Four more solve paths now ask before they start.** The v1.2.0 pre-solve
+  estimate was wired into the four solver paths and the parametric CFD
+  dialogs; a deliberate audit found four more that launch real solvers
+  **directly** through `run_generic_gui`, which is why the earlier sweep — it
+  looked at solver-object paths — could not see them. `confirm_solve` appeared
+  nowhere in either file:
+  * the **RFDF correlative manifold**, which is *N* NEC2 far-field solves, one
+    per array element, sized from a ring count the user just typed;
+  * the Cable Designer's **full-wave verify**, a real Palace FEM solve — the
+    longest thing that dialog can start;
+  * the Cable Designer's **FastHenry bundle coupling**, two runs, on both the
+    coupling and the diff pages.
+  ⚠ Each states its own work measure, matched to the backend it uses, so the
+  new paths share that backend's measured history instead of each starting a
+  private bucket. The cable dialog's OpenFOAM path was already covered — it
+  delegates to `convection_dialog`, which confirms.
+* **A validation gate that could not fail, and is now proven to fail.**
+  `pattern_sweep`'s `gate_wiring` and `gate_writer` (18 checks) asserted that
+  `runner.py` and `writer.py` **CONTAINED literal lines** — they tested what
+  the files SAY, not what they DO. Measured: **three behaviour-destroying
+  mutations all stayed green**, including turning `if multi:` into
+  `if False:`, which makes the entire multi-frequency branch — the feature the
+  gate exists to defend — unreachable while every asserted substring survives.
+  Both are rewritten to drive the real code: `gate_writer` writes REAL DECKS
+  and reads the FR/RP cards back (the artefact nec2c consumes, the same
+  standard the Elmer gates apply to their `.sif`), and `gate_wiring` runs the
+  REAL runner with only the binary and the deck writer stubbed, asserting on
+  the `SweepResult` it returns. The same three mutations are now caught 3/3.
+* **`export_free.py --check` was blind to renamed files.** `drift()` compared
+  every file at its SOURCE path and never applied the manifest's rename map,
+  so `docs/README.free.md` was reported *missing* for ever, its published copy
+  `README.md` was reported *extra* for ever, and — the part that bites — the
+  public README **was never compared against its source at all**. Real drift in
+  the first file any visitor reads would not have shown up. Two permanent false
+  positives also train the reader to skim the checker.
+* **`SweepResult` declares its optional extras.** `farfield`, `farfields`,
+  `currents`, `currents_all` and `nearfield` were bolted on after construction
+  by the NEC2 and openEMS runners and declared by no `__init__`, so every
+  reader had to guess whether the attribute existed. `s_others` was given a
+  real field for exactly this reason and its four siblings were left behind.
+  `None` / `[]` now says "this run produced none", which a reader can act on,
+  where a missing attribute is only a question.
+* **A `.s3p` was written as one long line, and that is not the format.**
+  Touchstone puts a whole frequency entry on one line for 1 and 2 ports, but
+  from **3 ports up it is one matrix ROW per line**, wrapped at four pairs per
+  line from 5 ports up. The writer emitted every order as a single line, so
+  any `.s3p` it produced was non-compliant — other tools reject it or, worse,
+  misparse it. Nothing consumed a `.s3p` yet, which is exactly why no gate
+  caught it. 1- and 2-port files are unchanged, quirk column order included.
+* **`s_others` is a real field now.** The transmission terms were an
+  undeclared attribute bolted on after construction by the openEMS and Palace
+  runners, so every reader had to guess whether it existed —
+  `results_dialog` guarded with `getattr`, `cable_dialog` did not, and a NEC2
+  or Elmer result reaching that path was an AttributeError waiting for a user
+  to find.
+
 ## [1.1.0] — 2026-08-19 — CFD on what you select, and FastHenry's licence resolved
 
 ### Added

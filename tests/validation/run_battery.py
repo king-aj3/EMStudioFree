@@ -57,8 +57,12 @@ FAST = {
     "propagation": None,
     "small_antenna": None,
     "solid_setup": None,
+    "solve_estimate": None,
     "solver_progress": None,
     "thermal": None,
+    "touchstone_export": None,
+    "two_port_excitation": None,
+    "n_port_smatrix": None,
     "wind_transient": None,
     "ui_attr_collisions": None,
 }
@@ -80,7 +84,8 @@ SOLVER = [
     "msl_notch_openems", "open_coil_elmer", "patch_auto_openems",
     "patch_openems",
     "patch_stl_openems", "solenoid3d_elmer",
-    "stl_mesh_openems", "team7_elmer", "waveguide_palace", "whitney3d_elmer",
+    "stl_mesh_openems", "team7_elmer", "two_port_openems", "two_port_palace", "waveguide_palace",
+    "whitney3d_elmer",
     "wire_current_sharing", "wire_fasthenry", "wire_from_solid", "wpt_elmer",
     "yagi_nec2",
 ]
@@ -133,6 +138,7 @@ SOLVER_REQS = {
     "msl_notch_openems": "openems_python",
     "patch_auto_openems": "openems_python",
     "patch_stl_openems": "openems_python",
+    "two_port_openems": "openems_python",
 }
 
 
