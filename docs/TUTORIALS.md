@@ -1021,11 +1021,25 @@ Seeing 2.83 at 8.7 % drift is not a mystery — it is an unconverged run, and th
 gate's own comment records exactly that case.
 
 **The second rung** turns the buoyancy on and compares against **Churchill's
-sphere correlation** at Ra_D ≈ 1.33e6. The gate asserts a self-pin plus
-agreement inside the correlation's own scatter; its recorded full-fidelity run
-lands **+4.3 %** (**+5.6 %** at gate fidelity). ⚠ Treat a correlation
-comparison as weaker evidence than the sandwich above — a few percent against a
-fitted curve is agreement; a few percent outside an exact bound is a bug.
+sphere correlation**. Measured on this box:
+
+| quantity | measured | reference |
+|---|---|---|
+| Nu_D | **18.3508** | Churchill **17.3838** → **+5.6 %** |
+| at the resulting Ra_D | **1.317e6** | window ±15 % |
+| surface temperature spread | **25.92 K** | vs the conduction rung's **0.147 K** |
+
+⛳ **That last row is a check worth copying.** Free convection either happened
+or it did not, and a solve where the flow never started would show the
+conduction rung's near-uniform surface. Demanding the convective spread exceed
+**5×** the conduction spread makes "did the buoyancy actually engage?" a
+question the gate answers rather than assumes — a no-flow solve cannot fake it.
+
+⚠ **Treat a correlation comparison as weaker evidence than the sandwich
+above.** A few percent against a fitted curve is agreement; a few percent
+outside an exact bound is a bug. The project's own full-fidelity run records
+**+4.3 %** (Nu 18.1748 vs 17.42) — finer than this gate's mesh, which is why
+the gate-fidelity number above is the larger of the two.
 
 ⛳ **Ra is an OUTPUT here, not an input.** The surface has a fixed *flux*, so
 the temperature rise — and therefore the Rayleigh number — is whatever the

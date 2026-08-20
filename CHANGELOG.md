@@ -122,7 +122,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   **exact** bound rather than a correlation (Nu_D **2.5511** inside the
   conduction sandwich **[2.3374, 2.6667]**, measured live), which also fails
   informatively in both directions: an unconverged solve reads HIGH, a
-  lost-flux coupling reads LOW. And **#11 conjugate heat transfer** — gap Nu
+  lost-flux coupling reads LOW. Its convection rung is measured too —
+  **Nu 18.3508** at Ra **1.317e6** vs Churchill **17.3838** (**+5.6 %**), with
+  a buoyancy signature of **25.92 K** surface spread against the conduction
+  rung's **0.147 K**, so *"did the flow actually start?"* is a question the
+  gate answers rather than assumes. And **#11 conjugate heat transfer** — gap Nu
   **~6.5** (bracket **6.47–6.56**), ⚠ deliberately NOT the gate mesh's 6.85,
   which reads roughly 5 % high; the tutorial explains why the answer is a
   bracket (the scheme is formally first-order yet the three grids show
