@@ -43,6 +43,18 @@ shadowing, LF/MF ground-wave) — each with its own validated regime.
    under their own licenses.
 4. **Minimal-effort first.** Templates give a validated result in minutes; every
    default is chosen so the first run works.
+5. **AI was used to build this, and that changes nothing about principle 1.**
+   I used AI assistance heavily — writing code, drafting documentation, working
+   through the physics. I am one person doing this in evenings and weekends, and
+   it would not exist otherwise. Saying so plainly is better than letting you
+   discover it: the GitHub descriptions and an early version of the website read
+   like a brochure because of it, and that was a fair thing to call out.
+   What the AI did not do is decide what counts as correct. Every number this
+   tool prints is checked by a test you can run yourself against published
+   references — TEAM Problem 7's measured points, the NBS TN-688 Yagis, closed
+   forms, or a second solver. **That is the part that matters, and it is the part
+   you should judge it on.** Do not take the prose on trust; run
+   `python3 tests/validation/run_battery.py` and take the numbers instead.
 
 ## Disclaimer
 
