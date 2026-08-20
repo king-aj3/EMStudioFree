@@ -258,6 +258,12 @@ being sought, and it needs a published, *measured* reference to anchor to.
 
 # The rest of the series — planned order
 
+> **The goal is COMPLETE COVERAGE: at least one tutorial for every solver and
+> every capability EMStudio ships**, so "there is nothing showing how to use
+> EMStudio" stops being true. Six are written; the full 27-item list, with the
+> anchor each should quote and which are Pro-side, is the authoritative one in
+> the project's session handoff. The table below is the near-term slice.
+
 Written, but living in [the user manual](USER_MANUAL.md) rather than here yet.
 The job is to give each one the four-part shape above and a named gate.
 
