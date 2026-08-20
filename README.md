@@ -143,8 +143,9 @@ explicitly in the preferences or via `EMSTUDIO_<BACKEND>`.
 
 ## Documentation
 
+[docs/TUTORIALS](docs/TUTORIALS.md) — **start here**: five tutorials, each ending in a number you can check ·
 [HELP](HELP.md) — every command, at a glance ·
-[docs/USER_MANUAL](docs/USER_MANUAL.md) — step-by-step tutorials ·
+[docs/USER_MANUAL](docs/USER_MANUAL.md) — the full reference ·
 [ABOUT](ABOUT.md) — what this is for ·
 [CONTRIBUTING](CONTRIBUTING.md) — how to help, and the CLA ·
 [DISCLAIMER](DISCLAIMER.md) · [TRADEMARK](TRADEMARK.md)

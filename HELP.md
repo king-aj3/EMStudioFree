@@ -1,6 +1,8 @@
 # EMStudio — Quick Help
 
-Full manual with step-by-step tutorials: [docs/USER_MANUAL](docs/USER_MANUAL.md)
+New here? **[docs/TUTORIALS](docs/TUTORIALS.md)** — five tutorials, each
+ending in a number you can check, ordered by what you need installed.
+Full reference: [docs/USER_MANUAL](docs/USER_MANUAL.md)
 
 > 🎓 **For educational, hobbyist and experimental use — and under active
 > development.** More to come; features, defaults and results may change
