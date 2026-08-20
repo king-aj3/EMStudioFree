@@ -1038,6 +1038,64 @@ written case and the gravity direction.
 
 ---
 
+## 11. Conjugate heat transfer: solid and fluid solved together
+
+**Needs:** **OpenFOAM** (ESI). Long — plan in tens of minutes.
+
+⛳ **What "conjugate" buys you.** Every thermal case before this imposed a
+condition *on* a surface: a temperature, or a flux, that you had to know in
+advance. CHT solves the solid and the fluid **at once**, with the interface
+temperature falling out of the coupling rather than being assumed. That matters
+whenever the thing you want to know *is* the interface temperature.
+
+**Do**
+1. **Analysis ▸ Solve Conjugate Heat Transfer (slab + air gap)…**
+2. The reference case is a tall air gap, aspect ratio **H/L = 4**, driven to a
+   nominal **Ra ≈ 1e6**.
+
+**You should see** a gap Nusselt number of about **6.5**:
+
+| quantity | value |
+|---|---|
+| mesh-converged Nu | **~6.5** (bracket **6.47–6.56**) |
+| the gate's accepted window | **[5.5, 8.6]** |
+| the gate's own 40×60 mesh reads | 6.85 — **roughly 5 % high** |
+
+⚠⚠ **Quote "~6.5", never a four-digit value, and never the gate's 6.85.**
+That is not fussiness. The 6.85 is what the *gate's* deliberately coarse mesh
+produces; a three-grid refinement study (40×60 → 60×90 → 80×120, each run to
+20 000 iterations and proven frozen) puts the mesh-independent answer at
+**6.47–6.56**. Reporting the gate's number to a user would be quoting a
+discretisation artefact as physics.
+
+⛳ **Why a bracket and not a single extrapolated figure.** The scheme is
+**first-order** in the convected quantities (`bounded Gauss upwind`, cell
+Péclet ≈ 23), yet the three grids show an observed order of **p = 1.90** —
+about twice the formal order. Per Roache / ASME V&V 20 that is a reason *not*
+to trust the standard safety factor, so the result is reported as a range under
+both conventions rather than as one confident number.
+
+⛳ **The real evidence of convergence is the shrinking difference**, not any
+single check: Nu goes 6.8529 → 6.6957 → 6.6387, steps of −0.157 then −0.057,
+a ratio of 0.363 — monotone and shrinking. ⚠ An earlier version of that study
+claimed an "asymptotic-range check ≈ 1.0" as proof; it was **withdrawn** after
+an audit showed the quantity is algebraically identical to f₃/f₂ once *p* is
+fitted from the same three points. It had zero degrees of freedom and **could
+not fail**. That withdrawal is recorded in the study file itself.
+
+⚠ **Do not cite MacGregor & Emery at A = 4, Pr = 0.7** as a reference for this
+case — it does not apply here, and the project has recorded that trap.
+
+**Prove it** — `tests/validation/openfoam_cht_convection.py` (SOLVER tier),
+which asserts the window above on a live coupled solve;
+`tests/validation/openfoam_cht.py` for the zero-gravity two-region stack, where
+both region means must agree to five decimals; and
+`tests/validation/cht_setup.py` (FAST) for the case-writing arithmetic. The
+refinement study is committed at `docs/results/cht_refinement_fixedmesh.txt` —
+including what it got wrong and withdrew.
+
+---
+
 # 🔒 The Pro capabilities — what they measure
 
 These four are **EMStudio Pro**. The stubs below say what each one does and the
@@ -1135,34 +1193,34 @@ templates and the tutorials are free, and they are the part that is checked.
 
 ---
 
-# The rest of the series — planned order
+# Coverage — the standing order is met
 
-> **The goal is COMPLETE COVERAGE: at least one tutorial for every solver and
-> every capability EMStudio ships**, so "there is nothing showing how to use
-> EMStudio" stops being true. The ones above are written; everything below is
-> not yet. ⚠ **Do not quote a tutorial COUNT anywhere** — not in a post, not in
-> a README, not here. It goes stale the day the next one lands, and it already
-> has: a reply drafted on 2026-08-20 said "five" on the day the sixth shipped.
+> ✅ **All twenty-seven capabilities have a tutorial.** Every solver and every
+> capability EMStudio ships is covered, and the four Pro ones carry public stubs
+> giving what they do and the number they measured, with the walkthrough
+> Pro-side. *"There is nothing showing how to use EMStudio"* is now factually
+> unavailable — which was the entire point.
 
-**The numbering below is the project's master list, so a tutorial keeps the
-same number everywhere it is referred to** — #12 is the cavity eigenmode one
-whether it is written yet or not. Each names the anchor it must quote — a
-measured number with a gate behind it — because a tutorial without one is not
-allowed (see the notes below).
+⚠ **Do not quote a tutorial COUNT in prose anywhere** — not in a post, not in a
+README, not here. It goes stale the day the next one lands, and it already has:
+a reply drafted on 2026-08-20 said "five" on the day the sixth shipped, in a
+post whose whole argument was that this project's claims are checkable.
+`tests/validation/tutorials_doc.py` fails the battery if one comes back.
 
-🔒 marks a **Pro** capability. Those get a short public stub here saying what
-it does and what it measured, with the full walkthrough Pro-side; the free
-alternative is named where one exists.
+**The numbering is stable and is the project's master list** — a tutorial keeps
+its number everywhere it is referred to, so #12 is the cavity eigenmode one
+wherever you see it cited.
 
-| # | Tutorial | Group | Tier | Anchor it should quote |
-|---|---|---|---|---|
-| 11 | **OpenFOAM — CHT** | Analysis | free | Nu ≈ 6.56 ± 1.5 % (⚠ NOT the gate's 6.85) |
+🔒 marks a **Pro** capability. ⚠ Their stubs are held to a machine-checked
+contract: what it does, what it measured, the free alternative with the tier
+stated plainly, and its gate — and **no *Do* or *You should see* section**, so
+a helpful edit cannot quietly turn a teaser into the paid walkthrough.
 
-⚠ **#23 (Solver Setup) is the one exception** — it documents a workflow, not a
-number, because installing a backend has no measurable output to pin. It says
-so out loud rather than inventing an anchor.
-
----
+⛳ **What would come next is not more tutorials but better anchors.** Two
+capabilities rest on weaker evidence than the rest and say so in place: #23
+(Solver Setup) has no user-visible number to pin at all, and #10's Churchill
+comparison is a correlation rather than the exact bound its first rung uses.
+Strengthening those is worth more than adding entries.
 
 ## Notes for whoever writes the rest
 

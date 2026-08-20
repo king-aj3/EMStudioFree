@@ -113,6 +113,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   ⛳ #27 is the split AJ called for: the sentence that matters — **the Assistant
   does not validate anything, the gates do** — is public, because it is what
   makes every other number in the file mean something.
+* ⭐ **THE TUTORIAL STANDING ORDER IS MET — all 27 capabilities covered.**
+  Every solver and every capability EMStudio ships now has at least one
+  tutorial ending in a checkable number and naming the gate that pins it, and
+  the four Pro capabilities carry public stubs. *"There is nothing showing how
+  to use EMStudio"* is factually unavailable.
+  Final additions: **#10 thermal CFD on your own solid** — anchored on an
+  **exact** bound rather than a correlation (Nu_D **2.5511** inside the
+  conduction sandwich **[2.3374, 2.6667]**, measured live), which also fails
+  informatively in both directions: an unconverged solve reads HIGH, a
+  lost-flux coupling reads LOW. And **#11 conjugate heat transfer** — gap Nu
+  **~6.5** (bracket **6.47–6.56**), ⚠ deliberately NOT the gate mesh's 6.85,
+  which reads roughly 5 % high; the tutorial explains why the answer is a
+  bracket (the scheme is formally first-order yet the three grids show
+  p = 1.90, so the standard safety factor is not trusted) and records that an
+  earlier "asymptotic-range check ≈ 1.0" was **withdrawn** because it was
+  algebraically identical to f₃/f₂ and could not fail.
 * **A gate for the tutorials themselves.** `tests/validation/tutorials_doc.py`
   (FAST) asserts every numbered tutorial keeps the four-part shape, that each
   "Prove it" names a gate file **that exists**, that no number is used twice
