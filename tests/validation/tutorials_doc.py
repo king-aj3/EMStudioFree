@@ -46,6 +46,11 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 _DOC = os.path.join(_ROOT, "docs", "TUTORIALS.md")
 _GATES = os.path.join(_ROOT, "tests", "validation")
 
+#: Is this the PRO tree? ``emstudio/system/**`` is the tier boundary and is
+#: removed wholesale by ``tools/export_free.py``, so its presence is the
+#: cheapest honest test of which tree the gate is running in.
+_IS_PRO_TREE = os.path.isdir(os.path.join(_ROOT, "emstudio", "system"))
+
 FAILURES = []
 
 
@@ -142,8 +147,20 @@ def main():
         named |= set(re.findall(r"`([A-Za-z0-9_]+\.py)`", m.group(1)))
         check("#%d names a gate" % num, bool(named), ", ".join(sorted(named)))
         for g in sorted(named):
-            check("#%d's gate %s exists" % (num, g),
-                  os.path.isfile(os.path.join(_GATES, g)))
+            present = os.path.isfile(os.path.join(_GATES, g))
+            # ⚠ A 🔒 stub names a PRO gate, and this file is EXPORTED: the free
+            # tree legitimately has no `system_*.py` or `assistant.py`, because
+            # the export strips them. Demanding their presence there failed the
+            # whole free battery the first time these stubs shipped.
+            # ⛳ Strictness is kept exactly where it can be kept: in the PRO
+            # tree every named gate must exist, so a rename is still caught at
+            # the source of truth. Only the tier-stripped tree forgives it, and
+            # only for stubs.
+            if not present and _PRO_MARK in title and not _IS_PRO_TREE:
+                print("  skip  #%d's gate %s — Pro-only, absent in the free "
+                      "tree by design" % (num, g))
+                continue
+            check("#%d's gate %s exists" % (num, g), present)
 
     # 3. numbering is unambiguous, written vs planned
     nums = [n for n, _t, _b in secs]
