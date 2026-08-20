@@ -20,6 +20,7 @@ CMD_ANALYSIS = "EMStudio_Analysis"
 CMD_ANTENNA_FROM_SEL = "EMStudio_AntennaFromSelection"
 CMD_MATERIAL = "EMStudio_Material"
 CMD_PORT = "EMStudio_LumpedPort"
+CMD_WAVE_PORTS = "EMStudio_WavePortsFromSelection"
 CMD_COIL = "EMStudio_Coil"
 CMD_SOLVER_NEC2 = "EMStudio_SolverNEC2"
 CMD_SOLVER_OPENEMS = "EMStudio_SolverOpenEMS"
@@ -70,6 +71,7 @@ ALL_COMMANDS = [
     CMD_ANALYSIS,
     CMD_MATERIAL,
     CMD_PORT,
+    CMD_WAVE_PORTS,
     CMD_COIL,
     CMD_SOLVER_NEC2,
     CMD_SOLVER_OPENEMS,
@@ -126,7 +128,7 @@ ALL_COMMANDS = [
 COMMAND_GROUPS = [
     ("Analysis", [
         CMD_ANTENNA_FROM_SEL, "Separator",
-        CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_COIL, "Separator",
+        CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_WAVE_PORTS, CMD_COIL, "Separator",
         CMD_SOLVER_NEC2, CMD_SOLVER_OPENEMS, CMD_SOLVER_ELMER, CMD_SOLVER_PALACE,
         CMD_SOLVER_OPENFOAM, CMD_CONVECTION, CMD_CONVECTION_FIELD,
         CMD_SOLID_CONVECTION, CMD_CHT,
@@ -405,6 +407,87 @@ class _CreatePort:
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Selection.addSelection(obj)
         FreeCAD.ActiveDocument.recompute()
+
+
+class _WavePortsFromSelection:
+    """One wave port per SELECTED FACE, numbered in selection order.
+
+    The driven Palace path reads the document's ports and solves N of them
+    (``palace/model.declared_port_boxes``). Declaring three ports by hand meant
+    creating three port objects and attaching a face to each -- possible, but
+    tedious enough that nobody would, which is why N-port stayed theoretical
+    long after the engine could do it.
+
+    ⚠ **Selection order IS the port numbering**, and that is deliberate rather
+    than convenient: port 1 is the one Palace excites by default and the one
+    whose S11 the sweep reports, and only the person clicking knows which
+    physical connector that should be. Sorting the faces geometrically would be
+    guessing at something the user is in the middle of telling us.
+    """
+
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_port.svg"),
+            "MenuText": "Wave Ports from Selection",
+            "ToolTip": "Create one wave port per selected FACE, numbered in "
+                       "the order you picked them (port 1 first). Select two "
+                       "or more faces of one solid, e.g. the mouths of a "
+                       "T-junction.",
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from PySide import QtWidgets
+
+        from emstudio.objects import ports
+
+        # Faces only. An edge is a lumped / MSL feed, and the existing
+        # "Lumped Port" command already covers it -- silently accepting one
+        # here would create a "wave port" the mesher cannot select.
+        faces, skipped = [], []
+        for sel in FreeCADGui.Selection.getSelectionEx():
+            for sub in sel.SubElementNames:
+                if sub.startswith("Face"):
+                    faces.append((sel.Object, sub))
+                elif sub:
+                    skipped.append(sub)
+
+        if len(faces) < 2:
+            QtWidgets.QMessageBox.information(
+                FreeCADGui.getMainWindow(), "EMStudio",
+                "Select TWO OR MORE FACES first — one per port, in the order "
+                "you want them numbered.\n\nA single face is a lumped or "
+                "microstrip feed: use Analysis \u25b8 Lumped Port for that.\n\n"
+                "Selected faces: {0}{1}".format(
+                    len(faces),
+                    "" if not skipped else
+                    "   (ignored {0} non-face selection(s): {1})".format(
+                        len(skipped), ", ".join(skipped[:4]))))
+            return
+
+        ana = _active_analysis(create=True)
+        made = []
+        for obj, sub in faces:
+            port = ports.makeLumpedPort(FreeCAD.ActiveDocument, ana,
+                                        references=[(obj, sub)])
+            made.append((port.PortNumber, sub))
+        FreeCAD.ActiveDocument.recompute()
+
+        FreeCAD.Console.PrintMessage(
+            "EMStudio: created {0} wave ports — {1}\n".format(
+                len(made), ", ".join("port {0} = {1}".format(n, f)
+                                     for n, f in made)))
+        QtWidgets.QMessageBox.information(
+            FreeCADGui.getMainWindow(), "EMStudio",
+            "Created {0} wave ports, numbered in selection order:\n\n{1}\n\n"
+            "Run Solver will now solve all {0} of them and export an .s{0}p.{2}"
+            .format(len(made),
+                    "\n".join("  port {0}  \u2190  {1}".format(n, f)
+                               for n, f in made),
+                    "" if not skipped else
+                    "\n\nIgnored {0} non-face selection(s).".format(len(skipped))))
 
 
 class _CreateCoil:
@@ -1940,6 +2023,7 @@ def register():
     FreeCADGui.addCommand(CMD_ANALYSIS, _CreateAnalysis())
     FreeCADGui.addCommand(CMD_MATERIAL, _CreateMaterial())
     FreeCADGui.addCommand(CMD_PORT, _CreatePort())
+    FreeCADGui.addCommand(CMD_WAVE_PORTS, _WavePortsFromSelection())
     FreeCADGui.addCommand(CMD_COIL, _CreateCoil())
     FreeCADGui.addCommand(CMD_SOLVER_NEC2, _AddSolverNEC2())
     FreeCADGui.addCommand(CMD_SOLVER_OPENEMS, _AddSolverOpenEMS())

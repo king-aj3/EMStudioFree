@@ -796,6 +796,190 @@ underneath (FAST tier).
 
 ---
 
+## 14. Cable bundles: skin, proximity, and what FastHenry adds
+
+**Needs:** **FastHenry** for the solved numbers; the closed forms need nothing.
+
+⛳ **Two effects, and only one of them has a formula.** *Skin* effect — current
+crowding to a conductor's own surface — has an exact Bessel solution for an
+isolated round wire. *Proximity* effect — one conductor pushing current around
+inside its neighbour — does not, for a real bundle. That is the boundary this
+tutorial is about, and it is why a field solver earns its place here.
+
+**Do**
+1. **Tools ▸ Cable Designer**, Bundle page. Lay out two or more conductors.
+2. Read the analytic skin/proximity factors, then run the **FastHenry** solve
+   and compare.
+
+**You should see** the analytics exact where they should be, and FastHenry
+tracking them with a mesh-driven error that *grows with frequency*:
+
+| check | value |
+|---|---|
+| skin low-frequency expansion | exact **1.00130** vs series **1.00130** |
+| skin asymptote at a/δ = 4 | exact **2.2738** vs asymptotic **2.2734** |
+| skin asymptote at a/δ = 10.5 | exact **5.5089** vs **5.5089** |
+| proximity seam continuity | **2.439e-04** vs **2.442e-04** |
+
+| FastHenry vs the exact Bessel R_ac/R_dc | FH | exact | error |
+|---|---|---|---|
+| 1 kHz | 1.001 | 1.001 | **0.0 %** |
+| 10 kHz | 1.109 | 1.101 | **0.8 %** |
+| 100 kHz | 2.818 | 2.662 | **5.9 %** |
+| 1 MHz | 8.369 | 7.822 | **7.0 %** |
+
+⚠ **Read that error column as a mesh statement, not a solver indictment.**
+FastHenry discretises each conductor into filaments; as frequency rises the
+skin depth shrinks until the outermost filament is thicker than the layer the
+current actually flows in, and the solver reports slightly too much conductor.
+The fix is more filaments (`nhinc`), which costs time — so the honest workflow
+is: **trust the closed form where one exists, and use FastHenry for the
+geometries where none does.**
+
+⛳ **The proximity series is checked for seam continuity on purpose.** It is a
+piecewise fit, and a discontinuity at the join would be invisible in any single
+evaluation while producing a step in a swept plot. It matches to four digits
+across the seam, and the gate asserts monotonicity across six decades besides.
+
+**Prove it** — `tests/validation/wire_fasthenry.py` (SOLVER tier for the
+FastHenry rows, analytic rows FAST), and `tests/validation/cable.py` for the
+geometry underneath.
+
+---
+
+## 18. Two transmitters, one service area: where does each one win?
+
+**Needs:** nothing.
+
+⛳ **What "coverage" leaves out.** Tutorial 17 draws where a transmitter is
+strong enough. It does not ask whether *another* transmitter is also strong
+there — and a receiver in that overlap may hear neither cleanly. Service is a
+**ratio**, not a level.
+
+**Do**
+1. **Tools ▸ Multi-Station Service / Interference**.
+2. Place a wanted station and one or more interferers, set a service threshold
+   and a protection ratio.
+
+**You should see** each cell classified rather than merely shaded:
+
+| case | result |
+|---|---|
+| desired 50, threshold 41, undesired 38 dBµV/m | **interference-limited** (D/U 12 dB) |
+| desired 50, undesired 34 → D/U 16 dB vs a 15.27 dB ratio | **served** |
+| below the service threshold | **no service** — no interferer needed |
+| in coverage, no interferer | **served**, D/U = +∞ |
+| a real two-station map | wanted **+28.3 dB**, toward the interferer **−27.9 dB** |
+
+**How interferers combine**, which is the part people get wrong:
+
+| combination | result |
+|---|---|
+| two equal 60 dBµV/m signals | **63.0103 dBµV/m** — a **power** sum, +3.01 dB |
+| N equal signals | **+10·log₁₀(N)** (three → +4.771 dB) |
+| 34 and 33 dBµV/m | **36.539 dBµV/m** — matches **ITU-R BT.2265** |
+
+⚠ **Interferers add in power, not in voltage, and never as "the worst one".**
+The tool reports both the power sum and the worst-case single interferer, and
+the power sum is always the larger — planning against the strongest interferer
+alone quietly under-counts a site with several moderate ones.
+
+⛳ **The protection ratios are source-tagged, not invented**: FM co-channel
+**20 dB**, AM/MF co-channel **26 dB** (a 20:1 voltage ratio). The gate asserts
+the tag as well as the number, so a figure cannot lose its provenance.
+
+⛳ **Do not go looking for a `multistation` gate file — there isn't one.** Gate
+files here are named after the physics, not the capability, and this one's
+checks live inside the coverage gate. *"No gate exists"* has to be established
+by reading gate bodies, because under the rules of this series it changes what a
+tutorial is allowed to claim.
+
+**Prove it** — `tests/validation/coverage.py` (FAST tier), which covers the D/U
+combination arithmetic, the classification rules, the protection-ratio table and
+a real two-station service map.
+
+---
+
+## 19. How much does one antenna hear of another?
+
+**Needs:** **NEC2**.
+
+**Do**
+1. **Templates ▸ Template: Co-site Antenna Pair**, or place two antennas in one
+   analysis.
+2. **Analysis ▸ Antenna Isolation Matrix**. It runs one NEC2 solve per element
+   and assembles the mutual-impedance matrix.
+
+**You should see**, for the shipped pair:
+
+| quantity | value |
+|---|---|
+| Z₁₁ | **72.210 − 0.496j Ω** |
+| Z₂₁ | **−15.014 − 27.996j Ω** |
+| \|S₂₁\| | **−13.780 dB** → **13.78 dB of isolation** |
+| reciprocity error | **1.07e-14** |
+
+**That reciprocity figure is the one to look at first.** Z₂₁ must equal Z₁₂ for
+any passive structure — it is physics, not a modelling choice — so the residual
+is a direct read on whether the solve is trustworthy. At **1e-14** it is at
+floating-point noise. If it were 1e-3 you would stop and find out why before
+believing anything else in the matrix.
+
+⚠ **13.78 dB is not much isolation**, and that is the lesson rather than a
+disappointment. Feed tutorial 20 with it: a +43 dBm transmitter through 13.78 dB
+lands **+29 dBm** in the neighbouring receiver, which is well past where any
+front end stays linear. Isolation is the number co-site design lives on, and
+close-spaced antennas do not give you much of it for free.
+
+**Prove it** — `tests/validation/isolation_nec2.py` (SOLVER tier). ⚠ It needs
+FreeCAD, so run it through the gate runner — `freecadcmd tests/run_gate.py
+tests/validation/isolation_nec2.py`. Run directly under plain `python3` it dies
+on a missing `FreeCAD` module, which looks like a defect and is not one.
+
+---
+
+## 21. Turning a shape you drew into a wire antenna
+
+**Needs:** **NEC2**.
+
+⛳ **What this bridges.** NEC2 models *thin wires*: segments with a radius. A
+FreeCAD sketch is a curve or a solid with no such notion. **Analysis ▸ Antenna
+from Selection** does that translation, and it is stricter than you might
+expect — deliberately.
+
+**Do**
+1. Draw a curve or a solid rod. Select it.
+2. **Analysis ▸ Antenna from Selection**.
+
+**You should see** it either build a wire model or **refuse with a reason**:
+
+| selection | result |
+|---|---|
+| a solid | classified **solid** — its radius is *measured*, never asked for |
+| a curve with a radius | classified **wire**, segmented for NEC2 |
+| a curve with **no** radius | **refused** — it has no cross-section, so there is no d/a to check |
+| an empty selection | **refused** |
+
+⚠ **The refusals are the feature.** NEC2's thin-wire kernel is only valid while
+the segment length / radius ratio stays sane; feed it a curve with no radius and
+it would happily return numbers that mean nothing. The tool declines instead,
+and reports the **d/a ratio** it achieved so you can judge the model yourself.
+
+⛳ **The bug this path once had is worth knowing, because the symptom was
+silence.** `Part.makePolygon` delivers a curve as N *straight* edges, so every
+chord took a 3-segment floor meant for a lone radiator — segmenting a curve far
+past NEC-2's thin-wire limit (**240 segments at d/a 2.63**, where **80 at
+d/a 7.90** is correct). The guard written to protect d/a could never fire on the
+path that needed it. Nothing looked wrong; the numbers were simply outside the
+kernel's validity.
+
+**Prove it** — `tests/validation/antenna_from_selection.py` (SOLVER tier, runs
+under `freecadcmd`). It asserts the classification of solids and curves, every
+refusal above, and that a solid's radius is measured from geometry rather than
+requested from the user.
+
+---
+
 # 🔒 The Pro capabilities — what they measure
 
 These four are **EMStudio Pro**. The stubs below say what each one does and the
@@ -916,10 +1100,6 @@ alternative is named where one exists.
 |---|---|---|---|---|
 | 10 | **OpenFOAM — CFD on your own solid** | Analysis | free | +4.3 % vs Churchill (sphere anchor) |
 | 11 | **OpenFOAM — CHT** | Analysis | free | Nu ≈ 6.56 ± 1.5 % (⚠ NOT the gate's 6.85) |
-| 14 | **Cable Designer — bundles/crosstalk** | Tools | free | MoM insulated-C, mixed-mode pairs |
-| 18 | **Multi-station D/U** | Tools | free | service/interference contours |
-| 19 | **Isolation Matrix** | System | free | port-to-port isolation vs spacing |
-| 21 | **Antenna from Selection** | Analysis | free | thin-wire d/a report on a real curve |
 
 ⚠ **#23 (Solver Setup) is the one exception** — it documents a workflow, not a
 number, because installing a backend has no measurable output to pin. It says

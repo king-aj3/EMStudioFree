@@ -71,7 +71,7 @@ deterministic requirements→family recommender (`emstudio/antenna/element_picke
 carries a printable rationale per rule, the NBS TN-688 boom-class hint for gain
 targets, honest ships-in-E4/E5 flags for unbuilt families, and the Chu
 bandwidth guardrail. Gates: picker scenario tier + template-override tier in
-`element_designer.py`; gui_smoke 38 checks / 47 commands.
+`element_designer.py`; gui_smoke 38 checks / 48 commands.
 
 **Yagi-Uda synthesis (Element Designer E3) — ✅ validated (v0.59.0):**
 `emstudio/antenna/yagi.py` + `templates/yagi.py` + the Yagi dialog family — NBS

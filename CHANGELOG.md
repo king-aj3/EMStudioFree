@@ -65,8 +65,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   BREP path even for a plain box, because the fast box mesher takes no `ports`
   argument and would drop the declaration silently.
   **Gate `declared_ports` (FAST), 11 checks, 5/5 mutations** on an asymmetric
-  3-port fixture. ⚠ Its scope is the selection logic — a live 3+-port solve has
-  not been run, and no measured N-port result is claimed.
+  3-port fixture.
+* **A LIVE 3-port solve — the claim is now earned, not projected.**
+  `n_port_live_palace` (SOLVER) builds a real **WR-90 T-junction**, declares its
+  three mouths as ports and has Palace solve one excitation each. Measured:
+  passivity **0.9996** on the worst column, the full 3×3 totalling **2.9985** of
+  an ideal 3.0 (air-filled, PEC walls), and an **`.s3p` with 6 data lines** —
+  3 matrix ROWS × 2 frequencies, which proves the row-per-line Touchstone fix
+  against a genuine file rather than a fixture.
+  ⚠ It does NOT claim a validated T-junction S-matrix — no published reference
+  exists for these dimensions, and inventing a window would be the
+  cherry-picked-headline defect this project keeps catching.
+* **One-click N-port: Analysis ▸ Wave Ports from Selection.** Creates one wave
+  port per selected FACE, numbered in **selection order** — port 1 is the first
+  face you clicked, because only the user knows which physical connector that
+  should be. A single face is refused with a pointer to Lumped Port, and
+  non-face selections are ignored rather than meshed as a mouth.
 * **Seven more tutorials, every anchor measured on the box that wrote them.**
   **#13 litz** — why stranding changes anything: a 6-strand ring shares current
   at an imbalance of **1.0000**, while a 7-strand bundle with a CENTRE strand

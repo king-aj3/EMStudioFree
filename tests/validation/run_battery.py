@@ -87,7 +87,8 @@ SOLVER = [
     "msl_notch_openems", "open_coil_elmer", "patch_auto_openems",
     "patch_openems",
     "patch_stl_openems", "solenoid3d_elmer",
-    "stl_mesh_openems", "team7_elmer", "two_port_openems", "two_port_palace", "waveguide_palace",
+    "stl_mesh_openems", "n_port_live_palace",
+    "team7_elmer", "two_port_openems", "two_port_palace", "waveguide_palace",
     "whitney3d_elmer",
     "wire_current_sharing", "wire_fasthenry", "wire_from_solid", "wpt_elmer",
     "yagi_nec2",
@@ -130,6 +131,7 @@ def _tier_audit():
 #: Declared here, the battery says "skip" honestly, and running one BY HAND
 #: fails loudly when the backend is absent — correct, because you asked for it.
 SOLVER_REQS = {
+    "n_port_live_palace": "palace",
     "openfoam_cavity": "openfoam",
     "openfoam_cylinder": "openfoam",
     "openfoam_bundle": "openfoam",
