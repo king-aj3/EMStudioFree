@@ -23,9 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      # Action majors track the runner's Node. v4/v5 targeted node20, which
+      # the runner now force-migrates to node24 and warns about on every run.
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           # match the FreeCAD 1.1.1 AppImage's bundled python
           python-version: "3.11"
