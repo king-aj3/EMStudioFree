@@ -16,6 +16,7 @@ files stay small and the numbers you get are your own.
 | `notch_filter_msl.FCStd` | Microstrip notch filter with trace-aware meshing | openEMS | an S21 notch that matches analytic theory (gated to 0.6 %) |
 | `coax_50ohm.FCStd` | Coaxial line section | Palace | characteristic impedance about 50 ohm |
 | `waveguide_wr90.FCStd` | WR-90 rectangular waveguide, X-band | Palace | TE10 propagation above the 6.56 GHz cutoff |
+| `waveguide_wr22_40GHz.FCStd` | WR-22 rectangular waveguide, Ka-band (mmWave) | Palace | matched TE10 across 38-42 GHz, well above the 26.3 GHz cutoff |
 | `circwaveguide.FCStd` | Circular waveguide | Palace | TE11 as the dominant mode — compare with the analytic cutoff |
 | `cavity_rect.FCStd` | Rectangular cavity eigenmodes | Palace | the first six modes, TE101 lowest |
 | `cavity_cyl.FCStd` | Cylindrical cavity eigenmodes | Palace | the first six modes of a 30 mm-radius can |

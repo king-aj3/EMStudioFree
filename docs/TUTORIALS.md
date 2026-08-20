@@ -203,6 +203,59 @@ installed at all.
 
 ---
 
+## 6. Millimetre wave: a WR-22 waveguide at 40 GHz
+
+**Needs:** **Palace**. **EMStudio ▸ Setup ▸ Detect / Install Solvers** reports
+whether one is present.
+
+⚠ **Read this before the numbers, because it is the part people get wrong.**
+EMStudio is validated to **57 GHz for CLOSED STRUCTURES** — waveguides and
+cavities. It is **not** validated for *antennas* up there: the highest-frequency
+radiating structure with a gate behind it is the **2.435 GHz patch** in
+tutorial 3. Full-wave Maxwell has no physics break at mmWave — the only real
+cost is a finer mesh — but "no reason it should fail" is not the same as
+"checked", and this project only claims the second. If you are here for a 28 GHz
+patch, this tutorial shows you the solver is sound at that frequency; it does
+not show you that we have validated an antenna there.
+
+**Do**
+1. Open `examples/waveguide_wr22_40GHz.FCStd`. It is the same waveguide template
+   as the WR-90 example, at Ka-band dimensions: **a = 5.69 mm, b = 2.845 mm**,
+   10 mm long, swept **38–42 GHz**.
+2. **Run Solver**. About **45 seconds** at Palace order 2.
+
+**You should see** a section that behaves like a matched TE10 line:
+
+| quantity | gate window | reference run |
+|---|---|---|
+| \|S21\| deviation from 0 dB | < 0.05 dB | **5.4e-6 dB** |
+| \|S11\| across the band | < −30 dB | **−106 dB** |
+
+**Why those are the right numbers.** WR-22's TE10 cutoff is *c*/2*a* =
+**26.34 GHz**, so at 38–42 GHz you are well into propagation: a uniform,
+correctly-terminated guide should pass essentially everything and reflect
+essentially nothing. \|S21\| ≈ 0 dB and \|S11\| far down is not an impressive
+result — it is the *only* correct one, which is exactly what makes it a good
+check. A solver that is meshing badly at 5 mm wavelengths cannot fake it.
+
+⛳ **Try breaking it, because that is where the learning is.** Drop the
+frequency sweep below 26.34 GHz and re-run: \|S21\| should collapse, because the
+guide is now evanescent. The cutoff is a hard physical edge and the solver
+should find it without being told.
+
+**Prove it** — `tests/validation/mmwave_palace.py`. It runs this exact geometry
+and asserts both rows above, and alongside it solves **two PEC cavities** whose
+TE101 must match the closed form to better than 0.1 %: measured
+**39.0255 GHz (+0.003 %)** and **56.9092 GHz (+0.002 %)**. The 57 GHz point is
+there specifically to prove headroom past 40 GHz.
+
+⛳ **What is still missing, said plainly.** No radiating structure is gated above
+6 GHz, so mmWave *antenna* work — 28 GHz patches, handset PIFAs, arrays — is not
+something this project has earned the right to claim yet. It is the next gate
+being sought, and it needs a published, *measured* reference to anchor to.
+
+---
+
 # The rest of the series — planned order
 
 Written, but living in [the user manual](USER_MANUAL.md) rather than here yet.
@@ -210,10 +263,10 @@ The job is to give each one the four-part shape above and a named gate.
 
 | # | Tutorial | Needs | Anchor it should quote |
 |---|---|---|---|
-| 6 | Simulate **your own** geometry | openEMS | the workflow, not a number |
+| 7 | Simulate **your own** geometry | openEMS | the workflow, not a number |
 | 7 | Analysing an **STL** file | openEMS | same patch, same window, via STL |
 | 8 | **Coax** S-parameters | Palace | Z0 ≈ 49.94 Ω air line |
-| 9 | **WR-90 waveguide** | Palace | TE10 cutoff 6.56 GHz |
+| 9 | **WR-90 waveguide** (X-band companion to #6) | Palace | TE10 cutoff 6.56 GHz |
 | 10 | **Cavity eigenmodes** | Palace | first six modes, TE101 lowest |
 | 11 | **Monopole over ground** (VLF) | NEC2 | what electrically small looks like |
 | 12 | **Induction heating** | Elmer | TEAM Problem 7, 2.83 % RMS vs measured |
