@@ -1,8 +1,15 @@
 # EMStudio Capability Matrix
 
-Honest status of every analysis type as of **v0.31.0 (2026-07-08)**. "Validated" means
-an automated gate checks it against analytic or published references. Nothing here is
-claimed working without a gate behind it.
+Honest status of every analysis type. "Validated" means an automated gate checks it
+against analytic or published references, and **every row names its gate** — so a row
+is current exactly as long as the gate it names still passes. Nothing here is claimed
+working without a gate behind it.
+
+> ⚠ **No version is pinned here on purpose.** This header read *"as of v0.31.0
+> (2026-07-08)"* until 2026-08-20 — roughly forty releases stale, on a public
+> document whose entire job is to be trustworthy about status. A version in prose
+> is a claim nothing measures; the gate names in each row are checkable, so they
+> carry the currency instead. For what shipped when, see [CHANGELOG](../CHANGELOG.md).
 
 ## Frequency range & validity (DC → mmWave)
 
@@ -168,8 +175,17 @@ gate `tests/validation/isolation_nec2.py`) extracted from NEC2 (Y-matrix,
 drive-one-of-N; two λ/2 dipoles at 0.5λ → |S21| −13.78 dB vs Balanis, reciprocity
 1e-14) and a **frequency-plan optimizer** (v0.27.0) that retunes transmitters to
 clear IMD/desense/co-channel collisions. **§5 co-site is complete (phases A+B+C).**
-**Geographic coverage/propagation** (§6) remains a design spec — see
-[ROADMAP](ROADMAP.md) §5–§6.
+**Geographic coverage/propagation (§6) SHIPPED** — ITU-R P.1546, P.1812, P.452,
+P.2001, LF/MF ground wave, terrain profiles and multi-station D/U, all gated
+against **ITU's own official reference datasets**: 52 datasets for P.1546 and 63
+for P.1812, worst deviation **0.000000 dB**. Gates: `p1546.py`, `p1812.py`,
+`p452.py`, `p2001.py`, `lfmf.py`, `coverage.py`.
+
+> ⚠ **This paragraph said §6 "remains a design spec" until 2026-08-20**, long
+> after it shipped — the second understatement found in this file the same day,
+> and it also linked to `ROADMAP.md`, which is **not exported**, so the link was
+> dead for every public reader. ⛳ Two failure modes in one sentence: a status
+> claim nothing re-checked, and a link to a file the audience cannot see.
 
 **§7 System Designer — network core + matching synthesis (S1) — ✅ validated
 (v0.64.0):** the linear two-port network core (`emstudio/system/network.py`) —
