@@ -980,6 +980,64 @@ requested from the user.
 
 ---
 
+## 10. Thermal CFD on a shape you drew yourself
+
+**Needs:** **OpenFOAM** (ESI). ⚠ This is the longest-running thing in EMStudio —
+tens of minutes, not seconds. The pre-solve estimate will tell you before it
+starts; that is precisely why that estimate exists.
+
+⛳ **What is genuinely hard here, and what the gate does about it.** Free
+convection has no exact solution for an arbitrary shape, so a CFD result has
+nothing to be *right* against. Correlations like Churchill's exist for canonical
+bodies and carry their own scatter. So the gate anchors on something stronger
+first: a case where the answer is **bounded exactly**.
+
+**Do**
+1. Draw a solid — a sphere is the case the gate anchors on — and select it.
+2. **Analysis ▸ Solve Convection on Selected Solid (open air)…**
+3. Read the estimate, then let it run.
+
+⚠ **There is no example document for this path**, deliberately: the whole point
+is that it works on *your* geometry. The gate's own case is a UV sphere in open
+air with a fixed heat flux on its surface.
+
+**You should see**, on the conduction rung — the one with an exact answer:
+
+| quantity | measured here | the exact bound |
+|---|---|---|
+| Nu_D | **2.5511** | inside **[2.3374, 2.6667]** |
+| converged | **yes**, drift 0.0064 | |
+| surface temperature spread | **0.147 K** | |
+
+**Why that bracket is the best check in the file.** For a sphere in a still,
+conducting medium the Nusselt number is trapped between two exact conduction
+solutions — the inscribed and circumscribed limits, 2/(1 − r/r_ins) and
+2/(1 − r/r_cir). No correlation, no fit, no measurement uncertainty: a correct
+solve **must** land between them.
+
+⚠ **And it fails informatively in both directions**, which is rare and worth
+knowing: **an unconverged solve reads HIGH; a lost-flux coupling reads LOW.**
+Seeing 2.83 at 8.7 % drift is not a mystery — it is an unconverged run, and the
+gate's own comment records exactly that case.
+
+**The second rung** turns the buoyancy on and compares against **Churchill's
+sphere correlation** at Ra_D ≈ 1.33e6. The gate asserts a self-pin plus
+agreement inside the correlation's own scatter; its recorded full-fidelity run
+lands **+4.3 %** (**+5.6 %** at gate fidelity). ⚠ Treat a correlation
+comparison as weaker evidence than the sandwich above — a few percent against a
+fitted curve is agreement; a few percent outside an exact bound is a bug.
+
+⛳ **Ra is an OUTPUT here, not an input.** The surface has a fixed *flux*, so
+the temperature rise — and therefore the Rayleigh number — is whatever the
+solve produces. Comparing against a correlation at "the same Ra" means reading
+Ra back out of the result, not dialling it in.
+
+**Prove it** — `tests/validation/openfoam_solid.py` (SOLVER tier, long), and
+`tests/validation/solid_setup.py` (FAST) for the arithmetic, the refusals, the
+written case and the gravity direction.
+
+---
+
 # 🔒 The Pro capabilities — what they measure
 
 These four are **EMStudio Pro**. The stubs below say what each one does and the
@@ -1098,7 +1156,6 @@ alternative is named where one exists.
 
 | # | Tutorial | Group | Tier | Anchor it should quote |
 |---|---|---|---|---|
-| 10 | **OpenFOAM — CFD on your own solid** | Analysis | free | +4.3 % vs Churchill (sphere anchor) |
 | 11 | **OpenFOAM — CHT** | Analysis | free | Nu ≈ 6.56 ± 1.5 % (⚠ NOT the gate's 6.85) |
 
 ⚠ **#23 (Solver Setup) is the one exception** — it documents a workflow, not a
