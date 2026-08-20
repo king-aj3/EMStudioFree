@@ -22,6 +22,7 @@ Nothing here raises on a missing solver; callers inspect the returned
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 
@@ -491,6 +492,52 @@ def _pref_path(key):
         return params.GetString(key, "")
     except Exception:
         return ""
+
+
+#: Extracted from a version line, in priority order. A "v"/"version" marker
+#: wins over a bare dotted number, because some tools print a DATE alongside
+#: the version and a naive "first number-ish token" picks the wrong one.
+_VER_MARKED = re.compile(r"(?:\bv(?:er(?:sion)?)?\.?\s*)"
+                         r"(\d+(?:\.\d+)+(?:[-+][A-Za-z0-9.]+)?)", re.I)
+_VER_DOTTED = re.compile(r"(\d+(?:\.\d+)+(?:[-+][A-Za-z0-9.]+)?)")
+_VER_BARE = re.compile(r"\bv(\d{4})\b", re.I)       # OpenFOAM's "v2606"
+
+
+def version_number(raw):
+    """The bare version out of a backend's own ``--version`` chatter, or "".
+
+    **This is what Solver Setup shows the user**, and every backend spells it
+    differently. Measured on 2026-08-20, the raw strings this has to survive:
+
+    ======================  ==================================================
+    ``gmsh``                ``4.12.1``
+    ``nec2c``               ``nec2c 1.3.1``
+    ``ElmerSolver``         ``ELMER SOLVER (v 26.2) STARTED AT: 2026/08/20 19:15:27``
+    ``openEMS``             ``| openEMS 64bit -- version v0.37.0-rc1``
+    ``FastHenry``           ``FastHenry Version 3.0.1 (28May12)   see file ...``
+    ``OpenFOAM``            ``OpenFOAM v2606 (ESI, apt-esi)``
+    ``palace``              *(empty — it prints no version at all)*
+    ======================  ==================================================
+
+    ⚠ **Elmer is why the marked pattern is tried first.** Its line carries a
+    RUN TIMESTAMP, so the displayed "version" changed every time the user
+    pressed Re-detect — a version that is different each time you look at it is
+    worse than none. The date is ``2026/08/20`` with slashes and the clock is
+    ``19:15:27`` with colons, so neither matches a DOTTED number; but a looser
+    pattern would have picked one, which is exactly the trap.
+
+    ⚠ **Never invent one.** Palace prints no version, so this returns ``""`` and
+    the dialog shows the path alone. A plausible-looking wrong version is worse
+    than a blank, because a user would report it back to us as fact.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    for pattern in (_VER_MARKED, _VER_DOTTED, _VER_BARE):
+        hit = pattern.search(text)
+        if hit:
+            return hit.group(1)
+    return ""
 
 
 def _probe_version(path, version_args):

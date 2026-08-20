@@ -133,6 +133,31 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   p = 1.90, so the standard safety factor is not trusted) and records that an
   earlier "asymptotic-range check ≈ 1.0" was **withdrawn** because it was
   algebraically identical to f₃/f₂ and could not fail.
+* ⭐ **Solver Setup has a gated user-visible number now — and finding it fixed
+  four defects.** It was the last capability with no anchor: installing a
+  backend has no measurable output. The fix was to gate the **readout** rather
+  than the install — the version each backend reports. `solver_versions` (FAST,
+  **5/5 mutations**) holds the VERBATIM `--version` output of all seven
+  backends and asserts the table: Elmer **26.2**, gmsh **4.12.1**, nec2c
+  **1.3.1**, openEMS **0.37.0-rc1**, FastHenry **3.0.1**, OpenFOAM **2606**,
+  Palace **blank**.
+  ⚠⚠ **`ElmerSolver --version` carries a RUN TIMESTAMP**, so that column
+  changed every time the user pressed Re-detect — a version that differs each
+  time you look at it makes the whole table look untrustworthy. openEMS
+  prefixed a table pipe, FastHenry ran on into its own help text, and Palace
+  showed nothing. All four are user-visible and **none was failing any test,
+  because nothing read that column** — the same shape as `band_picker`'s
+  doubled unit.
+  ⛳ Palace's blank is deliberate: it prints no version, so none is invented. A
+  plausible-looking wrong version would be reported back to us as fact.
+  ⛳ One of the gate's own rules had to be earned — "prefer a marked version
+  over a bare dotted number" gave the same answer on all six real strings, so
+  it was decoration until a **dotted-date** fixture made it load-bearing.
+* **A duplicate `[1.0.0]` heading in this file.** Renaming a mis-titled
+  "Unreleased" section on 2026-08-19 produced a SECOND `## [1.0.0]`, out of
+  order between 0.99.1 and 0.99.0. It now reads as what it is — a dated slice
+  of 1.0.0's content, not a release entry. ⛳ A version heading is a claim like
+  any other, and two for one version is a claim that cannot be true.
 * **A gate for the tutorials themselves.** `tests/validation/tutorials_doc.py`
   (FAST) asserts every numbered tutorial keeps the four-part shape, that each
   "Prove it" names a gate file **that exists**, that no number is used twice
@@ -604,11 +629,19 @@ the free/Pro split has been public since v0.77.0. This release marks it.
   top of the free build's System menu (it removed trailing ones only). With
   the entries restored the separator is doing its job again.
 
-## [1.0.0] — 2026-08-16 — engine work released in one-point-oh
+## 1.0.0 — engine work, added 2026-08-14 and shipped in the 1.0.0 tag
 
-> Heading corrected 2026-08-19: this section was still titled
-> "Unreleased" although its content shipped in 1.0.0 — `cht.py`
-> was added 2026-08-14, between 0.99.0 and the 1.0.0 tag.
+> ⚠ **This is NOT a second 1.0.0 release.** The 1.0.0 release notes are the
+> `## [1.0.0]` section above; this one records engine work added on 2026-08-14,
+> between 0.99.0 and the 1.0.0 tag, which is why it sits here chronologically.
+>
+> Its heading has been wrong twice. It was titled **"Unreleased"** until
+> 2026-08-19 even though its content had shipped; correcting it to
+> `## [1.0.0]` then produced a **DUPLICATE version heading** — two sections
+> claiming to be the same release, out of order. The brackets are dropped now
+> so it reads as what it is: a dated slice of 1.0.0's content, not a release
+> entry. ⛳ **A version heading is a claim like any other**; two of them for one
+> version is a claim that cannot be true.
 
 ### Added
 * **Conjugate heat transfer** (`solvers/openfoam/cht.py`, `run_cht`). Every

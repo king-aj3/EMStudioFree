@@ -691,18 +691,42 @@ proves the sort is real rather than an accident of file order.
 
 **Needs:** nothing to read it.
 
-⚠ **This is the only entry in the series with no number, and it says so.**
-Every other one ends in a measured figure with a gate behind it. Installing a
-backend has no user-visible output to pin — the honest anchor is *"the probe
-reports found"*, which is a state, not a measurement. Rather than invent a
-figure, this one documents the workflow and names what IS checked.
+⛳ **This one used to have no number, and saying so out loud is what produced
+one.** The series' rule is that a capability with no gated figure is a FINDING,
+not a licence for vaguer prose — and looking for the finding turned up four
+real defects in the column you are about to read.
 
 **Do**
 1. **Setup ▸ Detect / Install Solvers**.
 2. Read the table. Each backend is **probed**, not guessed from a version
    string: EMStudio runs the binary and checks it actually works.
 
-**You should see** a probed table — and here is what each answer means:
+**You should see** a probed table. **The number to check is the version** —
+each one is parsed out of that backend's own `--version` output:
+
+| backend | version shown |
+|---|---|
+| Elmer | **26.2** |
+| Gmsh | **4.12.1** |
+| NEC2 (nec2c) | **1.3.1** |
+| openEMS | **0.37.0-rc1** |
+| FastHenry | **3.0.1** |
+| OpenFOAM | **2606** |
+| Palace | *(blank — it prints no version, and none is invented)* |
+
+⚠⚠ **Elmer's is the one worth understanding.** `ElmerSolver --version` prints
+`ELMER SOLVER (v 26.2) STARTED AT: 2026/08/20 19:15:27` — a **run timestamp**.
+Until 2026-08-20 this column showed that string whole, so **the version changed
+every time you pressed Re-detect**. A version that is different each time you
+look at it is worse than no version: it makes the whole table look untrustworthy.
+openEMS prefixed a table pipe, FastHenry ran on into its own help text, and
+Palace showed nothing at all.
+
+⛳ **Palace's blank is deliberate.** It genuinely prints no version, so the
+column is empty rather than filled with a plausible guess — a wrong version
+would be reported back to us as fact.
+
+**And here is what each column means:**
 
 | column | what it tells you |
 |---|---|
@@ -721,12 +745,22 @@ instead.
 The single step that needs Administrator is explained rather than automated —
 EMStudio will not silently ask your machine for privileges.
 
-**What pins it** — there is no single gate that asserts "the install worked",
-because that depends on your machine. What is gated: `openfoam_setup.py` and
-`cht_setup.py` pin the fork detection and the probe logic (FAST tier), and
-`gui_smoke` builds the dialog and asserts the guided-install buttons appear for
-elmer, gmsh, nec2 and openfoam on a simulated Windows. **Prove it** —
-`tests/validation/openfoam_setup.py`.
+⚠ **What is still NOT gated**, said plainly: nothing asserts "the install
+worked", because that depends on your machine. What IS gated is the readout —
+the version table above, the fork detection and the probe logic.
+
+**Prove it** — `tests/validation/solver_versions.py` (FAST tier). It holds the
+**verbatim** `--version` output of all seven backends, captured from the real
+binaries, and asserts each normalises to the version in the table — plus that a
+timestamp is never read as a version, that an absent version stays absent, and
+that a version never runs on into help text. **5/5 mutations caught.**
+⛳ One of its checks had to be *earned*: the rule "prefer a version marked with
+`v`/`version` over a bare dotted number" turned out to give the same answer on
+all six real strings, so it was decoration rather than a tested property. It is
+now pinned by a tool printing a **dotted** date (`built 2026.08.20, version
+1.2.3`), which is the case that separates the two.
+Also: `openfoam_setup.py` and `cht_setup.py` pin the fork detection and probe
+logic, and `gui_smoke` asserts the guided-install buttons appear on Windows.
 
 ---
 
@@ -1071,9 +1105,10 @@ whenever the thing you want to know *is* the interface temperature.
 
 | quantity | value |
 |---|---|
-| mesh-converged Nu | **~6.5** (bracket **6.47–6.56**) |
+| mesh-converged Nu — **the answer** | **~6.5** (bracket **6.47–6.56**) |
 | the gate's accepted window | **[5.5, 8.6]** |
-| the gate's own 40×60 mesh reads | 6.85 — **roughly 5 % high** |
+| the gate's own 40×60 mesh, measured here | **6.8529** at Ra 8.491e5 — **~5 % high** |
+| interface temperature | **342.45 K**, below the conduction limit 348.74 K |
 
 ⚠⚠ **Quote "~6.5", never a four-digit value, and never the gate's 6.85.**
 That is not fussiness. The 6.85 is what the *gate's* deliberately coarse mesh
@@ -1088,6 +1123,16 @@ Péclet ≈ 23), yet the three grids show an observed order of **p = 1.90** —
 about twice the formal order. Per Roache / ASME V&V 20 that is a reason *not*
 to trust the standard safety factor, so the result is reported as a range under
 both conventions rather than as one confident number.
+
+⛳ **The gate's window is deliberately wider than every reference** — its job
+is to keep a known broken-mesh signature (Nu 1.86–1.88, collapsing toward pure
+conduction) dead, **not** to certify a correlation. A window that merely
+bracketed the references would pass a mesh that had quietly stopped convecting.
+
+⛳ **T_int below the conduction limit is the second, independent read.** If the
+gap were not convecting, the interface would sit at the conduction value of
+**348.74 K**; it comes out at **342.45 K**. Convection moves heat, so the
+interface must run cooler — a check that needs no correlation at all.
 
 ⛳ **The real evidence of convergence is the shrinking difference**, not any
 single check: Nu goes 6.8529 → 6.6957 → 6.6387, steps of −0.157 then −0.057,
@@ -1230,11 +1275,19 @@ contract: what it does, what it measured, the free alternative with the tier
 stated plainly, and its gate — and **no *Do* or *You should see* section**, so
 a helpful edit cannot quietly turn a teaser into the paid walkthrough.
 
-⛳ **What would come next is not more tutorials but better anchors.** Two
-capabilities rest on weaker evidence than the rest and say so in place: #23
-(Solver Setup) has no user-visible number to pin at all, and #10's Churchill
-comparison is a correlation rather than the exact bound its first rung uses.
-Strengthening those is worth more than adding entries.
+⛳ **Every entry now ends in a gated number — #23 was the last without one.**
+Installing a backend has no measurable output, so the fix was to gate the
+**readout** instead: the version each backend reports in the Solver Setup
+table. ⚠ Looking for that anchor is what found the defects behind it, including
+an Elmer "version" that carried a run timestamp and so changed every time the
+user pressed Re-detect. **A capability with no anchor is a finding about the
+capability** — and acting on the finding, rather than writing around it, is
+what produced both a number and four fixes.
+
+⛳ **What is still weaker than the rest, said plainly:** #10's Churchill rung is
+a correlation rather than the exact conduction bound its first rung uses, and
+#11's mesh-independent value is an extrapolation from three grids rather than a
+single measurement — which no single run could be. Both say so in place.
 
 ## Notes for whoever writes the rest
 

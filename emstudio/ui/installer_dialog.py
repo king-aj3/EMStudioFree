@@ -211,7 +211,14 @@ class SolverInstallerDialog(QtWidgets.QDialog):
                 QtGui.QColor("darkgreen" if info.found else "darkred")))
             self.table.setItem(i, 1, status)
             if info.found:
-                detail = info.path + ((" — " + info.version) if info.version else "")
+                # ⚠ Show the NORMALISED version, not the backend's raw chatter.
+                # ElmerSolver's --version line carries a RUN TIMESTAMP, so this
+                # column used to change every time the user pressed Re-detect;
+                # openEMS prefixed a table pipe and FastHenry ran on into its
+                # own help text. Palace prints no version at all and gets a
+                # blank rather than an invented one.
+                ver = solvers.version_number(info.version)
+                detail = info.path + ((" — v" + ver) if ver else "")
                 if solvers.is_ephemeral_path(info.path):
                     detail += "  (bundled/ephemeral — re-detected each session)"
             elif os.name == "nt":

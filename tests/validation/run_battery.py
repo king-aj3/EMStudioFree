@@ -68,6 +68,7 @@ FAST = {
     "solve_confirm_coverage": None,
     "tutorials_doc": None,
     "declared_ports": None,
+    "solver_versions": None,
 }
 
 SOLVER = [
