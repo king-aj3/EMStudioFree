@@ -474,14 +474,14 @@ def run(analysis, solver, workdir=None, line_callback=None):
             mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
             full_smatrix=full_smatrix)
         if model.get("kind") == "brep":
-            # ⚠ SCOPE, stated rather than implied: the ENGINE below is N-port
-            # (mesher, config, excitation loop, merge, .sNp). What is not built
-            # is a way for the DOCUMENT to say which face is port 3 —
-            # build_waveguide_model still infers two ports from the longest
-            # bounding-box axis, so `ports` is None here and every solve driven
-            # from the GUI is a 2-port. The seam is live: the day the model
-            # dict carries port faces, N-port runs from the tree with no
-            # further change here.
+            # N-port IS reachable from the document now. An
+            # ``EMStudio::LumpedPort`` whose ``References`` name a FACE declares
+            # a wave port, and ``build_waveguide_model`` turns those into
+            # selection boxes ordered by ``PortNumber`` — so `ports` is a list
+            # of N here whenever the user picked faces, and None (the two ends
+            # of `axis`, exactly as before) whenever they did not.
+            # ⚠ Two or more port faces are required; one is still the lumped /
+            # MSL shape and is left to infer, so nothing that worked changed.
             result = run_waveguide_brep(
                 model["brep_path"], model["axis"], model["bbox_mm"],
                 ports=model.get("ports"), **common)

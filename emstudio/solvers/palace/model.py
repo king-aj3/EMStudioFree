@@ -149,6 +149,72 @@ def _single_box(analysis):
     return solids[0]
 
 
+#: How far to inflate a declared port face's bounding box, as a fraction of the
+#: solid's smallest extent. A planar face has ZERO thickness in its normal
+#: direction, and gmsh's ``Surface In BoundingBox`` selects surfaces that lie
+#: INSIDE the box -- a zero-thickness query is a coin toss against floating
+#: point and selects nothing about half the time. This is the same slab trick
+#: the inferred path already uses (``port_slab_frac``), applied to a face the
+#: user picked instead of one we guessed.
+_PORT_SLAB_FRAC = 0.02
+
+
+def declared_port_boxes(analysis, shape):
+    """Selection boxes for the ports the DOCUMENT declares, or None.
+
+    EMStudio has always been able to say which face is a port -- an
+    ``EMStudio::LumpedPort`` carries ``References`` (a LinkSubList of
+    sub-elements) and a 1-based ``PortNumber``. The driven Palace path simply
+    never read them: it inferred TWO ports from the longest bounding-box axis,
+    which is why every GUI-driven solve was a 2-port even though the engine
+    below is N-port end to end.
+
+    Returns a list of ``(xmin, ymin, zmin, xmax, ymax, zmax)`` in mm **ordered
+    by PortNumber**, which ``normalise_port_faces`` accepts verbatim.
+
+    ⚠ **Order is the port numbering**, and it comes from ``PortNumber`` rather
+    than from document order or geometry: the user is the only one who knows
+    which physical connector is port 1, and S11 is reported for whichever port
+    ends up first.
+
+    Returns ``None`` -- meaning "infer, exactly as before" -- when the document
+    declares fewer than two usable port FACES. That is deliberate: a document
+    with one lumped port on an *edge* (the NEC2/openEMS shape) must keep
+    behaving as it always did, so this cannot regress anything that worked.
+    """
+    from emstudio.objects import query
+
+    try:
+        ports = query.get_ports(analysis)
+    except Exception:
+        return None
+    if len(ports) < 2:
+        return None
+
+    bb = getattr(shape, "BoundBox", None)
+    if bb is None:
+        return None
+    slab = max(1e-6, min(bb.XLength, bb.YLength, bb.ZLength) * _PORT_SLAB_FRAC)
+
+    boxes = []
+    for port in ports:
+        face_bb = None
+        for _obj, sub_shape, sub_name in query.resolved_references(port):
+            # Faces only. An Edge reference is a lumped/MSL port, not a
+            # waveguide mouth, and silently treating one as a wave port would
+            # mesh a line as a surface and fail somewhere far from the cause.
+            if sub_shape is None or not str(sub_name).startswith("Face"):
+                continue
+            face_bb = getattr(sub_shape, "BoundBox", None)
+            if face_bb is not None:
+                break
+        if face_bb is None:
+            return None                      # incomplete -> infer, do not guess
+        boxes.append((face_bb.XMin - slab, face_bb.YMin - slab, face_bb.ZMin - slab,
+                      face_bb.XMax + slab, face_bb.YMax + slab, face_bb.ZMax + slab))
+    return boxes or None
+
+
 def build_waveguide_model(analysis, solver):
     """Extract the waveguide model dict for a driven S-parameter solve.
 
@@ -166,6 +232,19 @@ def build_waveguide_model(analysis, solver):
     loss = float(getattr(mat, "LossTangent", 0.0) or 0.0)
     elem_mm = _solver_elem_mm(solver)
 
+    # The DOCUMENT gets the first word. If it declares port faces, they are
+    # honoured and the solve is N-port; otherwise nothing changes and two ports
+    # are inferred from the longest axis exactly as before.
+    ports = declared_port_boxes(analysis, shape)
+
+    # ⚠ Declared ports FORCE the BREP path even for a plain box. The fast box
+    # mesher takes no ``ports`` argument, so routing a declaration through it
+    # would drop it on the floor and quietly solve a 2-port -- the worst
+    # outcome, because the user asked for something specific and got silence.
+    # The BREP mesher handles a box perfectly well; it is only slower.
+    if ports:
+        return _brep_waveguide_model(shape, link_obj.Label, eps_r, mu_r, loss,
+                                     elem_mm, ports=ports)
     try:
         size_mm = _box_dims_mm(shape, link_obj.Label)
     except CavityModelError:
@@ -184,7 +263,7 @@ def build_waveguide_model(analysis, solver):
     }
 
 
-def _brep_waveguide_model(shape, label, eps_r, mu_r, loss, elem_mm):
+def _brep_waveguide_model(shape, label, eps_r, mu_r, loss, elem_mm, ports=None):
     """General closed solid -> driven BREP model dict.
 
     Ports are the two faces perpendicular to the LONGEST bounding-box axis (the
@@ -215,6 +294,9 @@ def _brep_waveguide_model(shape, label, eps_r, mu_r, loss, elem_mm):
         "mu_r": mu_r,
         "loss_tan": loss,
         "elem_mm": elem_mm,
+        # None means "the two ends of `axis`", which is what every existing
+        # document means. A list is N explicit selection boxes, in port order.
+        "ports": ports,
     }
 
 

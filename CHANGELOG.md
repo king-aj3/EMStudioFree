@@ -49,6 +49,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   box. The tutorial spends as much space on the mode ORDERING as on the
   number — a cavity mis-scaled by 10x is still self-consistent and will report
   beautifully converged nonsense.
+* **N-port is user-reachable — the document can now say which face is port 3.**
+  The engine has been N-port end to end since v1.2.0 (mesh attributes, config,
+  excitation loop, merge, `.sNp`), but the driven Palace path inferred **two**
+  ports from the longest bounding-box axis, so every GUI-driven solve was a
+  2-port. It turned out nothing was missing but the reading: an
+  `EMStudio::LumpedPort` has always carried `References` and a 1-based
+  `PortNumber`. `declared_port_boxes()` now orders them by `PortNumber`,
+  resolves each face to its bounding box, inflates it into a slab and hands
+  back the 6-tuples `normalise_port_faces` already accepted. The runner needed
+  **no change** — its own comment had predicted exactly this.
+  ⚠ Deliberately conservative: fewer than two usable port FACES, an `Edge`
+  reference, or an incomplete declaration all fall back to inferring, so no
+  document that worked before behaves differently. Declared ports force the
+  BREP path even for a plain box, because the fast box mesher takes no `ports`
+  argument and would drop the declaration silently.
+  **Gate `declared_ports` (FAST), 11 checks, 5/5 mutations** on an asymmetric
+  3-port fixture. ⚠ Its scope is the selection logic — a live 3+-port solve has
+  not been run, and no measured N-port result is claimed.
 * **A gate for the tutorials themselves.** `tests/validation/tutorials_doc.py`
   (FAST) asserts every numbered tutorial keeps the four-part shape, that each
   "Prove it" names a gate file **that exists**, that no number is used twice
