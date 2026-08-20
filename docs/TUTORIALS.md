@@ -456,6 +456,346 @@ gate runs the same geometry through the FreeCAD template path under
 `freecadcmd`. ⛳ The 39 GHz and 57 GHz cavities in tutorial 6 are the same check
 carried up to mmWave — same physics, same window, two decades higher.
 
+## 15. An antenna far too small for its wavelength (VLF/LF)
+
+**Needs:** nothing. This one is closed-form physics, and it runs instantly.
+
+⛳ **Why this tutorial exists.** Below about 500 kHz nobody has a half-wave
+antenna — a half wave at 30 kHz is 5 km. Everything you build is *electrically
+small*, and electrically small antennas obey rules that feel wrong if your
+intuition was formed at VHF: the radiation resistance collapses, the reactance
+is enormous, and efficiency becomes an accounting problem rather than a design
+flourish.
+
+**Do**
+1. **Tools ▸ Small-Antenna Designer (VLF/LF)**.
+2. Enter a **100 m** vertical at **30 kHz** — a real, large VLF mast.
+
+**You should see** numbers that look alarming and are correct:
+
+| quantity | value | why |
+|---|---|---|
+| h / λ | **0.0100** | the mast is one hundredth of a wavelength |
+| Radiation resistance | **0.03953 Ω** | R_r = 40π²(h/λ)² — tens of milliohms |
+| Q | **4.04e3** | which is why VLF bandwidth is measured in tens of hertz |
+| Loading inductance to resonate | **0.0485 H** | 48.5 mH, a physically large coil |
+
+**The lesson is the ratio, not any one figure.** With R_r at 0.0395 Ω, a ground
+system of even 1 Ω throws away **96 %** of your transmitter power as heat.
+That is why VLF stations spend their money on radials and loading coils rather
+than on the mast: efficiency is R_r/(R_r + R_loss), and you cannot raise R_r
+much, so the entire engineering effort goes into driving R_loss down.
+
+⛳ **Check it against the textbook** — the designer uses the standard forms and
+the gate pins them: a short dipole at **R_r = 20π²(L/λ)² = 1.9739 Ω**, a short
+monopole at exactly **twice** that for the same L/λ, and the Chu limit
+**Q_min = 1/(ka)³ + 1/(ka) = 10.0000 at ka = 0.5**. A small loop follows
+**R_r = 31171(A/λ²)²** and scales as **N²** — ten turns is a hundred times the
+radiation resistance.
+
+**Prove it** — `tests/validation/small_antenna.py` (FAST tier, no solver). It
+asserts every closed form above against Balanis, plus the band picker that
+routes a VLF problem to the analytic path rather than to a field solver.
+⛳ **Why it refuses to route VLF to FDTD:** meshing a 10 km wavelength in
+λ/20 cells is not a slow calculation, it is an impossible one. The tool says so
+instead of letting you start it.
+
+---
+
+## 16. A point-to-point link, and the hill in the way
+
+**Needs:** nothing.
+
+**Do**
+1. **Tools ▸ Point-to-Point Link Budget**.
+2. Start with the textbook case: **1 km at 300 MHz**, then add a ridge between
+   the ends.
+
+**You should see** the standard results, each matching its closed form:
+
+| quantity | value |
+|---|---|
+| Free-space path loss, 1 km @ 300 MHz | **81.99 dB** |
+| Doubling the distance | **+6.02 dB** |
+| Knife-edge diffraction at grazing (ν = 0) | **6.03 dB** |
+| Knife-edge at ν = 1 / ν = 2.4 | **13.93 dB** / **20.54 dB** |
+| Plane-earth, 1 km, 10 m / 10 m antennas | **80.00 dB** |
+| Doubling distance, plane-earth region | **+12.04 dB** (the d⁴ law) |
+| Field strength, 1 kW EIRP at 1 km | **104.77 dBµV/m** |
+
+**The two numbers worth internalising** are +6.02 and +12.04. In free space,
+doubling the range costs 6 dB; once you are far enough out that the ground
+reflection dominates, doubling it costs **12** dB, because the field falls as
+1/d² rather than 1/d. Everything surprising about real coverage — why the last
+few kilometres are so expensive, why raising an antenna helps more than raising
+power — falls out of that transition.
+
+⛳ **The 6 dB at ν = 0 is the one people misremember.** An obstruction that
+*just* grazes the line of sight does not cost you nothing; it costs about
+**6 dB**, because the knife edge blocks half the first Fresnel zone. If your
+link budget assumed line-of-sight meant free-space, that 6 dB is already
+missing from it.
+
+**Prove it** — `tests/validation/propagation.py` (FAST tier, no solver): Friis,
+the ITU-R P.526 knife-edge curve, the two-ray plane-earth d⁴ law, the ITU
+field-strength relation and single-edge Deygout terrain diffraction, each
+against its closed form.
+
+---
+
+## 20. Two radios on one mast: co-site interference
+
+**Needs:** nothing for the arithmetic. (Pair it with tutorial 19's isolation
+matrix, which needs NEC2, when you want the isolation figure to come from your
+own geometry rather than from a number you typed.)
+
+⛳ **What this answers.** Two transmitters near each other do not simply
+coexist. They mix in each other's front ends and produce products at
+frequencies neither of them is using — and the third-order ones land
+*inside* your receive band, where no filter can help you.
+
+**Do**
+1. **Tools ▸ Co-site Interference Calculator**.
+2. Enter two transmitters at **150 MHz** and **151 MHz**, an IP3 of **+30 dBm**
+   and a per-tone level of **−10 dBm**.
+
+**You should see** the products and what they cost you:
+
+| product | frequency | why it matters |
+|---|---|---|
+| 2f₁ − f₂ | **149 MHz** | third order, and only 1 MHz away — in band |
+| 2f₂ − f₁ | **152 MHz** | the other third-order product |
+| f₁ + f₂ | **301 MHz** | second order, usually filterable |
+| \|f₁ − f₂\| | **1 MHz** | second order, far out of band |
+
+| level | value |
+|---|---|
+| IMD3 at −10 dBm/tone, IP3 +30 dBm | **−90.00 dBm** |
+| with unequal tones (0 and −20 dBm) | **−80.00 dBm** |
+| Received power, +43 dBm through 60 dB isolation | **−17 dBm** |
+| Broadband transmitter noise into a 25 kHz receiver | **−96.02 dBm** |
+
+**Read the slope, because it is the whole design rule.** IMD3 = 2·P₁ + P₂ −
+2·IP3. Third-order products fall **3 dB for every 1 dB** you back the tones off
+— so 10 dB more isolation buys you 30 dB less interference. That is why
+co-site engineering is mostly about antenna separation and filtering rather
+than about better receivers.
+
+⛳ **Do not stop at the IMD products.** The **−96.02 dBm** broadband noise figure
+above is often the real limit: a transmitter's wideband noise floor lands in
+your receive band continuously, not just when two carriers happen to mix. It is
+the quiet one that ruins a site.
+
+**Prove it** — `tests/validation/cosite.py` (FAST tier). It asserts every
+product frequency, the IMD3 level for equal and unequal tones, the
+isolation arithmetic, D/U, and the broadband-noise integration into a stated
+receiver bandwidth.
+
+---
+
+## 17. Coverage over real terrain, against ITU's own reference data
+
+**Needs:** nothing. Terrain tiles are optional — the ITU profiles ship with the
+gate.
+
+⛳ **This is the strongest kind of validation a propagation tool can have, and
+it is worth understanding why.** ITU-R publishes not just the *methods*
+P.1546 and P.1812 but **official reference datasets**: named profiles with the
+answer their own implementation produces. A tool either reproduces them or it
+does not. There is no window to argue about and no reference run to calibrate
+against — it is a spelling test with a published answer key.
+
+**Do**
+1. **Tools ▸ Area Coverage Map**.
+2. Pick a transmitter site, a power and a frequency, and choose **P.1546**
+   (broadcast-style, statistical) or **P.1812** (point-to-area with terrain).
+
+**You should see** contours that agree with ITU's implementation exactly:
+
+| method | official coverage | agreement |
+|---|---|---|
+| **P.1546** | **52 datasets**, all **24** official profiles | worst **0.000000 dB** |
+| **P.1812** | **63 datasets**, all **19** official profiles | worst **0.000000 dB** |
+
+Those are not typos and not rounded-to-zero claims made loosely: the gate
+asserts every dataset to **≤ 0.01 dB** and the measured worst case is
+**exactly zero to six decimals**, including the delta-Bullington intermediate
+values that P.1812 logs step by step.
+
+**What the map is actually telling you.** Both methods are *statistical* — they
+predict a field strength exceeded at some percentage of locations and time, not
+the field at your friend's house. A P.1546 contour labelled 50 % / 50 % means
+half the locations, half the time. Reading it as a fence around guaranteed
+service is the single most common way coverage maps mislead people.
+
+⛳ **It refuses to extrapolate, and that is a feature.** Ask either method for a
+frequency outside its published validity and it declines rather than returning a
+confident number. A propagation model used outside its range does not degrade
+gracefully; it just becomes wrong quietly.
+
+**Prove it** — `tests/validation/p1546.py` and `tests/validation/p1812.py`
+(FAST tier), which replay every official dataset; plus
+`tests/validation/coverage.py` for the geodesy underneath (a degree of longitude
+at the equator as **111.195 km**, London–Paris as **343.557 km**, and the `.hgt`
+terrain tile read north-up rather than upside down).
+
+---
+
+## 22. Every frequency's pattern, from one solver run
+
+**Needs:** **NEC2**.
+
+⛳ **The thing worth knowing before you start.** A swept NEC2 run already
+computes the far field at every frequency it visits — the patterns are sitting
+in the output file whether you ask for them or not. Most workflows throw them
+away and re-run the solver once per frequency. EMStudio keeps them, so **N
+patterns cost ONE run**, and you scrub through them with a slider.
+
+**Do**
+1. Open a swept analysis — the dipole from tutorial 2 will do.
+2. **Analysis ▸ Pattern Frequencies…**, set a band and a step. The dialog
+   recommends a step that lands on the sweep's own sample points, so you are
+   not asking the solver to interpolate.
+3. **Run Solver**, then drag the slider on either pattern tab.
+
+**You should see** one pattern per requested frequency, each carrying its *own*
+gains — and the 3-D balloon following the slider live, including after the
+results dialog is closed.
+
+| quantity | gate window | reference run |
+|---|---|---|
+| patterns returned | one per solved frequency | **11 of 11** |
+| current distributions | one per solved pattern frequency | **11** |
+| each pattern's frequency | its own, never the band start | asserted per entry |
+
+**The failure this defends against is invisible, which is why it is gated so
+hard.** A parser that merges frequency blocks returns *one* pattern wearing
+whichever label it was handed — and it looks completely normal. The gate proves
+the blocks stay separate, that the results come back sorted by frequency, and
+that each block keeps its own gains through that sort. Two of those checks were
+added on 2026-08-20 after the sort check was found to be untestable against an
+already-ascending fixture.
+
+⛳ **Watch the pattern change shape as you scrub.** On a dipole it stays
+recognisable; on anything electrically long it will not, and seeing that happen
+is worth more than reading about it.
+
+**Prove it** — `tests/validation/pattern_sweep.py`. Its live tier runs a real
+NEC2 sweep and asserts the per-frequency patterns and currents; the FAST tier
+pins the band arithmetic and the parser, including a **descending** fixture that
+proves the sort is real rather than an accident of file order.
+
+---
+
+## 23. Getting the solvers installed
+
+**Needs:** nothing to read it.
+
+⚠ **This is the only entry in the series with no number, and it says so.**
+Every other one ends in a measured figure with a gate behind it. Installing a
+backend has no user-visible output to pin — the honest anchor is *"the probe
+reports found"*, which is a state, not a measurement. Rather than invent a
+figure, this one documents the workflow and names what IS checked.
+
+**Do**
+1. **Setup ▸ Detect / Install Solvers**.
+2. Read the table. Each backend is **probed**, not guessed from a version
+   string: EMStudio runs the binary and checks it actually works.
+
+**You should see** a probed table — and here is what each answer means:
+
+| column | what it tells you |
+|---|---|
+| where | the resolved path, so you know *which* copy was found |
+| which fork | ESI vs Foundation for OpenFOAM — they are not interchangeable |
+| tools present | the helpers a backend needs, not just the solver itself |
+| do function objects work | a ~1 s runtime probe |
+
+⛳ **The probe exists because a version number lies.** Ubuntu's own OpenFOAM
+v1912 package *installs perfectly* and then aborts with a `sha1` IOstream error
+the moment a function object runs. No version floor would catch that — only
+running it does. The dialog reports the failure and says what to install
+instead.
+
+⛳ **On Windows, Elmer, gmsh, NEC2 and OpenFOAM have guided install buttons.**
+The single step that needs Administrator is explained rather than automated —
+EMStudio will not silently ask your machine for privileges.
+
+**What pins it** — there is no single gate that asserts "the install worked",
+because that depends on your machine. What is gated: `openfoam_setup.py` and
+`cht_setup.py` pin the fork detection and the probe logic (FAST tier), and
+`gui_smoke` builds the dialog and asserts the guided-install buttons appear for
+elmer, gmsh, nec2 and openfoam on a simulated Windows. **Prove it** —
+`tests/validation/openfoam_setup.py`.
+
+---
+
+## 13. Litz wire: why stranding it changes anything
+
+**Needs:** nothing for the construction and thermal work. **FastHenry** if you
+want the current-sharing solve at the end.
+
+⛳ **The question this answers.** Litz wire is expensive and fiddly, and at DC
+it is electrically identical to a solid conductor of the same copper area. So
+why use it? Because at frequency the current stops using the middle of a
+conductor — and *which* strands carry the current is something you can compute
+rather than assume.
+
+**Do**
+1. **Tools ▸ Cable Designer**, Litz page. Build a construction: EMStudio
+   supports the standard **Types 1–9**.
+2. Compare a **6-strand ring** against a **7-strand** bundle — the same wire,
+   except the 7-strand has one strand in the *centre*.
+
+**You should see** the centre strand behave completely differently:
+
+| construction | current imbalance (max/min) | reading |
+|---|---|---|
+| 6-strand ring, 10 kHz | **1.0000** | perfect sharing — every strand equivalent |
+| 6-strand ring, 100 kHz & 1 MHz | **1.0003** | still essentially perfect |
+| **7-strand with a centre strand, HF** | **9.6272** | one strand carrying ~10× another |
+
+And when the strands are grouped rather than individual:
+
+| group | normalised current |
+|---|---|
+| centre group | **0.119** — barely conducting |
+| ring group | **1.149** — carrying the difference |
+
+**That 9.63 is the whole argument for litz.** A centre strand is surrounded by
+the magnetic field of every strand around it, so proximity effect pushes current
+out of it. It still costs you copper, weight and money, and it carries almost
+nothing. Real litz constructions **transpose** the strands so each one spends
+equal time in the middle — which is exactly why the ring stays at 1.0000 and the
+naive bundle does not.
+
+⛳ **The symmetric case is the control, and it matters as much as the
+interesting one.** A 6-ring must come back at 1.0000 because every strand is
+geometrically equivalent; if it did not, the solver would be wrong and the
+9.6272 would mean nothing.
+
+**Then check the thermal side**, on the same page — because current sharing
+decides where the heat goes:
+
+| quantity | value | reference |
+|---|---|---|
+| AWG-10 PVC, 105 °C class, free air | **66.6 A** | inside the Multicable 58 A ±25 % band |
+| Joule loss at that operating point | **6.3175 W/m** | I²R(T), the same R the electrical model uses |
+
+⚠ **Ampacity is a temperature answer, not a current answer.** It is the current
+at which the conductor reaches its insulation's class limit — so the same wire
+is rated differently in PVC (70/80/105 °C), XLPE (90 °C) and PTFE (200 °C).
+The tool uses the IEC 60287-2-1 Table 1 thermal resistivities and the
+IEC 60287-1-1 conductor constants rather than a lookup table, so a construction
+nobody has tabulated still gets an answer.
+
+**Prove it** — `tests/validation/wire_current_sharing.py` for the sharing
+figures (FastHenry), `tests/validation/thermal.py` for the ampacity and every
+IEC constant it rests on, and `tests/validation/cable.py` for the coax geometry
+underneath (FAST tier).
+
+---
+
 # 🔒 The Pro capabilities — what they measure
 
 These four are **EMStudio Pro**. The stubs below say what each one does and the
@@ -576,17 +916,10 @@ alternative is named where one exists.
 |---|---|---|---|---|
 | 10 | **OpenFOAM — CFD on your own solid** | Analysis | free | +4.3 % vs Churchill (sphere anchor) |
 | 11 | **OpenFOAM — CHT** | Analysis | free | Nu ≈ 6.56 ± 1.5 % (⚠ NOT the gate's 6.85) |
-| 13 | **Cable Designer — litz** | Tools | free | IEC 60287 worked examples |
 | 14 | **Cable Designer — bundles/crosstalk** | Tools | free | MoM insulated-C, mixed-mode pairs |
-| 15 | **Small-Antenna Designer (VLF/LF)** | Tools | free | Watt §4 — efficiency ladder, Chu Q |
-| 16 | **Link Budget** | Tools | free | FSPL + knife-edge closed forms |
-| 17 | **Coverage maps** | Tools | free | ITU-R P.1546 / P.1812 official profiles |
 | 18 | **Multi-station D/U** | Tools | free | service/interference contours |
 | 19 | **Isolation Matrix** | System | free | port-to-port isolation vs spacing |
-| 20 | **Co-site / EMC** | System | free | IMD products, intercept levels |
 | 21 | **Antenna from Selection** | Analysis | free | thin-wire d/a report on a real curve |
-| 22 | **Pattern Frequencies / scrubbing** | Analysis | free | N patterns from ONE run (201 in 7.18 s) |
-| 23 | **Solver Setup / install** | Setup | free | the workflow, not a number |
 
 ⚠ **#23 (Solver Setup) is the one exception** — it documents a workflow, not a
 number, because installing a backend has no measurable output to pin. It says

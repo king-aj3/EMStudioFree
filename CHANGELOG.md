@@ -67,6 +67,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   **Gate `declared_ports` (FAST), 11 checks, 5/5 mutations** on an asymmetric
   3-port fixture. ⚠ Its scope is the selection logic — a live 3+-port solve has
   not been run, and no measured N-port result is claimed.
+* **Seven more tutorials, every anchor measured on the box that wrote them.**
+  **#13 litz** — why stranding changes anything: a 6-strand ring shares current
+  at an imbalance of **1.0000**, while a 7-strand bundle with a CENTRE strand
+  reaches **9.6272**, one strand carrying ~10x another, which is the whole
+  argument for transposition. **#15 small antennas** — a 100 m VLF mast at
+  30 kHz is h/λ = **0.0100** with R_r = **0.03953 Ω** and Q = **4.04e3**, so
+  1 Ω of ground loss throws away 96 % of the power. **#16 link budget** — FSPL
+  **81.99 dB** at 1 km / 300 MHz, and the **+6.02 → +12.04 dB** transition that
+  explains why the last few kilometres cost what they do. **#17 coverage** —
+  the strongest anchor in the series: ITU's own official reference datasets,
+  **52 for P.1546 and 63 for P.1812, worst deviation 0.000000 dB** against a
+  0.01 dB window. **#20 co-site** — the third-order products that land in band
+  and the 3-dB-per-1-dB slope that makes isolation worth more than a better
+  receiver. **#22 pattern-per-frequency** — N patterns from ONE solver run.
+  **#23 solver setup** — ⚠ deliberately the only entry with NO number: it says
+  so out loud rather than inventing an anchor, and names what IS gated instead.
 * **The four Pro capabilities get public stubs, and the paywall is now
   machine-checked.** Per AJ's ruling, #24 Matching, #25 Array Designer, #26
   RFDF and #27 the Assistant each get a public stub giving the WHAT and the
