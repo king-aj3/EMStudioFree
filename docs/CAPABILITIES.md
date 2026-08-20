@@ -291,8 +291,20 @@ against the uniform control's −12.7 dB — 13.4 dB of suppression for 0.58 dB
 of gain. Gates: `tests/validation/system_tapers.py` (FAST, mutation-tested
 12/12) + `tests/validation/array_taper_nec2.py` (SOLVER, live).
 
-**Later §7 slices — RF direction finding (S6) and the System group (S7) —
-remain planned** (see [ROADMAP](ROADMAP.md)).
+**§7 is COMPLETE (S1–S7).** RF direction finding (S6) ships — Watson-Watt /
+Adcock, multi-baseline interferometry, pseudo-Doppler ring sizing and a
+correlative manifold built from per-element NEC2 patterns, gated by
+`tests/validation/system_rfdf.py`; its manifold decodes an independent receive
+simulation at **0.00° bearing error**. The System group (S7) ships too, and is
+the menu that spans the tier boundary: Isolation Matrix and Co-site are free,
+Matching / Array / RFDF are Pro.
+
+> ⚠ **This paragraph said both "remain planned" until 2026-08-20**, long after
+> both shipped — an **understatement** in a public document, and it flatly
+> contradicted `PRO.md`, which sells RFDF on that same 0.00° figure. Overstating
+> is the failure everyone watches for; understating hides work that was paid
+> for and is just as wrong. ⛳ Neither doc was checked against the other, which
+> is the same "nobody measures it" class as every other drift found this week.
 
 ## Antennas & RF
 
