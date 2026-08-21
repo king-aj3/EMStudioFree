@@ -141,6 +141,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   backends and asserts the table: Elmer **26.2**, gmsh **4.12.1**, nec2c
   **1.3.1**, openEMS **0.37.0-rc1**, FastHenry **3.0.1**, OpenFOAM **2606**,
   Palace **blank**.
+  ⛳ **It re-measures rather than trusting the snapshot.** The fixtures pin the
+  parser; a second pass probes every backend actually present and fails if one
+  drifts off the table. The Elmer PPA ships dated devel snapshots and drops the
+  previous one from its pool, so `apt upgrade` can move the installed solver
+  with no EMStudio change at all — and seven surfaces quote **26.2**. An absent
+  backend is skipped and counted out loud, never silently banked as coverage.
+  ⚠ The apt package version (`9.0-0ppa0-<date>`) and the banner version
+  (`26.2`) are different numbers; only the banner is user-visible, so only the
+  banner is gated.
   ⚠⚠ **`ElmerSolver --version` carries a RUN TIMESTAMP**, so that column
   changed every time the user pressed Re-detect — a version that differs each
   time you look at it makes the whole table look untrustworthy. openEMS
@@ -207,6 +216,56 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   list called it 7.
 
 ### Fixed
+* **The four remaining HIGH findings from the 2026-08-20 audit are closed.**
+  All four had already survived an adversarial refutation pass; these are the
+  fixes.
+  - **`_lib_present()` reported every "lib" prerequisite as permanently missing
+    on macOS and Windows.** It shelled out to `ldconfig` — glibc, i.e. Linux
+    only — and turned the resulting `FileNotFoundError` into a bare
+    `return False`, so a Mac with `hdf5`, `vtk`, `boost`, `cgal` and `gmp`
+    already installed by Homebrew still refused to start the guided openEMS
+    build, and no GUI action could clear it. Now platform-branched: Darwin
+    probes Homebrew's own prefix for `lib<stem>*.dylib`, Windows returns True
+    (DLLs resolve per-process; there is no loader registry to consult).
+    ⛳ **The load-bearing change is that a probe which CANNOT RUN returns True,
+    not False** — an unprovable prerequisite must never masquerade as a
+    proven-missing one, and a genuinely absent library still fails the compile
+    with its own accurate error. ⚠ `os.name` is `"posix"` on macOS **and**
+    Linux — the trap this project has hit before — so the branch tests
+    `sys.platform == "darwin"` explicitly.
+  - **The SciPy-less proximity fallback was silently 5.9× high.** Measured:
+    `x = 1.999 -> 0.062375` against `x = 2.001 -> 0.332166`, a **5.33× step**
+    at the join, and the asymptote reads **5.9× above the exact Kelvin value**
+    there (0.056103). Proximity loss is the one number litz wire exists to
+    control, so that was a wrong answer about the reason the user opened the
+    dialog. It now warns **once per session** rather than per frequency, so a
+    thousand-point sweep produces one line.
+    ⛳ **Deliberately NOT smoothed.** A continuous curve through the wrong
+    values would look right and be just as wrong; the step is the honest
+    signal that this path is in use at all.
+  - **Shell injection / silent quoting failure in the OpenFOAM command
+    builder.** The text goes to `bash -lc`, so the case directory and the
+    bashrc path are shell **syntax**, not data. Hand-rolled `'%s'` quoting
+    ended the quote on the first apostrophe (`/home/bob's cases/run` executed
+    its remainder as commands), and the bashrc was not quoted at all, so a
+    space truncated the source line and the step failed with a misleading
+    "OpenFOAM environment not found". Both interpolations now go through
+    `shlex.quote`. Neither path is exotic — FreeCAD documents live wherever
+    the user keeps them.
+  - **The ~200 MB Windows OpenFOAM installer was executed unverified.** Every
+    other guided install verifies its download; this was the only one that
+    runs an **arbitrary executable** (an NSIS installer) rather than unpacking
+    an archive, so it was the single place a corrupted or tampered download
+    did the most damage. It is hashed now.
+    ⛳ **`WIN_NATIVE_SHA256` is left EMPTY on purpose and says so out loud.** A
+    guessed pin would refuse every legitimate install, and inventing one is
+    exactly the fabrication this project refuses elsewhere; the recipe for
+    arming it is in the comment.
+  ⚠⚠ **Two of these could not be verified on-platform.** `_lib_present()` and
+  the litz fallback are the macOS and SciPy-less paths; the macOS build host
+  was unreachable (no route to host) when they were written, so both are
+  reasoned-and-reviewed rather than run. **They need exercising on the build
+  host before anyone treats them as proven.**
 * **A reply went out with a stale count, and the counts are now gone.** A
   drafted r/rfelectronics reply said *"Five of them"* on the day the sixth
   tutorial shipped — in a post whose whole argument was that this project's

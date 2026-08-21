@@ -142,6 +142,25 @@ WSL_DISTRO = "EMStudio-OpenFOAM"
 #: the download is refused if the digest does not match.
 WSL_ROOTFS_URL = ("https://cloud-images.ubuntu.com/wsl/releases/24.04/"
                   "current/ubuntu-noble-wsl-amd64-wsl.rootfs.tar.gz")
+#: SHA256 of ESI's native Windows installer, verified before it is EXECUTED.
+#:
+#: ⚠ **Empty means UNPINNED, and the code says so to the user.** Every other
+#: guided install in EMStudio verifies its download before using it; this one
+#: did not, and it is the only one that runs an ARBITRARY EXECUTABLE (a ~200 MB
+#: NSIS installer) rather than unpacking an archive — so it is the single place
+#: where a compromised or corrupted download does the most damage.
+#:
+#: It is left empty rather than filled with a guess: a WRONG pin would refuse
+#: every legitimate install, and inventing one is exactly the fabrication this
+#: project refuses elsewhere. To arm it, download the asset and record the
+#: digest, then paste it here:
+#:
+#:     curl -L -o of.exe "<WIN_NATIVE_URL>" && sha256sum of.exe
+#:
+#: ⚠ ESI re-cuts installers under the same URL, so re-check on every version
+#: bump — a stale pin is a broken install, not a safe one.
+WIN_NATIVE_SHA256 = ""
+
 WSL_ROOTFS_SHA256 = ("8251e27ffff381a4af5f41dcb94d867de3e0d9774a9241908ab3"
                      "4555d99315ea")
 #: The WSL2 kernel MSI for the manual (pre-19041) path. aka.ms/wsl2kernel no
@@ -958,6 +977,28 @@ def run_windows_native_install(line_callback=None):
                                  WIN_NATIVE_VERSION))
     say("downloading ESI's native Windows build (~200 MB)...")
     _solvers._download_archive(WIN_NATIVE_URL, installer, say)
+
+    # ⚠ This is the only guided install that EXECUTES what it downloads, so it
+    # is the one that most needs a checksum. Verify when pinned; when not, say
+    # so out loud rather than staying quiet — an unverified 200 MB executable
+    # the user cannot tell is unverified is worse than one they can.
+    digest = hashlib.sha256()
+    with open(installer, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    got = digest.hexdigest()
+    if WIN_NATIVE_SHA256:
+        if got != WIN_NATIVE_SHA256:
+            os.unlink(installer)
+            raise SolverError(
+                "the OpenFOAM installer failed its SHA256 check (got {0}) — "
+                "refusing to RUN it; re-run to retry".format(got[:16]))
+        say("checksum verified ({0}...).".format(got[:16]))
+    else:
+        say("\u26a0 this download is NOT checksum-verified (no pin recorded "
+            "for this version). Its SHA256 is {0} — if that matches ESI's "
+            "published digest you can record it in WIN_NATIVE_SHA256 so every "
+            "later install is checked.".format(got))
 
     say("installing silently to {0} (no admin needed)...".format(root))
     # NSIS: /D last, unquoted, absolute. A string, NOT a list — see above.

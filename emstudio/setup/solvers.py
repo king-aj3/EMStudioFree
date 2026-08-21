@@ -733,14 +733,66 @@ def openfoam_clear_cache():
 
 
 def _lib_present(stem):
-    """True if a shared library with this stem is registered with the loader."""
+    """True if a shared library with this stem can be found on this platform.
+
+    ⚠ **`ldconfig` is glibc, i.e. Linux only.** macOS has no such tool and
+    Windows has no such concept, so the original implementation's bare
+    ``except: return False`` reported EVERY "lib" prerequisite as missing on
+    those platforms — permanently, and with no way for the user to satisfy it.
+    On macOS that blocked the guided source builds behind prerequisites that
+    were very often already installed by Homebrew.
+
+    ⛳ **`os.name` is "posix" on macOS AND Linux**, which is the trap this
+    project has hit before and why the branch below tests
+    ``sys.platform == "darwin"`` explicitly rather than assuming posix means
+    Linux.
+
+    macOS is probed through Homebrew's own prefix, which is where these
+    libraries actually live (``/opt/homebrew/lib`` on Apple silicon,
+    ``/usr/local/lib`` on Intel). If Homebrew is absent there is nothing left
+    to consult, and the honest answer is **True** rather than False: an
+    unprovable prerequisite must not masquerade as a proven-missing one and
+    block a build that would have worked. A genuinely missing library still
+    fails the compile with its own, accurate error.
+    """
+    if sys.platform == "darwin":
+        import glob
+
+        prefixes = []
+        try:
+            # creationflags even on the macOS-only branch: the smoke gate
+            # enforces it on EVERY spawn rather than reasoning about which
+            # platform each one can reach, which is why it caught this one.
+            out = subprocess.run(
+                ["brew", "--prefix"], capture_output=True, text=True,
+                timeout=10,
+                creationflags=procutil.CREATE_NO_WINDOW).stdout.strip()
+            if out:
+                prefixes.append(out)
+        except Exception:
+            pass
+        prefixes += ["/opt/homebrew", "/usr/local"]
+        for prefix in prefixes:
+            libdir = os.path.join(prefix, "lib")
+            if glob.glob(os.path.join(libdir, "lib" + stem + "*.dylib")):
+                return True
+        # Homebrew present and the library genuinely absent -> False; Homebrew
+        # absent -> we cannot tell, so do not claim it is missing.
+        return not any(os.path.isdir(os.path.join(p, "lib")) for p in prefixes)
+    if os.name == "nt":
+        # Windows resolves DLLs per-process at load time; there is no registry
+        # to consult, and the guided installers carry their own dependencies.
+        # Claiming "missing" here would block installs that work.
+        return True
     try:
         out = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True,
                              timeout=10,
                              creationflags=procutil.CREATE_NO_WINDOW).stdout
         return ("lib" + stem) in out
     except Exception:
-        return False
+        # ldconfig missing on a non-Darwin posix box (musl, a slim container):
+        # unprovable, not proven-missing. Same reasoning as the macOS branch.
+        return True
 
 
 def check_prereqs(backend):

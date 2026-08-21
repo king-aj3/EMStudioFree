@@ -35,9 +35,17 @@ read that column.
    a user would report it back to us as fact.
 4. **Help text is not a version.** Several backends run their version line
    straight into usage output.
+5. **The fixtures still match the binaries on THIS box.** Every backend
+   actually installed is probed for real and must report the version the
+   docs quote. See the long comment at check 6 for why a fixture alone was
+   not enough.
 
-Pure python3 — no binaries needed, because the fixtures ARE the binaries'
-output. FAST tier.
+Pure python3 — no third-party imports. The parser checks (1-4) need no
+binaries, because the fixtures ARE the binaries' output; the live
+cross-check (5) probes whatever is installed and says out loud what was
+absent. Measured 2026-08-21 with all seven backends present: ~1.5 s, of
+which Elmer is ~0.7 s because `ElmerSolver --version` starts the solver.
+FAST tier.
 Pass: exit 0 and 'SOLVER VERSIONS GATE PASSED'.
 """
 import os
@@ -119,6 +127,62 @@ def main():
     check("a date-only line yields no version, not a date",
           version_number("built 2026/08/20 19:15:27") == "",
           version_number("built 2026/08/20 19:15:27"))
+
+    # 6. ⚠⚠ THE LIVE CROSS-CHECK. Everything above proves the PARSER is right
+    # about strings captured on 2026-08-20. None of it proves those strings are
+    # still what the binaries on this box print — and a fixture nobody
+    # re-measures is exactly the claim that drifts.
+    #
+    # It is not theoretical. The Elmer CSC PPA ships DATED DEVEL SNAPSHOTS and
+    # drops the previous one from the pool, so a routine `apt upgrade` moves
+    # the installed solver underneath us without touching a line of EMStudio.
+    # Should a snapshot ever bump the banner past "26.2", SEVEN surfaces quote
+    # the old number — REAL_OUTPUT below, the docs/TUTORIALS.md version table,
+    # two CHANGELOG lines, the version_number() docstring, the Elmer .sif
+    # writer header, and the two live Elmer anchors — and before this check
+    # every one of them would have stayed GREEN while going quietly wrong.
+    # (⛳ The package version and the banner version are different numbers:
+    # apt calls it 9.0-0ppa0-<date>, the solver calls itself 26.2. Only the
+    # banner is user-visible, so only the banner is gated here.)
+    #
+    # A mismatch FAILS, and the message names the remedy: usually "the install
+    # legitimately moved, update the fixture and the surfaces", not "the parser
+    # broke". A gate that fails without saying what to do just gets muted.
+    #
+    # ⛳ An ABSENT backend is skipped and SAID OUT LOUD — never silently
+    # counted as coverage. It must not fail the gate: FAST tier has to pass on
+    # a bare box with no solvers, and checks 1-4 genuinely ran there. But a run
+    # that live-checked NOTHING must not read like a run that live-checked
+    # everything, so the count is printed either way.
+    from emstudio.setup.solvers import find_backend
+
+    covered, absent = 0, []
+    for key, _fixture, want in REAL_OUTPUT:
+        info = find_backend(key)
+        if not info.found:
+            absent.append(key)
+            continue
+        covered += 1
+        got = version_number(info.version)
+        ok = (got == want)
+        detail = ("reports %r" % got) if ok else (
+            "installed reports %r but the table says %r — if the install "
+            "legitimately moved, update REAL_OUTPUT above AND every surface "
+            "quoting it: docs/TUTORIALS.md version table, CHANGELOG, the "
+            "version_number() docstring, and for Elmer also "
+            "emstudio/solvers/elmer/writer.py plus the open_coil_elmer / "
+            "coil_inductance_elmer anchors" % (got, want))
+        check("LIVE %s still reports %s" % (key, want or "no version"),
+              ok, detail)
+
+    if absent:
+        print("  ....  live cross-check SKIPPED (not installed): %s"
+              % ", ".join(absent))
+    print("  ....  live cross-check covered %d of %d backends%s"
+          % (covered, len(REAL_OUTPUT),
+             "" if covered else
+             " — NONE INSTALLED, so nothing was checked against a real binary "
+             "on this box"))
 
     if FAILURES:
         print("SOLVER VERSIONS GATE FAILED (%d)" % len(FAILURES))

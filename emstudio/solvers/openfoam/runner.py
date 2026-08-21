@@ -23,6 +23,7 @@ status is what gets recorded.
 from __future__ import annotations
 
 import os
+import shlex
 import signal
 import subprocess
 import time
@@ -68,15 +69,32 @@ def _to_posix(path):
 
 
 def _command(info, script, case_dir):
-    """The argv that runs `script` with the OpenFOAM environment sourced."""
-    cd = "cd '%s' || exit 91\n" % _to_posix(case_dir)
-    full = ". %s >/dev/null 2>&1 || exit 90\n%s%s" % (info.bashrc, cd, script)
+    """The argv that runs `script` with the OpenFOAM environment sourced.
+
+    ⚠ **Both interpolations are shell-quoted, and they have to be.** This text
+    is handed to ``bash -lc``, so every character in the case directory and in
+    the bashrc path is shell SYNTAX, not data. Hand-rolled ``'%s'`` quoting
+    breaks on the first apostrophe — a path like ``/home/bob's cases/run`` ends
+    the quote and the remainder is executed as commands. The bashrc was not
+    quoted at all, so a space in it silently truncated the source line and the
+    step then failed with a misleading "OpenFOAM environment not found".
+    Neither is exotic: FreeCAD documents live wherever the user keeps them, and
+    macOS puts things under "Application Support".
+    """
+    posix_case = _to_posix(case_dir)
+    cd = "cd %s || exit 91\n" % shlex.quote(posix_case)
+    full = ". %s >/dev/null 2>&1 || exit 90\n%s%s" % (
+        shlex.quote(info.bashrc), cd, script)
     if getattr(info, "native_root", ""):
         return [info.native_bash, "-lc", full]
     if getattr(info, "wsl_distro", ""):
         # WSL sees the Windows disk under /mnt/<drive>, not /<drive>.
-        full = full.replace("cd '%s'" % _to_posix(case_dir),
-                            "cd '/mnt%s'" % _to_posix(case_dir))
+        # ⚠ Rebuild the cd line rather than string-replacing it: the old
+        # replace searched for the hand-quoted form, so the moment quoting
+        # changed it would have matched nothing and silently left the path
+        # un-translated — the case would run in the wrong directory.
+        full = full.replace(cd, "cd %s || exit 91\n"
+                            % shlex.quote("/mnt" + posix_case), 1)
         return [_setup._wsl_exe(), "-d", info.wsl_distro, "--", "bash", "-lc",
                 full]
     return ["bash", "-lc", full]

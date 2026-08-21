@@ -108,6 +108,11 @@ def _kelvin(q):
         return ber_v, bei_v, berp_v, beip_v
 
 
+#: Set once the SciPy-less proximity fallback has warned, so a sweep of a
+#: thousand frequencies produces ONE line rather than a thousand.
+_PROX_WARNED = False
+
+
 def _proximity_h(x):
     """Exact transverse-field proximity kernel H(x), x = d_strand/delta.
 
@@ -132,6 +137,36 @@ def _proximity_h(x):
         gk = -(z2.real * zp.real + z2.imag * zp.imag) / (z0.real ** 2 + z0.imag ** 2)
         return v * gk / 4.0
     except Exception:
+        # ⚠⚠ SciPy is missing, so this is the ASYMPTOTIC fallback — and it is
+        # not a small approximation. Measured 2026-08-20:
+        #
+        #   x = 1.999  ->  0.062375   (small-argument series)
+        #   x = 2.001  ->  0.332166   (linear asymptote)
+        #
+        # a **5.33x STEP** at the join, and the asymptote is **5.9x above the
+        # exact Kelvin value** at x = 2 (exact: 0.056103). Proximity loss is
+        # what litz wire EXISTS to control, so a silent 5.9x over-estimate of
+        # it is a wrong answer about the one number the user came for.
+        #
+        # It is kept rather than raised, because refusing would break litz
+        # analysis entirely on a FreeCAD build without SciPy — but it now says
+        # so ONCE per session instead of never. ⛳ The fallback is deliberately
+        # NOT "smoothed" to hide the step: a continuous curve through the wrong
+        # values would look right and be just as wrong, and the discontinuity
+        # is the honest visible signal that this path is in use.
+        global _PROX_WARNED
+        if not _PROX_WARNED:
+            _PROX_WARNED = True
+            msg = ("EMStudio: SciPy is not available, so litz proximity loss "
+                   "uses an asymptotic fallback that can read ~5.9x high "
+                   "above x = 2 (x = d/delta). Install SciPy for the exact "
+                   "Kelvin-function result.\n")
+            try:
+                import FreeCAD
+                FreeCAD.Console.PrintWarning(msg)
+            except Exception:
+                import sys as _sys
+                _sys.stderr.write(msg)
         if x < 2.0:
             return x ** 4 / 256.0
         return 0.166 * x

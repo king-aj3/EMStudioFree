@@ -754,6 +754,14 @@ the version table above, the fork detection and the probe logic.
 binaries, and asserts each normalises to the version in the table — plus that a
 timestamp is never read as a version, that an absent version stays absent, and
 that a version never runs on into help text. **5/5 mutations caught.**
+⛳ **And it re-measures.** A fixture nobody re-runs is just a claim with a date
+on it, so the gate also probes every backend **actually installed on your box**
+and fails if one no longer reports the version this table quotes. That is not
+hypothetical: the Elmer PPA ships dated devel snapshots and drops the previous
+one from its pool, so an ordinary `apt upgrade` can move the solver underneath
+you without touching a line of EMStudio. A backend you have not installed is
+skipped **and said out loud** — the run prints how many of the seven it
+actually reached, so "covered 0 of 7" can never read like a clean sweep.
 ⛳ One of its checks had to be *earned*: the rule "prefer a version marked with
 `v`/`version` over a bare dotted number" turned out to give the same answer on
 all six real strings, so it was decoration rather than a tested property. It is
