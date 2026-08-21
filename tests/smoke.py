@@ -1802,9 +1802,24 @@ def _gui_registration_contract():
             "COMMAND_GROUPS must cover exactly the registered commands "
             "(missing {0}, extra {1})".format(expected - set(grouped),
                                                set(grouped) - expected))
-        # a toolbar (+ submenu) was appended per group
-        assert len(reg["toolbars"]) == len(commands.COMMAND_GROUPS), \
-            "expected one toolbar per command group"
+        # A toolbar (+ submenu) was appended per group. ⚠⚠ Compare UNIQUE
+        # NAMES, not the number of CALLS. FreeCAD MERGES a second
+        # appendToolbar carrying a name it already has, and the Pro overlay
+        # depends on exactly that to hang its commands off the free core's
+        # existing groups (pro/emstudio_pro/commands.py:30-32, which spells out
+        # that a different name "would create a second toolbar rather than
+        # extend the existing one"). _FakeBase above is a recorder and cannot
+        # merge, so it accumulates one entry per call.
+        # MEASURED 2026-08-21: free appends 6, Pro appends 2 more onto System
+        # and Help -> 8 calls against 6 groups. Counting calls therefore made
+        # this assertion impossible to satisfy whenever the Pro overlay was
+        # installed — that is, in every PAYING CUSTOMER's configuration — while
+        # the GUI itself has always shown 6 toolbars. A stub standing in for a
+        # real API must be asserted on the property the REAL API has.
+        toolbar_names = {name for name, _ in reg["toolbars"]}
+        assert len(toolbar_names) == len(commands.COMMAND_GROUPS), \
+            "expected one toolbar per command group (unique names %r vs %d " \
+            "groups)" % (sorted(toolbar_names), len(commands.COMMAND_GROUPS))
 
         # Every command exposes a valid GetResources() with an existing icon.
         for _, cmd in reg["commands"]:

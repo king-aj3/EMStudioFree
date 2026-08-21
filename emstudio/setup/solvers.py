@@ -747,13 +747,21 @@ def _lib_present(stem):
     ``sys.platform == "darwin"`` explicitly rather than assuming posix means
     Linux.
 
-    macOS is probed through Homebrew's own prefix, which is where these
-    libraries actually live (``/opt/homebrew/lib`` on Apple silicon,
-    ``/usr/local/lib`` on Intel). If Homebrew is absent there is nothing left
-    to consult, and the honest answer is **True** rather than False: an
-    unprovable prerequisite must not masquerade as a proven-missing one and
-    block a build that would have worked. A genuinely missing library still
-    fails the compile with its own, accurate error.
+    macOS is probed through Homebrew's own prefix (``/opt/homebrew`` on Apple
+    silicon, ``/usr/local`` on Intel) in **two** places, because Homebrew puts
+    libraries in two places: ``<prefix>/lib`` for ordinary formulae, and
+    ``<prefix>/opt/<name>/lib`` for **keg-only** ones it refuses to symlink
+    into ``lib`` at all. ``openblas`` and ``lapack`` are keg-only (they collide
+    with Apple's Accelerate framework), so checking only ``<prefix>/lib``
+    answers "missing" for a library that is fully installed — verified on the
+    build host, where the ``lib`` glob finds nothing and the ``opt`` glob finds
+    ``libopenblas.dylib``.
+
+    If Homebrew is absent there is nothing left to consult, and the honest
+    answer is **True** rather than False: an unprovable prerequisite must not
+    masquerade as a proven-missing one and block a build that would have
+    worked. A genuinely missing library still fails the compile with its own,
+    accurate error.
     """
     if sys.platform == "darwin":
         import glob
@@ -775,6 +783,21 @@ def _lib_present(stem):
         for prefix in prefixes:
             libdir = os.path.join(prefix, "lib")
             if glob.glob(os.path.join(libdir, "lib" + stem + "*.dylib")):
+                return True
+            # ⚠⚠ KEG-ONLY FORMULAE LIVE SOMEWHERE ELSE, AND openblas IS ONE.
+            # Homebrew deliberately does not symlink some formulae into
+            # <prefix>/lib -- openblas and lapack among them, because they
+            # collide with Apple's own Accelerate framework. They install
+            # fully, under <prefix>/opt/<name>/lib. Globbing only <prefix>/lib
+            # therefore answers "missing" on a machine where `brew install
+            # openblas` has already succeeded, which is precisely the false
+            # negative this entire branch exists to prevent.
+            # MEASURED on the arm64 build host 2026-08-21: openblas installed,
+            # /opt/homebrew/lib/libopenblas*.dylib -> no matches, while
+            # /opt/homebrew/opt/openblas/lib/libopenblas.dylib IS there. Before
+            # this line _lib_present("openblas") returned False on that box.
+            kegdir = os.path.join(prefix, "opt", stem, "lib")
+            if glob.glob(os.path.join(kegdir, "lib" + stem + "*.dylib")):
                 return True
         # Homebrew present and the library genuinely absent -> False; Homebrew
         # absent -> we cannot tell, so do not claim it is missing.

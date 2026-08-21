@@ -156,12 +156,57 @@ def main():
           and not any(c[:1] == ["ldconfig"] for c in calls),
           "spawned %r" % (calls,))
 
-    # D2: Homebrew IS installed (its lib dir exists) and the library is not.
+    # D2: Homebrew IS installed (its lib dir exists) and the library is in
+    # NEITHER of the two places Homebrew puts libraries -- see D4 for why that
+    # qualifier is load-bearing.
     got, _ = _probe("openblas", "darwin", "posix", brew_prefix="/opt/homebrew",
                     dylibs=[], libdirs=["/opt/homebrew/lib"])
-    check("D2 darwin: brew installed, dylib absent -> False", got is False,
+    check("D2 darwin: brew installed, dylib in neither location -> False",
+          got is False,
           "a library Homebrew could have provided and did not IS provably "
           "missing, and the user can act on it")
+
+    # D4 ⚠⚠ KEG-ONLY. This is the defect HIGH #1 was actually hiding, and it
+    # was invisible to every check above because they all assume Homebrew
+    # symlinks into <prefix>/lib. It does not for keg-only formulae -- openblas
+    # and lapack collide with Apple's Accelerate framework, so brew installs
+    # them under <prefix>/opt/<name>/lib and links nothing.
+    # MEASURED on the arm64 build host 2026-08-21, with openblas installed:
+    #   /opt/homebrew/lib/libopenblas*.dylib          -> no matches
+    #   /opt/homebrew/opt/openblas/lib/libopenblas.dylib -> present
+    # and _lib_present("openblas") returned False. The user is then blocked
+    # from a guided source build by a prerequisite they have already installed
+    # -- the exact failure D3's comment says this branch exists to prevent,
+    # arriving through a door D3 does not watch.
+    got, _ = _probe(
+        "openblas", "darwin", "posix", brew_prefix="/opt/homebrew",
+        dylibs=["/opt/homebrew/opt/openblas/lib/libopenblas.dylib"],
+        libdirs=["/opt/homebrew/lib"])
+    check("D4 darwin: KEG-ONLY dylib under opt/<name>/lib -> True", got is True,
+          "brew installed it; it is simply not symlinked into <prefix>/lib")
+
+    # D5: the keg dir is consulted for the RIGHT formula, not any formula.
+    # ⚠ THIS IS NOT A HYPOTHETICAL, which is the only reason it is worth a
+    # check. MEASURED on the build host: the openblas keg SHIPS ITS OWN
+    # liblapack.dylib and libblas.dylib (OpenBLAS bundles a LAPACK), so
+    #   /opt/homebrew/opt/openblas/lib/liblapack.dylib
+    # exists on a machine where the `lapack` FORMULA is not installed at all.
+    # A fix that reached for <prefix>/opt/*/lib instead of <prefix>/opt/<stem>/lib
+    # would therefore answer True for lapack off the back of openblas -- naming
+    # a prerequisite satisfied by a library sitting in another formula's private
+    # keg, which is not on any search path a build would use.
+    # ⛳ The first draft of this check used libopenblas.dylib as the intruder
+    # and could not fail: the FILENAME glob already discriminates when the stem
+    # differs. The mutation caught the check, not the code. The intruder has to
+    # be a file whose NAME matches the stem being asked about.
+    got, _ = _probe(
+        "lapack", "darwin", "posix", brew_prefix="/opt/homebrew",
+        dylibs=["/opt/homebrew/opt/openblas/lib/liblapack.dylib",
+                "/opt/homebrew/opt/openblas/lib/libopenblas.dylib"],
+        libdirs=["/opt/homebrew/lib"])
+    check("D5 darwin: another formula's keg does NOT answer for this one "
+          "-> False", got is False,
+          "openblas bundles liblapack.dylib; the lapack FORMULA is still absent")
 
     # D3 ⚠ THE INVERSION THE ORIGINAL GOT WRONG.
     got, _ = _probe("openblas", "darwin", "posix", brew_prefix=None,
