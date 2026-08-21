@@ -235,6 +235,27 @@ def _collect_ports(analysis, excite_port=None):
                 s[pi], e[pi] = plo, phi
             entry["start"], entry["stop"] = tuple(s), tuple(e)
         ports.append(entry)
+    # ⚠ "exactly one" has to be COUNTED, not tested with `any`. Every port
+    # created through the GUI carries Excited=True by default
+    # (``LumpedPort._ensure_properties``), so a user who adds a second port the
+    # obvious way gets a deck that drives BOTH — and openEMS accepts it. The
+    # post-processing below then computes s11 = uf_ref/uf_inc for port 1 as if
+    # it were the only source, so port 1's incident wave is contaminated by
+    # port 2's drive and the S-parameters are silently wrong. No exception, no
+    # warning, a plausible-looking answer. Reproduced live 2026-08-20.
+    # The shipped templates are unaffected — msl_filter sets port2.Excited =
+    # False explicitly — and FullSMatrix is unaffected too, because its runner
+    # drives one port per excitation and clears the rest.
+    n_excited = sum(1 for p in ports if p["excite"])
+    if n_excited > 1:
+        raise OpenEMSModelError(
+            "openEMS solves ONE excitation per run, but {0} ports are marked "
+            "Excited: {1}. Un-tick Excited on all but one, or use the "
+            "FullSMatrix option, which drives each port in turn and merges "
+            "the columns into a full S-matrix.".format(
+                n_excited,
+                ", ".join("port {0}".format(p.get("nr", "?"))
+                          for p in ports if p["excite"])))
     if not any(p["excite"] for p in ports):
         raise OpenEMSModelError(
             "the analysis needs exactly one excited port"

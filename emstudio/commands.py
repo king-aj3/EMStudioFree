@@ -474,6 +474,13 @@ class _WavePortsFromSelection:
         for obj, sub in faces:
             port = ports.makeLumpedPort(FreeCAD.ActiveDocument, ana,
                                         references=[(obj, sub)])
+            # ⚠ Only PORT 1 is excited. Every port defaults to Excited=True,
+            # and openEMS solves ONE excitation per run — creating N excited
+            # ports would build a model its own writer now refuses (and which,
+            # before 2026-08-20, it silently accepted and answered wrongly).
+            # The N-port answer comes from FullSMatrix, which drives each port
+            # in turn; the document just has to say which faces the ports are.
+            port.Excited = (port.PortNumber == 1)
             made.append((port.PortNumber, sub))
         FreeCAD.ActiveDocument.recompute()
 

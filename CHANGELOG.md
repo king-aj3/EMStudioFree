@@ -181,6 +181,23 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   ⛳ `docs/CAPABILITIES.md` had recorded "Engine only — Qt-free, no UI"
   accurately the whole time. **An "engine only" note is a FINDING, not a
   status**, and nothing re-read it.
+* 🔴 **CRITICAL — openEMS silently accepted more than one excited port, and
+  answered wrongly.** Every port created through the GUI carries
+  `Excited=True`, but the guard tested `any(...)` while its own message and the
+  entire S-parameter contract say **exactly one**. Adding a second port the
+  obvious way produced a deck driving BOTH — openEMS accepts that — and the
+  post-processing then computed `s11 = uf_ref / uf_inc` as though port 1 were
+  the only source, so port 1's incident wave was contaminated by port 2's drive
+  and **the S-parameters were silently wrong**: no exception, no warning, a
+  plausible-looking answer. Found by an adversarial audit and **reproduced
+  live** before being believed.
+  Fixed by COUNTING excited ports and refusing more than one, naming the
+  offending ports and pointing at `FullSMatrix` for the N-port case.
+  ⚠ Shipped templates were never affected — `msl_filter` sets
+  `port2.Excited = False` explicitly — and `FullSMatrix` is unaffected, because
+  its runner drives one port per excitation and clears the rest. The new **Wave
+  Ports from Selection** command now excites only port 1, since it would
+  otherwise have built a model the new guard refuses.
 * **A gate for the tutorials themselves.** `tests/validation/tutorials_doc.py`
   (FAST) asserts every numbered tutorial keeps the four-part shape, that each
   "Prove it" names a gate file **that exists**, that no number is used twice
