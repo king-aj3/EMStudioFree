@@ -3,13 +3,51 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased] — worked 2026-08-20, in no tag yet
+## [Unreleased] — worked 2026-08-20 and 2026-08-21, in no tag yet
 
 > ⚠ **Rename this heading to the version that ships it.** A section sat here
 > titled "Unreleased" through the whole of 1.0.0 once already — see the note on
 > that section below.
 
+### Fixed
+* **The SciPy-less litz proximity fallback used the wrong asymptote — 33 % high
+  where it should have been exact.** `_proximity_h`'s `except ImportError`
+  branch returned `0.166 * x`, and the docstring stated that as the function's
+  large-x limit. It is not: measured against this function's own SciPy branch,
+  the slope converges to **0.12500** (1/8, not ~1/6) and H(x) → **(x−1)/8** to
+  better than 1e-4 at x = 64…512. The old coefficient read **1.33× high at
+  x = 512**, 1.80× at x = 4 and 5.92× just above the x = 2 join. Corrected to
+  `(x - 1.0) / 8.0`, which brings x ≥ 4 inside **1.6 %** (+1.541 % at x = 4,
+  the worst point in that range) and cuts the worst case anywhere from 5.92× to
+  **2.23×**.
+  ⚠ This only ever affected a FreeCAD build **without SciPy** — where it
+  mattered most, because proximity loss is the number litz wire exists to
+  control. The reachable range is real: `x = d_strand/δ`, so an AWG-38 strand
+  at 10 MHz sits near x ≈ 5.
+  ⛳ **Nothing caught it because no gate had ever run that branch.** The battery
+  requires SciPy, so `wire_fasthenry`'s three proximity checks (series limit,
+  seam continuity, monotonicity) only ever exercised the exact path — and all
+  three pass under the fallback too, because a monotone wrong curve is still
+  monotone. **A check that passes on both branches cannot tell you which one
+  ran.**
+  ⛳ The join at x = 2 is still deliberately **discontinuous** and was NOT moved
+  to where the branches now cross (~x = 2.7, which would make it nearly
+  smooth): a smooth curve through approximate values looks right and is just as
+  approximate. The once-per-session warning stays the primary signal.
+
 ### Added
+* **`tests/validation/litz_noscipy.py` (FAST tier) — the first gate that runs
+  the SciPy-less path.** It spawns a child interpreter with a `sys.meta_path`
+  finder that raises ImportError for `scipy`, then compares the fallback
+  against the exact kernel computed in-process. Asserts the child genuinely has
+  no SciPy (so the gate cannot pass vacuously), that the warning fires
+  **exactly once** across 512 calls and on **stderr**, that x ≥ 4 tracks the
+  exact kernel within 2 %, that the x = 2 step survives, and that the worst
+  over-estimate stays ≤ 2.5×. **5/5 mutations caught**, including reverting the
+  coefficient to `0.166 x`, smoothing the join away, suppressing the warning,
+  un-latching it — and one that disables the child's own scipy blocker, which
+  proves the gate detects its own vacuity.
+
 * **A gate that ENFORCES "every solve asks first", instead of re-auditing it by
   eye.** `tests/validation/solve_confirm_coverage.py` (FAST tier) AST-walks
   every `run_generic_gui` call site and fails unless a `confirm_solve_work` /

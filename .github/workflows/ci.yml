@@ -3,8 +3,13 @@
 # Scope is deliberate:
 #   * python3 smoke (the Qt-free subset — FreeCAD document checks self-skip)
 #   * the FAST validation-gate tier via tests/validation/run_battery.py
-#     (42 gates; p452/p2001 SKIP here because the ITU digital maps are
-#     integral products that are never bundled and not downloaded in CI)
+#     (whatever run_battery.FAST lists — the count is deliberately NOT
+#     restated here. It read "17 gates" from 2026-07 until 2026-08-20, by
+#     which point it was 42; it was corrected to 42 and went stale again the
+#     next day at 43. Nothing reads a comment, so a number in one only ever
+#     decays — same reason the tutorial counts were removed from HELP.md and
+#     the public README. p452/p2001 SKIP here because the ITU digital maps
+#     are integral products that are never bundled and not downloaded in CI)
 # The SOLVER tier (nec2c/openEMS/Elmer/Palace/FastHenry, minutes each) stays a
 # local pre-release step: python3 tests/validation/run_battery.py --all
 #

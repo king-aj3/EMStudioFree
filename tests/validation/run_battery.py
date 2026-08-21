@@ -46,6 +46,7 @@ FAST = {
     "freq_guard": None,
     "horn": None,
     "lfmf": None,
+    "litz_noscipy": None,
     "openfoam_runner_cancel": None,
     "openfoam_setup": None,
     "p1546": None,

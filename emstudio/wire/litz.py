@@ -118,7 +118,12 @@ def _proximity_h(x):
 
     H(x) = v*Gk(v)/4, v = x/sqrt(2);
     Gk = -(ber2 ber' + bei2 bei')/(ber^2 + bei^2) via complex Bessel functions.
-    Limits: x^4/256 (x << 1), ~0.166 x (x >> 1). FastHenry-anchored (2026-07-05).
+    Limits: x^4/256 (x << 1), (x-1)/8 (x >> 1). FastHenry-anchored (2026-07-05).
+    ⚠ That large-x limit read "~0.166 x" until 2026-08-21 and was WRONG by 33 %.
+    Measured on this function's own SciPy branch, the slope converges to
+    **0.12500** (1/8) at x = 64..512 and H(x) -> (x-1)/8 to better than 1e-4;
+    0.166 is ~1/6. Nothing caught it because no gate ever ran the branch that
+    used it — see the fallback below.
     """
     if x <= 0.0:
         return 0.0
@@ -138,28 +143,46 @@ def _proximity_h(x):
         return v * gk / 4.0
     except Exception:
         # ⚠⚠ SciPy is missing, so this is the ASYMPTOTIC fallback — and it is
-        # not a small approximation. Measured 2026-08-20:
+        # not a small approximation. Re-measured 2026-08-21 against this
+        # function's own SciPy branch, in a genuinely SciPy-less interpreter:
         #
-        #   x = 1.999  ->  0.062375   (small-argument series)
-        #   x = 2.001  ->  0.332166   (linear asymptote)
+        #   x = 1.999  ->  0.062375   (small-argument series)   exact 0.056002
+        #   x = 2.001  ->  0.125125   (linear asymptote)        exact 0.056203
         #
-        # a **5.33x STEP** at the join, and the asymptote is **5.9x above the
+        # a **2.0x STEP** at the join, and the asymptote is **2.2x above the
         # exact Kelvin value** at x = 2 (exact: 0.056103). Proximity loss is
-        # what litz wire EXISTS to control, so a silent 5.9x over-estimate of
-        # it is a wrong answer about the one number the user came for.
+        # what litz wire EXISTS to control, so an over-estimate of it is a
+        # wrong answer about the one number the user came for.
+        #
+        # ⚠⚠ THE COEFFICIENT ITSELF WAS WRONG UNTIL 2026-08-21, and that was a
+        # SECOND defect on top of the step. This branch returned `0.166 * x`.
+        # The true slope is **1/8**, not ~1/6: on the SciPy branch it converges
+        # to 0.12500 at x = 64..512. `0.166 x` therefore read **33 % high even
+        # at x = 512**, where an asymptote should be exact, and 5.9x high at
+        # x = 2. Correcting it cuts the worst case from 5.92x to 2.23x and
+        # brings x >= 4 inside 1.6 % (+1.541 % at x = 4, the worst point in
+        # that range; -0.95 % by x = 5, under 0.1 % by x = 16).
+        # ⛳ It survived because NO GATE EVER RAN THIS BRANCH: the battery
+        # requires SciPy, so `wire_fasthenry`'s three proximity checks only
+        # ever exercised the exact path, and all three (series limit, seam
+        # continuity, monotonicity) pass under the fallback too — they cannot
+        # tell the two apart. `litz_noscipy` now runs it in a subprocess.
         #
         # It is kept rather than raised, because refusing would break litz
-        # analysis entirely on a FreeCAD build without SciPy — but it now says
-        # so ONCE per session instead of never. ⛳ The fallback is deliberately
-        # NOT "smoothed" to hide the step: a continuous curve through the wrong
-        # values would look right and be just as wrong, and the discontinuity
-        # is the honest visible signal that this path is in use.
+        # analysis entirely on a FreeCAD build without SciPy — but it says so
+        # ONCE per session. ⛳ The join is deliberately still DISCONTINUOUS and
+        # is NOT moved to where the two branches now cross (~x = 2.7, which
+        # would make it nearly continuous): a smooth curve through approximate
+        # values looks right and would be just as approximate, and the step is
+        # the honest visible signal that this path is in use. The warning is
+        # the primary signal; the step is the backstop.
         global _PROX_WARNED
         if not _PROX_WARNED:
             _PROX_WARNED = True
             msg = ("EMStudio: SciPy is not available, so litz proximity loss "
-                   "uses an asymptotic fallback that can read ~5.9x high "
-                   "above x = 2 (x = d/delta). Install SciPy for the exact "
+                   "uses an asymptotic fallback that can read ~2.2x high "
+                   "just above x = 2 (x = d/delta), converging to within "
+                   "2% by x = 4. Install SciPy for the exact "
                    "Kelvin-function result.\n")
             try:
                 import FreeCAD
@@ -169,7 +192,7 @@ def _proximity_h(x):
                 _sys.stderr.write(msg)
         if x < 2.0:
             return x ** 4 / 256.0
-        return 0.166 * x
+        return (x - 1.0) / 8.0
 
 
 # ------------------------------------------------------------------- constructions
