@@ -154,9 +154,40 @@ def main():
     # a bare box with no solvers, and checks 1-4 genuinely ran there. But a run
     # that live-checked NOTHING must not read like a run that live-checked
     # everything, so the count is printed either way.
+    # ⚠⚠ THE LIVE TABLE DESCRIBES ONE MACHINE, SO ONLY THAT MACHINE MAY FAIL
+    # ON IT (AJ's ruling, 2026-08-21).
+    #
+    # REAL_OUTPUT pins the REFERENCE box's versions — the numbers every doc,
+    # tutorial and CHANGELOG quotes. That makes a mismatch mean two completely
+    # different things depending on where it runs:
+    #
+    #   * on the reference box  -> the solver moved under the docs. REAL. Fail.
+    #   * anywhere else         -> that developer simply has different solvers.
+    #
+    # Measured on the Windows work box 2026-08-21: gmsh 4.15.2 (table 4.12.1),
+    # nec2 2.3.4 (table 1.3.1), OpenFOAM 2512 (table 2606) — three failures,
+    # none of them a defect. Meanwhile CI is GREEN because the runner installs
+    # none of these, so all seven skip. The gate therefore passed in CI, passed
+    # on the reference box, and failed ONLY on a developer box — the one place
+    # a developer actually runs the battery, which is how a red gets muted.
+    #
+    # ⛳ The parser checks (1-4 above) stay HARD everywhere. They test code, and
+    # they are what caught the four user-visible defects this gate was written
+    # for. Only the live cross-check is scoped, because only it is about one
+    # machine's installed binaries.
+    #
+    # ⚠ **A check nobody enables is a check that never runs**, so this must
+    # never fail QUIETLY into advisory mode: when the opt-in is absent the gate
+    # prints, loudly, that the live half did not assert and names the drift it
+    # saw anyway. The drift is still reported — it is just not fatal.
+    #
+    # Set EMSTUDIO_VERSION_REFERENCE=1 on the reference box and in the
+    # pre-release checklist.
     from emstudio.setup.solvers import find_backend
 
-    covered, absent = 0, []
+    reference = os.environ.get("EMSTUDIO_VERSION_REFERENCE", "") not in ("", "0")
+
+    covered, absent, drift = 0, [], []
     for key, _fixture, want in REAL_OUTPUT:
         info = find_backend(key)
         if not info.found:
@@ -172,8 +203,23 @@ def main():
             "version_number() docstring, and for Elmer also "
             "emstudio/solvers/elmer/writer.py plus the open_coil_elmer / "
             "coil_inductance_elmer anchors" % (got, want))
-        check("LIVE %s still reports %s" % (key, want or "no version"),
-              ok, detail)
+        if not ok:
+            drift.append("%s: installed %r vs table %r" % (key, got, want))
+        if reference:
+            check("LIVE %s still reports %s" % (key, want or "no version"),
+                  ok, detail)
+        else:
+            print("  {0}  LIVE {1} {2}".format(
+                "ok  " if ok else "....", key, detail))
+
+    if not reference:
+        print("  ....  ⚠ LIVE CROSS-CHECK IS ADVISORY ON THIS BOX — "
+              "EMSTUDIO_VERSION_REFERENCE is not set, so the %d drift(s) above "
+              "did NOT fail the gate. Set it on the reference machine, and "
+              "before a release, or nothing enforces the table."
+              % len(drift))
+        if drift:
+            print("  ....  drift seen (advisory): %s" % "; ".join(drift))
 
     if absent:
         print("  ....  live cross-check SKIPPED (not installed): %s"

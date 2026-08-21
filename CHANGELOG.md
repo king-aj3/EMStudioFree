@@ -3,11 +3,10 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased] — worked 2026-08-20 and 2026-08-21, in no tag yet
+## [1.3.0] — 2026-08-21
 
-> ⚠ **Rename this heading to the version that ships it.** A section sat here
-> titled "Unreleased" through the whole of 1.0.0 once already — see the note on
-> that section below.
+> ⛳ Renamed from `[Unreleased]` on release, which is the step that was
+> missed through the whole of 1.0.0 once already.
 
 ### Fixed
 * **The SciPy-less litz proximity fallback used the wrong asymptote — 33 % high
