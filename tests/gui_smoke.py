@@ -2263,6 +2263,64 @@ def _multistation_dialog():
     return "D/U contours + service map + best-server OK ({0:.0%} served)".format(served)
 
 
+def _filter_designer_dialog():
+    """The §7.2 Filter & Diplexer Designer under the real GUI.
+
+    The engine and its 35-check gate shipped in v0.66.0 and NOTHING REACHED
+    THEM until 2026-08-20 — no dialog, no command. This check exists so that
+    cannot silently happen again: it drives both pages and asserts the
+    component schedule actually populates, because a designer that renders an
+    empty table is indistinguishable from one that works until you look.
+    """
+    try:
+        from emstudio.ui.filter_dialog import FilterDesignerDialog
+    except ImportError:
+        # Pro-side, like the matching designer: the free build ships the gate
+        # but not the module, and the check stands down on its own rather than
+        # needing code surgery in the public repo.
+        return "skipped — the Filter Designer is Pro-only and absent in this build"
+
+    dlg = FilterDesignerDialog()
+
+    # --- filter page: a 5th-order Chebyshev low-pass -----------------------
+    dlg.f_response.setCurrentIndex(1)          # Chebyshev
+    dlg.f_shape.setCurrentIndex(0)             # low-pass
+    dlg.f_order.setValue(5)
+    dlg._synth_filter()
+    rows = dlg.table.rowCount()
+    assert rows == 5, "5th-order ladder should schedule 5 elements, got %d" % rows
+    assert "Chebyshev" in dlg.out.toPlainText(), "filter read-out empty"
+    # Every row must carry a real part value, not a dash: an empty schedule is
+    # the failure this check exists for.
+    vals = [dlg.table.item(r, 3).text() for r in range(rows)]
+    assert all(v and v != "—" for v in vals), "schedule has empty values: %s" % vals
+
+    # --- band-pass doubles the element count (each arm becomes a resonator)
+    dlg.f_shape.setCurrentIndex(2)             # band-pass
+    dlg._synth_filter()
+    assert dlg.table.rowCount() > rows, \
+        "band-pass transform should add elements, got %d" % dlg.table.rowCount()
+
+    # --- diplexer page: contiguous, and its composite impedance ------------
+    dlg.d_kind.setCurrentIndex(0)
+    dlg.d_n.setValue(3)
+    dlg._synth_diplexer()
+    assert dlg.table.rowCount() >= 6, \
+        "a 3rd-order diplexer has two 3-element arms, got %d" % dlg.table.rowCount()
+    text = dlg.out.toPlainText()
+    assert "Composite input impedance" in text, \
+        "the contiguous diplexer must report its composite impedance"
+
+    # --- a refusal must be reported, never crash --------------------------
+    dlg.d_kind.setCurrentIndex(1)              # non-contiguous
+    dlg.d_lp.setValue(200.0)                   # low corner ABOVE the high one
+    dlg.d_hp.setValue(50.0)
+    dlg._synth_diplexer()
+    assert dlg.table.rowCount() == 0 or "Cannot" in dlg.out.toPlainText(), \
+        "an impossible diplexer must be refused in words, not silently drawn"
+    return "filter + diplexer pages synthesise and schedule real part values"
+
+
 def _system_matching_dialog():
     """The System Matching Designer dialog (§7 slice S2) under the real GUI.
 
@@ -3074,6 +3132,8 @@ def main():
           "§1-E2/E3/E4/E5)", _element_designer_dialog)
     check("system matching designer dialog (L/pi/T/transformer/stub + "
           "recommender + E-series, §7-S2)", _system_matching_dialog)
+    check("filter & diplexer designer (Butterworth/Chebyshev ladders + both "
+          "diplexer families, §7.2)", _filter_designer_dialog)
     check("array designer dialog (named drive distributions + predicted "
           "read-outs, §7-S4)", _array_designer_dialog)
     check("cable designer dialog (litz | coax | wire | pair | bundle, §2)",

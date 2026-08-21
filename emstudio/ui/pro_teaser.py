@@ -58,6 +58,20 @@ FEATURES = {
             "predicted against achieved so the match is verified, not assumed.",
         ],
     },
+    "filters": {
+        "menu": "Filter & Diplexer Designer… (Pro)",
+        "title": "Filters and diplexers — EMStudio Pro",
+        "blurb": legal.PRO_TEASER_FILTERS,
+        "proof": [
+            "Butterworth and Chebyshev ladders — low-pass, high-pass, "
+            "band-pass and band-stop — with the component schedule in real "
+            "part values rather than normalised g.",
+            "The contiguous constant-R diplexer holds its composite input "
+            "impedance to under 1e-6 ohm at every order n = 1 to 7.",
+            "The non-contiguous design assembles to 0.112 dB insertion loss, "
+            "VSWR 1.38 and 34.8 dB of port isolation.",
+        ],
+    },
     "array": {
         "menu": "Array Designer… (Pro)",
         "title": "Phased arrays — EMStudio Pro",

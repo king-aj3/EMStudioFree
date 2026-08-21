@@ -146,6 +146,13 @@ PRO_TEASER_MATCHING = (
     "is part of EMStudio Pro (the System Designer), " + PRO_PRICE + ". "
     "See ajj3.us."
 )
+PRO_TEASER_FILTERS = (
+    "Synthesise a filter ladder or a diplexer and get the parts list, not just "
+    "a curve. Butterworth or Chebyshev; low-pass, high-pass, band-pass or "
+    "band-stop; and both diplexer families for splitting one feed into two "
+    "bands without either arm detuning the other."
+)
+
 PRO_TEASER_ARRAY = (
     "Combining elements into a steered or tapered array — currents solved "
     "through the real mutual-impedance matrix, not naive equal voltages — is "

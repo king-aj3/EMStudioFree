@@ -249,7 +249,6 @@ def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=
     freqs = np.array(freqs)
     n = len(freqs)
     s11 = np.array(smat.get((1, 1), [0j] * n))
-    s21 = np.array(smat.get((2, 1), [0j] * n))
     z0 = 50.0  # nominal; wave-port S-params are already modally normalized
     zin = z0 * (1.0 + s11) / (1.0 - s11)
     result = SweepResult(freqs, zin, z0=z0, s11=s11, meta={
@@ -331,7 +330,6 @@ def run_waveguide_brep(brep_path, axis, bbox_mm, f1_ghz=8.0, f2_ghz=12.0,
     freqs = np.array(freqs)
     n = len(freqs)
     s11 = np.array(smat.get((1, 1), [0j] * n))
-    s21 = np.array(smat.get((2, 1), [0j] * n))
     z0 = 50.0  # nominal; wave-port S-params are already modally normalized
     zin = z0 * (1.0 + s11) / (1.0 - s11)
     result = SweepResult(freqs, zin, z0=z0, s11=s11, meta={
@@ -397,7 +395,6 @@ def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=
     freqs = np.array(freqs)
     n = len(freqs)
     s11 = np.array(smat.get((1, 1), [0j] * n))
-    s21 = np.array(smat.get((2, 1), [0j] * n))
     z0 = writer.coax_z0(a_mm, b_mm, eps_r)  # analytic coax impedance
     zin = z0 * (1.0 + s11) / (1.0 - s11)
     result = SweepResult(freqs, zin, z0=z0, s11=s11, meta={

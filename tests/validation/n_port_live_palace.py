@@ -27,7 +27,9 @@ runs end to end and that the matrix it returns obeys the physics any passive
 reciprocal junction must obey. That is a real claim and a modest one.
 
 SOLVER tier. Needs Palace, gmsh and FreeCAD (run through ``tests/run_gate.py``).
-Pass: exit 0 and 'N-PORT LIVE GATE PASSED'. Auto-skips without the backends.
+Pass: exit 0 and 'N-PORT LIVE GATE PASSED'. ⚠ Does NOT self-skip: a
+missing backend FAILS here and is declared in ``SOLVER_REQS`` instead, so the
+battery skips it honestly while a hand run says plainly that it did not test.
 """
 import math
 import os
@@ -53,10 +55,23 @@ def check(name, ok, detail=""):
         FAILURES.append(name)
 
 
-def _skip(why):
-    print("  skip  {0}".format(why))
-    print("N-PORT LIVE GATE PASSED")
-    return 0
+def _missing(what):
+    """A missing backend is a FAILURE here, not a silent pass.
+
+    ⚠ This gate originally did the thing `run_battery` explicitly bans: printed
+    its own PASS banner and returned 0 when Palace was absent. That is the
+    2026-08-05 openEMS defect exactly — four gates "reported success while
+    testing nothing", and under freecadcmd (which drops `print` on exit) the
+    exit code was the only signal a caller had.
+
+    The requirement is declared in ``SOLVER_REQS`` instead, so the BATTERY says
+    "skip" honestly; running this by hand without Palace now fails loudly,
+    which is correct, because you asked for it.
+    """
+    print("FAIL - {0}".format(what))
+    print("N-PORT LIVE GATE FAILED (backend missing — declared in SOLVER_REQS, "
+          "so the battery skips it; a hand run does not)")
+    return 1
 
 
 def _build_tee(doc):
@@ -104,11 +119,11 @@ def main():
     from emstudio.setup import solvers as solver_setup
     for backend in ("palace", "gmsh"):
         if not solver_setup.find_backend(backend).found:
-            return _skip("%s not found — SOLVER tier" % backend)
+            return _missing("%s not found — this gate needs it" % backend)
     try:
         import FreeCAD
     except ImportError:
-        return _skip("needs FreeCAD — run through tests/run_gate.py")
+        return _missing("needs FreeCAD — run through tests/run_gate.py")
 
     import Part  # noqa: F401  (Part must import before the shape work)
 

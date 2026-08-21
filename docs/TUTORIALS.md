@@ -252,7 +252,7 @@ TE101 must match the closed form to better than 0.1 %: measured
 there specifically to prove headroom past 40 GHz.
 
 ⛳ **What is still missing, said plainly.** No radiating structure is gated above
-**2.45 GHz** — that is the patch in tutorial 3, and it is the real ceiling, not
+**2.435 GHz** — that is the patch in tutorial 3, and it is the real ceiling, not
 the 6 GHz this file used to quote. So mmWave *antenna* work — 28 GHz patches,
 handset PIFAs, arrays — is not something this project has earned the right to
 claim yet. It is the next gate
@@ -1249,6 +1249,29 @@ it refuses what it should refuse and cannot silently act on your document.
 **Free alternative:** all of it, in the sense that matters — the gates, the
 templates and the tutorials are free, and they are the part that is checked.
 **Gate:** `assistant.py`.
+
+---
+
+## 28. 🔒 Filter & Diplexer Designer
+
+**What it does.** Synthesises a filter *ladder* — Butterworth or Chebyshev,
+low-pass / high-pass / band-pass / band-stop — and hands you the **component
+schedule in real part values**, not normalised prototype numbers. It also
+designs both diplexer families for splitting one feed into two bands without
+either arm detuning the other.
+
+**What it measured.** The contiguous constant-R diplexer holds its composite
+input impedance to **under 1e-6 Ω at every order n = 1…7**. The non-contiguous
+design assembles to **0.112 dB insertion loss, VSWR 1.38 and 34.8 dB of port
+isolation**.
+
+⚠ **This capability was validated for months before anyone could run it.** The
+engine and its 35-check gate shipped in v0.66.0; the dialog and menu command
+did not exist until 2026-08-20, so none of it was reachable. A validated
+capability with no way in is, from the user's side, indistinguishable from one
+that was never built.
+
+**Free alternative:** none for synthesis. **Gate:** `system_filters.py`.
 
 ---
 

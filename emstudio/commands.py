@@ -51,6 +51,7 @@ CMD_SWEEP_GAP = "EMStudio_SweepGap"
 CMD_LITZ = "EMStudio_LitzDesigner"
 CMD_ELEMENT = "EMStudio_ElementDesigner"
 CMD_SYSTEM_MATCHING = "EMStudio_SystemMatching"
+CMD_FILTER = "EMStudio_FilterDesigner"
 CMD_ARRAY = "EMStudio_ArrayDesigner"
 CMD_SMALL_ANTENNA = "EMStudio_SmallAntenna"
 CMD_TPL_COSITE_PAIR = "EMStudio_TemplateCositePair"
@@ -103,6 +104,7 @@ ALL_COMMANDS = [
     CMD_LITZ,
     CMD_ELEMENT,
     CMD_SYSTEM_MATCHING,
+    CMD_FILTER,
     CMD_ARRAY,
     CMD_SMALL_ANTENNA,
     CMD_RFDF,
@@ -156,7 +158,7 @@ COMMAND_GROUPS = [
     # entries are absent and this group holds the co-site pair; EMStudio Pro
     # adds them back through the emstudio_pro extension point.
     ("System", [
-        CMD_SYSTEM_MATCHING, CMD_ARRAY, CMD_RFDF, "Separator",
+        CMD_SYSTEM_MATCHING, CMD_FILTER, CMD_ARRAY, CMD_RFDF, "Separator",
         CMD_ISOLATION, CMD_COSITE,
     ]),
     ("Setup", [
@@ -2054,6 +2056,7 @@ def register():
     FreeCADGui.addCommand(CMD_LITZ, _CableDesigner())
     FreeCADGui.addCommand(CMD_ELEMENT, _ElementDesigner())
     FreeCADGui.addCommand(CMD_SYSTEM_MATCHING, _ProTeaser("matching"))
+    FreeCADGui.addCommand(CMD_FILTER, _ProTeaser("filters"))
     FreeCADGui.addCommand(CMD_ARRAY, _ProTeaser("array"))
     FreeCADGui.addCommand(CMD_SMALL_ANTENNA, _SmallAntennaDesigner())
     FreeCADGui.addCommand(CMD_COSITE, _CositeCalculator())

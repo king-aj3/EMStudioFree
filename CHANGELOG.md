@@ -158,6 +158,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   order between 0.99.1 and 0.99.0. It now reads as what it is — a dated slice
   of 1.0.0's content, not a release entry. ⛳ A version heading is a claim like
   any other, and two for one version is a claim that cannot be true.
+* ⭐ **The filter / diplexer engine is REACHABLE — System ▸ Filter & Diplexer
+  Designer (Pro).** `emstudio/system/filters.py` and its 35-check gate shipped
+  in **v0.66.0** and **nothing reached them for four months**: no dialog, no
+  menu command. A fully validated capability that no user could run is, from
+  the user's side, indistinguishable from one that was never built.
+  The dialog drives both pages — Butterworth/Chebyshev ladders in low-pass,
+  high-pass, band-pass and band-stop, plus contiguous and non-contiguous
+  diplexers — and reports the **component schedule in real part values**, not
+  normalised prototype g. It recomputes nothing: every number comes from the
+  same engine functions the gate pins, so screen and gate cannot disagree.
+  ⛳ It also states two things a designer would otherwise discover the hard way:
+  an **even-order Chebyshev does not terminate in R₀** (the real value is shown
+  and named), and a contiguous diplexer's **composite input impedance** is
+  reported at the crossover, because that is the number the whole topology
+  exists to hold.
+  ⚠ Pro-tier, so the same commit denies it in the free manifest, maps it to a
+  `_ProTeaser("filters")` entry, adds it to the Pro zip and gives it a
+  `_filter_designer_dialog` gui_smoke check — which asserts the schedule
+  actually populates, because a designer rendering an empty table looks
+  identical to one that works until you read it.
+  ⛳ `docs/CAPABILITIES.md` had recorded "Engine only — Qt-free, no UI"
+  accurately the whole time. **An "engine only" note is a FINDING, not a
+  status**, and nothing re-read it.
 * **A gate for the tutorials themselves.** `tests/validation/tutorials_doc.py`
   (FAST) asserts every numbered tutorial keeps the four-part shape, that each
   "Prove it" names a gate file **that exists**, that no number is used twice

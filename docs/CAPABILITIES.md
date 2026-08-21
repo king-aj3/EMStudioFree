@@ -21,10 +21,10 @@ rather than one span:
   structures: waveguide and cavity. This is what meets the "DC to 40 GHz and
   beyond" target.
 * **openEMS (FDTD)** — the highest gated point is a **3.68 GHz** microstrip notch
-  filter; the highest gated **radiating** structure is the **2.45 GHz** patch.
+  filter; the highest gated **radiating** structure is the **2.435 GHz** patch.
 * **NEC2 (MoM)** — wire antennas, gated at 296 MHz.
 
-⚠ **No radiating structure is gated above 2.45 GHz.** Full-wave Maxwell has no
+⚠ **No radiating structure is gated above 2.435 GHz.** Full-wave Maxwell has no
 physics break at mmWave and the only real cost is mesh resolution — but *"no
 reason it should fail"* is not the same as *"checked"*, and this project claims
 only the second. mmWave **antenna** work (28 GHz patches, handset PIFAs, arrays)
@@ -248,10 +248,19 @@ the doubly-terminated construction is retained under `prototype="doubly"` but
 assembles to 1.67 dB at VSWR 3.6, and a **branch evaluated alone is never the
 diplexer's loss**. Contiguous isolation collapses to ~6 dB at the crossover, so
 it splits spectrum rather than combining transmitters. Elements are ideal
-(no finite-Q path yet). Engine only — Qt-free, no UI. Gate
-`tests/validation/system_filters.py` (35 checks, pure python3) reproduces the
-Phase-B anchors to the digit and was mutation-tested (8 deliberate engine
-breakages, 8 caught).
+(no finite-Q path yet). **Reachable from the GUI since 2026-08-20** —
+**System ▸ Filter & Diplexer Designer** (Pro) drives both pages and reports the
+component schedule in real part values; the free build shows a teaser in its
+place. Gates: `tests/validation/system_filters.py` (35 checks, pure python3,
+mutation-tested 8/8) reproduces the Phase-B anchors to the digit, and a
+`_filter_designer_dialog` gui_smoke check drives the dialog itself.
+
+> ⚠ **This row read "Engine only — Qt-free, no UI" for four months.** The
+> engine and its gate shipped in v0.66.0 and nothing reached them — a fully
+> validated capability that no user could run, recorded accurately here and in
+> `ROADMAP` §7.2 and then never acted on. ⛳ **An "engine only" note is a
+> FINDING, not a status.** The gui_smoke check above exists so this particular
+> gap cannot reopen silently.
 
 **§7 array drive chain + Array Designer (S4) — ✅ validated (v0.67.0):**
 NEC2 **multi-excitation** (one EX card per excited port; `Amplitude`/`PhaseDeg`
