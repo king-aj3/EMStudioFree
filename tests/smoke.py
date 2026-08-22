@@ -75,6 +75,25 @@ def _version_matches_package_xml():
     tag = "<version>{0}</version>".format(version.__version__)
     assert tag in text, "package.xml <version> != version.py ({0})".format(version.__version__)
 
+    # ⚠⚠ AND THE PRO OVERLAY, which is the one that actually drifted. There are
+    # THREE version strings, not two: package.xml, emstudio/version.py and
+    # pro/emstudio_pro/__init__.py. Until 2026-08-22 only the first two were
+    # gated; the Pro one was compared against them ONLY inside
+    # build_pro_zip.py, i.e. only if somebody happened to run a build. That is
+    # exactly how it sat at 0.77.0 through FIVE releases — a check that runs
+    # only when you already suspect a problem is not a check.
+    # ⛳ Absent pro/ is the NORMAL case in the exported free tree, so its
+    # absence is a skip, never a failure. The strictness lives where it can:
+    # in the Pro tree, which is the source of truth.
+    pro_init = os.path.join(_ROOT, "pro", "emstudio_pro", "__init__.py")
+    if os.path.isfile(pro_init):
+        with open(pro_init, "r", encoding="utf-8") as fh:
+            pro_text = fh.read()
+        want = '__version__ = "{0}"'.format(version.__version__)
+        assert want in pro_text, (
+            "pro/emstudio_pro/__init__.py version != version.py ({0}) — all "
+            "THREE version strings must agree".format(version.__version__))
+
 
 def _package_xml_subdirectory_guard():
     """Regression guard for the invisible-workbench bug (2026-07-05).
