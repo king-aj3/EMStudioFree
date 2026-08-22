@@ -407,6 +407,33 @@ def _ground_cards(solver):
     if gt.startswith("Finite"):
         eps = float(getattr(solver, "GroundEpsilonR", 13.0))
         sigma = float(getattr(solver, "GroundConductivity", 0.005))
+        nrad = int(getattr(solver, "GroundRadials", 0) or 0)
+        if nrad > 0:
+            # ⚠⚠ RADIALS FORCE THE REFLECTION-COEFFICIENT GROUND (GN 0).
+            # NEC-2's radial-wire screen is an approximation applied to the
+            # reflection-coefficient ground; combined with the Sommerfeld/
+            # Norton method it does not work — and it does not TELL you.
+            # MEASURED with nec2c 1.3.1 on a 20 m monopole at 3.5 MHz:
+            #     GN 0, no radials  -> Z = 0.0028 + j152.91, gain -26.56 dB
+            #     GN 0, 16 radials  -> Z = 0.0140 + j 33.02, gain -19.71 dB
+            #     GN 2, no radials  -> Z = 0.0040 + j 96.91, gain -24.42 dB
+            #     GN 2, 16 radials  -> NO IMPEDANCE, NO PATTERN, NO ERROR
+            # The last row is the whole reason this branch exists: a silent
+            # empty result is the worst possible failure, because the run
+            # "succeeds". So the ground type is switched and the caller is told
+            # rather than left to wonder why the numbers vanished.
+            rads = float(getattr(solver, "RadialLength",
+                                 None).getValueAs("m")) \
+                if hasattr(getattr(solver, "RadialLength", None),
+                           "getValueAs") else 10.0
+            radw = float(getattr(solver, "RadialWireRadius",
+                                 None).getValueAs("m")) \
+                if hasattr(getattr(solver, "RadialWireRadius", None),
+                           "getValueAs") else 0.001
+            return ("GE 1",
+                    "GN 0,{0:d},0,0,{1:.6g},{2:.6g},{3:.6g},{4:.6g}".format(
+                        nrad, eps, sigma, rads, radw),
+                    True)
         return "GE 1", "GN 2,0,0,0,{0:.6g},{1:.6g}".format(eps, sigma), True
     return "GE 0", None, False
 

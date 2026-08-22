@@ -3,6 +3,60 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+> ⚠ Rename this heading on release — the step that was missed through the whole
+> of 1.0.0 once already.
+
+### Added
+
+* **Parallel solving.** Palace was invoked with a hard-coded `-np 1` in two
+  places, so every Palace solve in this project's history used ONE core.
+  Measured on the same 40x20x60 mm cavity: **346.4 s at 1 rank, 18.3 s at 16 —
+  18.9x**. `SolverPalace` gains `MPIRanks` (0 = auto), `OMPThreads` and
+  `Device`. OpenFOAM gains its first parallel path at all —
+  `decomposePar` → `mpirun -parallel` → `reconstructPar`, scotch partitioning.
+  Elmer's sweep concurrency was capped (it was `os.cpu_count()`, 128 here).
+  ⚠ More ranks is not monotonically better: measured 5.9x for 64x the cores on
+  a 4.096M-cell case, knee at 8-16, and ~103 s of serial decompose/reconstruct
+  overhead makes 64 ranks SLOWER than 32 on a short run.
+* **GPU detection that adapts to the machine it lands on.** Probes the hardware
+  (`rocminfo`/`rocm-smi`, `nvidia-smi`, reporting the real `gfx`/`sm_` arch) AND
+  whether the installed solver binary is linked against a GPU runtime. GPU is
+  offered only when both agree; every other combination gets a specific reason
+  instead of a silent fallback to CPU.
+* **openEMS rectangular waveguide ports.** Anchored: a WR-90 port reproduces the
+  published TE10 cutoff to **0.0021 %** (6.557140 vs 6.557 GHz). This is what a
+  horn or a guide-fed filter needs, and its absence had left the shipped
+  pyramidal-horn designer with no solver able to feed it.
+* **Palace open/radiating domains.** `Boundaries.Absorbing` plus
+  `Boundaries.Postprocessing.FarField`, validated by `palace -dry-run` against
+  the real schema. Palace supported both all along; EMStudio's mesher tagged
+  every outer face `pec_walls`, which is correct for a cavity and makes
+  radiation impossible by construction.
+* **NEC2 ground radials** (`GN` field I2, with screen radius and wire radius).
+  Measured on a 20 m monopole at 3.5 MHz: 16 radials are worth **6.85 dB** and
+  move the feed reactance from j153 to j33. ⚠ Radials force the
+  reflection-coefficient ground: asking for them with the Sommerfeld/Norton
+  method produces no impedance, no pattern and NO ERROR, so the ground type is
+  switched deliberately rather than left to fail silently.
+
+### Fixed
+
+* **A radiation efficiency above 1 is a failed power budget, not a number.**
+  `P_rad/P_acc` is right for a lumped port and wrong for a waveguide port, where
+  CalcPort normalises differently — measured at **1642 %**, which would have
+  inflated reported gain by 12 dB. Out-of-range efficiency now falls back to
+  reporting DIRECTIVITY (an upper bound on gain) and says so.
+
+### Known issue
+
+* `tests/validation/horn_openems.py` (SOLVER tier) **fails** on ~3 dB of
+  missing directivity. Ruled out by measurement: mesh convergence (refining
+  widened it), the far-field code (the patch reproduces its reference), and
+  geometry export. The remaining hypothesis is the aperture illumination from
+  the waveguide port. The gate is red because it is reporting this accurately.
+
 ## [1.4.0] — 2026-08-22
 
 ### Fixed — results correctness (read this section first)

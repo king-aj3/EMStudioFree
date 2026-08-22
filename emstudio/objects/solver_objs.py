@@ -234,6 +234,29 @@ class SolverNEC2(_SolverBase):
                 "Finite (Sommerfeld)",
             ]
             obj.GroundType = "None (free space)"
+        if "GroundRadials" not in props:
+            obj.addProperty(
+                "App::PropertyInteger", "GroundRadials", "NEC2",
+                "Number of radial wires in a ground screen (NEC-2 GN field "
+                "I2). 0 = none. A radial screen is what makes a real "
+                "ground-mounted vertical work — measured on a 20 m monopole at "
+                "3.5 MHz, 16 radials moved gain from -26.56 to -19.71 dB and "
+                "the feed reactance from j153 to j33.\n"
+                "⚠ Radials REQUIRE the reflection-coefficient ground (GN 0). "
+                "See GroundType.")
+            obj.GroundRadials = 0
+        if "RadialLength" not in props:
+            obj.addProperty(
+                "App::PropertyLength", "RadialLength", "NEC2",
+                "Length of each radial, i.e. the screen radius (NEC-2 GN F3). "
+                "Only used when GroundRadials > 0.")
+            obj.RadialLength = "10 m"
+        if "RadialWireRadius" not in props:
+            obj.addProperty(
+                "App::PropertyLength", "RadialWireRadius", "NEC2",
+                "Radius of the individual radial wires (NEC-2 GN F4). Only "
+                "used when GroundRadials > 0.")
+            obj.RadialWireRadius = "1 mm"
         if "GroundEpsilonR" not in props:
             obj.addProperty(
                 "App::PropertyFloat",
@@ -261,6 +284,33 @@ class SolverElmer(_SolverBase):
         self._ensure_common(obj)
         props = obj.PropertiesList
         _ELMER_MODES = ["Harmonic (AC)", "Static (DC)", "3-D Magnetostatic (DC)"]
+        if "MPIRanks" not in props:
+            obj.addProperty(
+                "App::PropertyInteger", "MPIRanks", "Palace",
+                "MPI processes for the solve (palace -np N). 0 = AUTO, which "
+                "picks a sensible fraction of this machine's cores. 1 forces "
+                "serial. FEM assembly and the linear solve are the expensive "
+                "parts and both parallelise, so this is the single biggest "
+                "runtime lever Palace has.")
+            obj.MPIRanks = 0
+        if "OMPThreads" not in props:
+            obj.addProperty(
+                "App::PropertyInteger", "OMPThreads", "Palace",
+                "OpenMP threads per MPI rank (palace -nt N). Only meaningful "
+                "for an OpenMP-enabled Palace build; 1 is safe everywhere. "
+                "⚠ Threads MULTIPLY ranks — ranks x threads should not exceed "
+                "the core count or the ranks fight each other and it runs "
+                "SLOWER than serial.")
+            obj.OMPThreads = 1
+        if "Device" not in props:
+            obj.addProperty(
+                "App::PropertyEnumeration", "Device", "Palace",
+                "MFEM compute device. GPU needs a Palace BUILT with CUDA or "
+                "HIP; on a CPU-only build Palace falls back and says so, it "
+                "does not fail. Verify with Solver Setup rather than assuming "
+                "the box's GPU is usable.")
+            obj.Device = ["CPU", "GPU"]
+            obj.Device = "CPU"
         if "AnalysisType" not in props:
             obj.addProperty(
                 "App::PropertyEnumeration",

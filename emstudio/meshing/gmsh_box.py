@@ -24,6 +24,15 @@ from emstudio.solvers.base import SolverError, SolverJob
 #: MFEM attribute numbers (physical tags) the config writer references
 VOLUME_ATTR = 1
 WALL_ATTR = 2
+
+#: Outer boundary of an OPEN (radiating) domain. Kept distinct from
+#: WALL_ATTR because the two mean opposite things: a PEC wall REFLECTS
+#: everything and a radiation boundary ABSORBS it. Until v1.5.0 every Palace
+#: mesh this project wrote tagged its entire outer boundary `pec_walls`, which
+#: is exactly right for a resonant cavity and makes radiation impossible by
+#: construction — a closed metal box cannot have a far field. That, not any
+#: Palace limitation, is why nothing radiating had ever been gated on Palace.
+RADIATION_ATTR = 3
 #: waveguide (driven) attributes. The interior is always 1 and the ports run
 #: consecutively from :data:`WG_PORT_ATTR_BASE`; the side walls take whatever
 #: number is left after the ports, so the numbering DERIVES from the port count
@@ -107,6 +116,49 @@ def write_geo(size_mm, path, elem_mm=None, origin_mm=(0.0, 0.0, 0.0)):
         "// all 6 faces -> one PEC wall group -> MFEM boundary attribute {0}".format(WALL_ATTR),
         "wall() = Boundary{ Volume{1}; };",
         'Physical Surface("pec_walls", {0}) = {{ wall() }};'.format(WALL_ATTR),
+    ]
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return path
+
+
+def write_geo_open(size_mm, path, elem_mm=None, origin_mm=(0.0, 0.0, 0.0)):
+    """Write an OPEN air box whose outer boundary is a radiation surface.
+
+    Same geometry as :func:`write_geo`, one difference that changes everything:
+    the six faces become ``radiation`` (attribute :data:`RADIATION_ATTR`)
+    rather than ``pec_walls``. The Palace writer then attaches
+    ``Boundaries.Absorbing`` to that attribute so the wave leaves, and
+    ``Boundaries.Postprocessing.FarField`` to the same attribute so the far
+    field can be extracted from it.
+
+    ⛳ Palace's own requirement, quoted from its config schema: the far-field
+    attributes "must enclose the system and be on an external boundary". One
+    group covering all six faces satisfies both, which is why they are tagged
+    together rather than per-face.
+
+    ⚠ The radiating STRUCTURE is meshed separately and sits inside this box;
+    this writes only the air region and its absorbing shell.
+    """
+    dx, dy, dz = size_mm
+    x0, y0, z0 = origin_mm
+    if elem_mm is None:
+        elem_mm = min(dx, dy, dz) / 10.0
+    lines = [
+        "// EMStudio 3-D OPEN (radiating) air box, units: mm; Palace L0 = 1e-3",
+        "// rerun: gmsh -3 -format msh22 <this file> -o out.msh",
+        'SetFactory("OpenCASCADE");',
+        "Box(1) = {{{0:.9g}, {1:.9g}, {2:.9g}, {3:.9g}, {4:.9g}, {5:.9g}}};".format(
+            x0, y0, z0, dx, dy, dz),
+        "Mesh.MeshSizeMin = {0:.9g};".format(elem_mm),
+        "Mesh.MeshSizeMax = {0:.9g};".format(elem_mm),
+        "// air region -> MFEM domain attribute {0}".format(VOLUME_ATTR),
+        'Physical Volume("interior", {0}) = {{1}};'.format(VOLUME_ATTR),
+        "// all 6 faces -> ONE absorbing/far-field group -> attribute {0}".format(
+            RADIATION_ATTR),
+        "outer() = Boundary{ Volume{1}; };",
+        'Physical Surface("radiation", {0}) = {{ outer() }};'.format(
+            RADIATION_ATTR),
     ]
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")

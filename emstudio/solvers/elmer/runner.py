@@ -337,7 +337,20 @@ def run_model(model, freqs, workdir=None, line_callback=None,
     if parallel and len(cases) > 1:
         from concurrent.futures import ThreadPoolExecutor
 
-        workers = min(len(cases), os.cpu_count() or 4)
+        # ⚠⚠ NOT one worker per core. `os.cpu_count()` is 128 on the
+        # development box, and launching 128 concurrent ElmerSolver processes
+        # does not run 128x faster — each carries its own mesh and factorised
+        # system, so they contend for memory bandwidth long before they run out
+        # of cores. MEASURED on this machine with the analogous OpenFOAM sweep:
+        # a 4.096M-cell case went 10.37 s/iter at 1 rank to 1.76 at 64, i.e.
+        # 5.9x for 64x the resources, with the knee between 8 and 16 and
+        # EFFICIENCY down to 9 %. Oversubscription is not free; past the knee it
+        # is actively slower.
+        # ⛳ Shared with the Palace rank default so the whole product sizes
+        # itself the same way on whatever machine it lands on.
+        from emstudio.setup.accel import default_ranks
+
+        workers = min(len(cases), max(1, default_ranks()))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             results = list(pool.map(_one, cases))
     else:

@@ -226,6 +226,47 @@ def _collect_ports(analysis, excite_port=None):
             "edges2grid": edges2grid,
             "type": ptype,
         }
+        if ptype == "RectWaveguide":
+            # ⛳ a and b come from the referenced FACE's own bounding box, not
+            # from user-typed numbers, so the mode profile and the geometry
+            # cannot disagree. openEMS wants them in METRES; the document is in
+            # mm, which is exactly the units slip that made a cavity "converge
+            # beautifully" on nonsense once before.
+            entry["prop_axis"] = prop_dir[-1].lower()
+            entry["prop_sign"] = 1.0 if prop_dir[0] == "+" else -1.0
+            pi = AXES.index(entry["prop_axis"])
+            trans = [i for i in range(3) if i != pi]
+            spans = sorted(abs(stop[i] - start[i]) for i in trans)
+            # a is the BROAD wall, b the narrow one — the TE10 convention. Taking
+            # them by size rather than by axis order means the port works whatever
+            # way round the face was drawn.
+            entry["wg_b_m"] = spans[0] * 1e-3
+            entry["wg_a_m"] = spans[1] * 1e-3
+            entry["wg_mode"] = str(getattr(port, "WaveguideMode", "TE10") or "TE10")
+            # ⚠⚠ AN EXCITED WAVEGUIDE PORT MAY NOT BE ZERO-LENGTH along the
+            # propagation axis — openEMS raises "Port length in excitation
+            # direction may not be zero if port is excited!". A port FACE is
+            # naturally zero-thickness, so it must be given depth here or every
+            # excited waveguide run dies at deck time.
+            # ⛳ Upstream's own Rect_Waveguide tutorial spans exactly ONE mesh
+            # cell (z(end-13) -> z(end-14)); we do the same, extending ALONG the
+            # PropagationDirection so the wave leaves into the guide rather than
+            # out of the domain.
+            plo, phi = start[pi], stop[pi]
+            if abs(phi - plo) < 1e-12:
+                depth = max(min(entry["wg_a_m"], entry["wg_b_m"]) * 1e3 / 20.0,
+                            1e-3)
+                st, sp = list(start), list(stop)
+                if entry["prop_sign"] >= 0:
+                    sp[pi] = plo + depth
+                else:
+                    sp[pi] = plo - depth
+                entry["start"], entry["stop"] = tuple(st), tuple(sp)
+            if entry["wg_a_m"] <= 0.0 or entry["wg_b_m"] <= 0.0:
+                raise OpenEMSModelError(
+                    "waveguide port '{0}' needs a FACE with two non-zero "
+                    "transverse dimensions; got a={1:g} b={2:g} mm".format(
+                        port.Label, entry["wg_a_m"] * 1e3, entry["wg_b_m"] * 1e3))
         if ptype == "MSL":
             entry["prop_axis"] = prop_dir[-1].lower()
             entry["prop_sign"] = 1.0 if prop_dir[0] == "+" else -1.0
@@ -545,6 +586,21 @@ def write_deck(analysis, solver, workdir, excite_port=None):
                     feed=meas / 2.0, mps=meas,
                 )
             )
+        elif p["type"] == "RectWaveguide":
+            # AddRectWaveGuidePort builds the analytic TE_mn profile (Pozar) and
+            # imposes it on the port plane. Unlike a lumped port it is a real
+            # modal excitation, which is what a horn or a filter fed from guide
+            # actually needs — and what EMStudio had no way to express until
+            # v1.5.0, leaving antenna/horn.py's design_pyramidal a designer with
+            # no solver that could feed it.
+            w(
+                "ports[{nr}] = FDTD.AddRectWaveGuidePort({nr}, {start}, {stop}, "
+                "'{pax}', {a:.9g}, {b:.9g}, '{mode}', excite={excite:.1f})".format(
+                    nr=p["nr"], start=_fmt_v(p["start"]), stop=_fmt_v(p["stop"]),
+                    pax=p["prop_axis"], a=p["wg_a_m"], b=p["wg_b_m"],
+                    mode=p["wg_mode"], excite=p["excite"],
+                )
+            )
         else:
             w(
                 "ports[{nr}] = FDTD.AddLumpedPort({nr}, {R:.9g}, {start}, {stop}, "
@@ -669,8 +725,28 @@ def write_deck(analysis, solver, workdir, excite_port=None):
         w("p_acc = float(np.real(np.ravel(port.P_acc)[i_ff]))")
         w("p_rad = float(np.real(np.ravel(ff.Prad)[0]))")
         w("eta = (p_rad / p_acc) if p_acc > 0 else float('nan')")
-        w("eta_db = 10.0*np.log10(eta) if (eta == eta and eta > 0) else -99.0")
-        w("gain_dbi = dir_dbi + eta_db  # (Nt, Np) TRUE GAIN")
+        # ⚠⚠ AN EFFICIENCY ABOVE 1 IS NOT A NUMBER, IT IS A FAILED POWER
+        # BUDGET. A passive antenna cannot radiate more than it accepts, so
+        # eta > 1 means p_acc is not the accepted power at this port — measured
+        # with a rectangular WAVEGUIDE port, where CalcPort's modal
+        # normalisation differs from a lumped port's: eta came back at 1642 %
+        # and would have SCALED GAIN UP BY 12 dB. That is worse than the
+        # directivity-as-gain defect this whole block was written to fix, so it
+        # must never be applied silently.
+        # ⛳ Falling back to DIRECTIVITY is the honest choice: it is a real,
+        # well-defined quantity, it is what the code reported before v1.4.0,
+        # and it is an UPPER BOUND on gain — erring toward the conservative
+        # reading rather than the flattering one. The deck says so out loud.
+        w("if not (eta == eta) or not (0.0 < eta <= 1.05):")
+        w("    print('EMStudio: WARNING - power budget did not close "
+          "(P_rad/P_acc = %r). Reporting DIRECTIVITY, not gain; the true gain "
+          "is at or below this.' % (eta,))")
+        w("    eta_db = 0.0")
+        w("    eta = float('nan')")
+        w("else:")
+        w("    eta_db = 10.0*np.log10(min(eta, 1.0))")
+        w("gain_dbi = dir_dbi + eta_db  # (Nt, Np) TRUE GAIN (or directivity"
+          " if the budget failed)")
         w("ff_rows = []")
         w("for i_t, th in enumerate(theta):")
         w("    for i_p, ph in enumerate(phi):")

@@ -1455,6 +1455,77 @@ one.
 validation cases** (worst deviation **1.17e-12 dB**) and reproduces the
 reference case to **101.263441 dB** vs the official 101.2634406454913.
 
+## 33. A horn at Ka band — and what "validated to mmWave" is allowed to mean
+
+**Needs:** **openEMS** (binary + python modules). This is the most expensive
+run in the book — see the warning at the end before you start it.
+
+⛳ **Why this tutorial exists at all.** For most of this project's life the
+highest GATED *radiating* structure was a **2.435 GHz patch**, while
+`CAPABILITIES.md` opened by saying the full-wave engines "reach mmWave". Both
+sentences were true: Palace really is validated to 57 GHz — on **closed**
+structures, waveguide and cavity. Nothing that *radiated* had ever been checked
+above 2.435 GHz, because openEMS had no waveguide port and a horn is
+waveguide-fed. That port arrived in v1.5.0; this is the first thing built on it.
+
+**Do**
+1. **Templates ▸ Ka-band Horn**. It builds the **Mi-Wave 261A-20/599**, a real
+   purchasable WR-28 standard gain horn, from the vendor's dimensioned outline
+   drawing: aperture **39.88 × 27.94 mm**, axial flare **67.06 mm**, WR-28
+   throat, 26.5–40 GHz.
+2. **Run Solver.**
+
+**You should see** a forward-pointing beam whose gain sits on the published
+curve:
+
+| quantity | gate window | published |
+|---|---|---|
+| peak gain vs vendor curve | **±0.5 dB** | 18.8 dBi @ 26.5 GHz rising to 21.6 @ 40 |
+| main beam | θ < 20° (boresight) | a horn points forwards |
+| radiation efficiency | > 90 % | PEC walls in air — nearly all accepted power must radiate |
+
+⚠⚠ **Read what this proves, because it is narrower than "validated at 40 GHz".**
+The vendor's curve is smooth and monotonic. A genuinely range-measured standard
+gain horn shows **0.1–0.2 dB ripple** from mouth/throat reflections (Bodnar,
+NSI-MI); a smooth curve is the fingerprint of the NRL closed-form
+*calculation*. So this gate compares EMStudio against **analytic aperture
+theory**, not against a measurement. It is not circular — it is not the
+solver's own output — but it is weaker than a measured anchor, and you should
+say so if you quote it.
+
+⛳ **The analytic reference is itself measurement-anchored, one step removed.**
+NIST measured a pyramidal standard gain horn at **118.75 GHz** by three-antenna
+extrapolation: **15.47 ± 0.5 dB measured against 15.40 dB predicted** — they
+agree to **0.07 dB**. So the prediction is known to track reality deep into
+mmWave. What this gate tests is whether *our solver* reproduces the prediction.
+
+⚠ **Why ±0.5 dB and not tighter.** IEEE Std 149-1979 puts the NRL closed form
+at ±0.25–0.5 dB, and a seven-laboratory X-band intercomparison shows 0.2 dB
+spread between labs *on real measurements*. Tightening the window would be
+gating against aperture theory's own uncertainty and calling the result solver
+accuracy.
+
+⛳ **Try breaking it, and this one teaches something.** EMStudio's own
+`gain_from_aperture` reports **18.54 dBi** at 30 GHz for this aperture, against
+the vendor's **19.7**. That is not a bug: it uses the *optimum-horn* aperture
+efficiency of 0.51, which is a **design rule for choosing a flare**, not a
+predictor for a horn someone else already designed. The full Balanis
+Fresnel-integral form gives 19.88 for these exact dimensions — 0.18 dB from the
+vendor. **An efficiency factor that is right for synthesis can be wrong for
+analysis**, and the difference here is 1.2 dB.
+
+⚠ **Name the part, never "a 20 dB horn".** Two vendors' nominal 20 dB WR-28
+standard gain horns have materially different apertures — Mi-Wave 39.9 × 27.9 mm
+versus Pasternack 35.1 × 25.7 mm. And do **not** re-source this anchor from
+Eravant or Anteral: their datasheets state outright that the gain and pattern
+data are *simulated*, which would make the whole exercise circular.
+
+⚠ **Cost.** λ is 7.5 mm at 40 GHz, so a λ/20 grid is 0.375 mm across a domain
+holding the horn plus radiating padding. Expect a long run. This is a SOLVER-
+tier gate and is deliberately **not** in the fast battery.
+
+**Prove it** — `tests/validation/horn_openems.py`.
+
 # Coverage — the standing order is met
 
 > ✅ **Tutorials are available for every capability.** Every solver and every

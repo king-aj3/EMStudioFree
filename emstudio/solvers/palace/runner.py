@@ -28,6 +28,66 @@ _SOLVE_TIMEOUT_S = 3600
 _C0 = 299792458.0
 
 
+
+
+def _device_of(solver, info=None, line_callback=None):
+    """"CPU" or "GPU" for the MFEM device, from the solver object.
+
+    Defaults to CPU when the solver is absent or the property predates this
+    release — an unknown device must never silently become GPU, because a GPU
+    request on a CPU-only Palace build is a fallback the user will not notice.
+    """
+    d = str(getattr(solver, "Device", "CPU") or "CPU").upper()
+    if d != "GPU":
+        return "CPU"
+    # ⚠⚠ A GPU REQUEST WE CANNOT HONOUR MUST NOT PASS SILENTLY. Palace decides
+    # GPU support at COMPILE time: a CPU-only build accepts Device=GPU, notes
+    # the fallback in its own log where nobody reads it, and solves on the CPU.
+    # The user then believes their GPU was used. That is precisely the defect
+    # class v1.4.0 was released to remove, so it is not being reintroduced by
+    # the feature that adds GPU support.
+    from emstudio.setup import accel
+    rep = accel.accel_report(getattr(info, "path", None) if info else None)
+    if rep["gpu_usable"]:
+        return "GPU"
+    if line_callback is not None:
+        line_callback("EMStudio: GPU requested but NOT available - %s "
+                      "Running on CPU." % rep["why"])
+    return "CPU"
+
+
+def palace_argv(info, cfg_name, solver=None):
+    """Build the ``palace`` command line from the solver object's settings.
+
+    ⚠⚠ **This used to be hard-coded ``-np 1``** — every Palace solve this
+    project has ever run used ONE core, on machines with dozens. FEM assembly
+    and the linear solve both parallelise, so that was the single largest
+    avoidable cost in the product.
+
+    ``MPIRanks = 0`` means AUTO. Auto deliberately leaves headroom rather than
+    taking every core: Palace is memory-hungry per rank, the box is usually
+    also running FreeCAD, and an oversubscribed run is SLOWER than a serial one
+    because the ranks contend. Half the cores, at least 1, capped at 16 — past
+    that, FEM scaling is usually bounded by memory bandwidth, not cores.
+
+    ⚠ Threads MULTIPLY ranks. ``-nt`` is passed through only when the user
+    asked for more than 1, so a default run cannot accidentally oversubscribe.
+    """
+    ranks = int(getattr(solver, "MPIRanks", 1) or 0)
+    if ranks <= 0:
+        try:
+            cores = os.cpu_count() or 1
+        except Exception:
+            cores = 1
+        ranks = max(1, min(16, cores // 2))
+    argv = [info.path, "-np", str(ranks)]
+    threads = int(getattr(solver, "OMPThreads", 1) or 1)
+    if threads > 1:
+        argv += ["-nt", str(threads)]
+    argv.append(cfg_name)
+    return argv
+
+
 def _estimate_target_ghz(size_mm, eps_r=1.0):
     """Rough TE101-ish frequency (GHz) for the shift-invert target.
 
@@ -42,7 +102,7 @@ def _estimate_target_ghz(size_mm, eps_r=1.0):
 
 def run_cavity(size_mm, n_modes=8, order=2, elem_mm=None, eps_r=1.0, mu_r=1.0,
                loss_tan=0.0, target_ghz=None, workdir=None, line_callback=None,
-               mesh_refinement=0, refinement_tol=0.01):
+               mesh_refinement=0, refinement_tol=0.01, solver=None):
     """Solve the resonant modes of a rectangular PEC cavity. Returns EigenModeResult.
 
     :param size_mm: (dx, dy, dz) cavity dimensions in mm.
@@ -65,12 +125,12 @@ def run_cavity(size_mm, n_modes=8, order=2, elem_mm=None, eps_r=1.0, mu_r=1.0,
         msh, workdir, t0, n_modes=n_modes, order=order, eps_r=eps_r, mu_r=mu_r,
         loss_tan=loss_tan, target_ghz=target_ghz,
         extra_meta={"size_mm": tuple(size_mm)}, line_callback=line_callback,
-        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol, solver=solver)
 
 
 def run_cavity_brep(brep_path, target_ghz, n_modes=8, order=2, eps_r=1.0, mu_r=1.0,
                     loss_tan=0.0, elem_mm=None, workdir=None, line_callback=None,
-                    mesh_refinement=0, refinement_tol=0.01):
+                    mesh_refinement=0, refinement_tol=0.01, solver=None):
     """Solve the resonant modes of a general PEC-walled solid (BREP). Returns EigenModeResult.
 
     The whole outer boundary of the imported solid is the PEC wall — any single
@@ -93,7 +153,7 @@ def run_cavity_brep(brep_path, target_ghz, n_modes=8, order=2, eps_r=1.0, mu_r=1
         msh, workdir, t0, n_modes=n_modes, order=order, eps_r=eps_r, mu_r=mu_r,
         loss_tan=loss_tan, target_ghz=float(target_ghz),
         extra_meta={"geometry": "brep"}, line_callback=line_callback,
-        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol, solver=solver)
 
 
 def _prepare_workdir(workdir):
@@ -105,7 +165,7 @@ def _prepare_workdir(workdir):
 
 def _solve_eigenmodes(msh, workdir, t0, n_modes, order, eps_r, mu_r, loss_tan,
                       target_ghz, extra_meta=None, line_callback=None,
-                      mesh_refinement=0, refinement_tol=0.01):
+                      mesh_refinement=0, refinement_tol=0.01, solver=None):
     """Shared eigenmode solve/parse tail for run_cavity and run_cavity_brep.
 
     Identical config + Palace invocation + parsing for every geometry, so the
@@ -119,7 +179,8 @@ def _solve_eigenmodes(msh, workdir, t0, n_modes, order, eps_r, mu_r, loss_tan,
     config = writer.build_eigenmode_config(
         os.path.basename(msh), n_modes=n_modes, target_ghz=target_ghz, order=order,
         eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output="postpro",
-        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
+        device=_device_of(solver, info, line_callback))
     cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
 
     # PHASE progress only. Palace is one long invocation and is not installed
@@ -127,7 +188,7 @@ def _solve_eigenmodes(msh, workdir, t0, n_modes, order, eps_r, mu_r, loss_tan,
     # would be a guess; phase boundaries need no parsing and cannot be wrong.
     # Tighten to a real fraction on a box that has Palace.
     progress.report(line_callback, 0.05, "Solving (Palace)")
-    job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
+    job = SolverJob(palace_argv(info, os.path.basename(cfg_path), solver),
                     cwd=workdir, line_callback=line_callback)
     job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
     progress.report(line_callback, 0.90, "Reading results")
@@ -159,7 +220,7 @@ def _excitation_list(n_ports, full_smatrix):
 
 
 def _solve_excitations(info, workdir, build_cfg, ports, line_callback,
-                       base=0.05, span=0.85):
+                       base=0.05, span=0.85, solver=None):
     """Run one driven solve per excitation and merge them into one S-matrix.
 
     ``build_cfg(excite_port, output_dir)`` returns the config for that
@@ -186,7 +247,7 @@ def _solve_excitations(info, workdir, build_cfg, ports, line_callback,
             cfg, os.path.join(workdir, "config_e%d.json" % int(ep)))
         progress.report(line_callback, base + span * (k / float(n)),
                         "Solving (Palace), excitation %d of %d" % (k + 1, n))
-        job = SolverJob([info.path, "-np", "1", os.path.basename(cfg_path)],
+        job = SolverJob(palace_argv(info, os.path.basename(cfg_path), solver),
                         cwd=workdir, line_callback=line_callback)
         job.run_blocking(timeout=_SOLVE_TIMEOUT_S)
 
@@ -203,7 +264,8 @@ def _solve_excitations(info, workdir, build_cfg, ports, line_callback,
 def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=3,
                   eps_r=1.0, mu_r=1.0, loss_tan=0.0, elem_mm=None, workdir=None,
                   line_callback=None, fast_sweep=False, adaptive_tol=1.0e-3,
-                  mesh_refinement=0, refinement_tol=0.01, full_smatrix=False):
+                  mesh_refinement=0, refinement_tol=0.01, full_smatrix=False,
+                  solver=None):
     """Driven S-parameter solve of a 2-port waveguide section. Returns SweepResult.
 
     :param size_mm: (dx, dy, dz) box dimensions in mm.
@@ -232,7 +294,8 @@ def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=
             excite_port=excite_port,
             eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output=output,
             fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
-            mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+            mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
+        device=_device_of(solver, info, line_callback))
 
     # PHASE progress only. Palace is one long invocation and is not installed
     # on the machine this was written on, so any regex against its output
@@ -243,7 +306,7 @@ def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=
     n_ports = 2
     ports = _excitation_list(n_ports, full_smatrix)
     freqs, smat = _solve_excitations(info, workdir, build_cfg, ports,
-                                     line_callback)
+                                     line_callback, solver=solver)
     progress.report(line_callback, 0.90, "Reading results")
 
     freqs = np.array(freqs)
@@ -266,7 +329,8 @@ def run_waveguide_brep(brep_path, axis, bbox_mm, f1_ghz=8.0, f2_ghz=12.0,
                        step_ghz=0.5, order=2, eps_r=1.0, mu_r=1.0, loss_tan=0.0,
                        elem_mm=None, workdir=None, line_callback=None,
                        fast_sweep=False, adaptive_tol=1.0e-3, mesh_refinement=0,
-                       refinement_tol=0.01, full_smatrix=False, ports=None):
+                       refinement_tol=0.01, full_smatrix=False, ports=None,
+                       solver=None):
     """Driven S-parameter solve of an N-port waveguide on a GENERAL solid (BREP).
 
     The general-geometry analogue of :func:`run_waveguide`: any closed solid
@@ -324,7 +388,7 @@ def run_waveguide_brep(brep_path, axis, bbox_mm, f1_ghz=8.0, f2_ghz=12.0,
     # Tighten to a real fraction on a box that has Palace.
     ports = _excitation_list(n_ports, full_smatrix)
     freqs, smat = _solve_excitations(info, workdir, build_cfg, ports,
-                                     line_callback)
+                                     line_callback, solver=solver)
     progress.report(line_callback, 0.90, "Reading results")
 
     freqs = np.array(freqs)
@@ -346,7 +410,8 @@ def run_waveguide_brep(brep_path, axis, bbox_mm, f1_ghz=8.0, f2_ghz=12.0,
 def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=2,
              eps_r=1.0, mu_r=1.0, loss_tan=0.0, elem_mm=None, workdir=None,
              line_callback=None, fast_sweep=False, adaptive_tol=1.0e-3,
-             mesh_refinement=0, refinement_tol=0.01, full_smatrix=False):
+             mesh_refinement=0, refinement_tol=0.01, full_smatrix=False,
+             solver=None):
     """Driven S-parameter solve of a 2-port coaxial line (radial lumped ports).
 
     Returns a SweepResult. A default run excites port 1 only, giving S11 and
@@ -379,7 +444,8 @@ def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=
             order=order, excite_port=excite_port,
             eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output=output,
             fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
-            mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+            mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
+        device=_device_of(solver, info, line_callback))
 
     # PHASE progress only. Palace is one long invocation and is not installed
     # on the machine this was written on, so any regex against its output
@@ -389,7 +455,7 @@ def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=
     n_ports = 2
     ports = _excitation_list(n_ports, full_smatrix)
     freqs, smat = _solve_excitations(info, workdir, build_cfg, ports,
-                                     line_callback)
+                                     line_callback, solver=solver)
     progress.report(line_callback, 0.90, "Reading results")
 
     freqs = np.array(freqs)
@@ -449,7 +515,7 @@ def run(analysis, solver, workdir=None, line_callback=None):
             workdir=workdir, line_callback=line_callback,
             fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
             mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
-            full_smatrix=full_smatrix)
+            full_smatrix=full_smatrix, solver=solver)
         result.meta["analysis"] = analysis.Label
         return result
 
@@ -469,7 +535,7 @@ def run(analysis, solver, workdir=None, line_callback=None):
             workdir=workdir, line_callback=line_callback,
             fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
             mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
-            full_smatrix=full_smatrix)
+            full_smatrix=full_smatrix, solver=solver)
         if model.get("kind") == "brep":
             # N-port IS reachable from the document now. An
             # ``EMStudio::LumpedPort`` whose ``References`` name a FACE declares
@@ -497,7 +563,8 @@ def run(analysis, solver, workdir=None, line_callback=None):
         eps_r=model.get("eps_r", 1.0), mu_r=model.get("mu_r", 1.0),
         loss_tan=model.get("loss_tan", 0.0),
         workdir=workdir, line_callback=line_callback,
-        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol)
+        mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
+        solver=solver)
     if model.get("kind") == "brep":
         result = run_cavity_brep(model["brep_path"], model["target_ghz"], **common)
     else:

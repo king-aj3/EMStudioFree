@@ -98,8 +98,17 @@ class LumpedPort:
                 "(reference = a box spanning line width x feed length x substrate "
                 "height; Direction = E-field axis, PropagationDirection = along the line)",
             )
-            obj.PortType = ["Lumped", "MSL"]
+            obj.PortType = ["Lumped", "MSL", "RectWaveguide"]
             obj.PortType = "Lumped"
+        if "WaveguideMode" not in props:
+            obj.addProperty(
+                "App::PropertyString", "WaveguideMode", _GROUP,
+                "Waveguide mode for a RectWaveguide port, e.g. TE10 (the "
+                "dominant mode of a rectangular guide) or TE20/TE11. openEMS "
+                "generates the analytic TE_mn profile; only TE modes are "
+                "supported. The guide's a and b are taken from the referenced "
+                "port FACE, so the mode and the geometry cannot disagree.")
+            obj.WaveguideMode = "TE10"
         if "PropagationDirection" not in props:
             obj.addProperty(
                 "App::PropertyEnumeration",

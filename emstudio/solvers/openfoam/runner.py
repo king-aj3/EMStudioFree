@@ -165,7 +165,100 @@ def _reap(job):
         pass
 
 
+#: A step is a SOLVER (and so worth running under MPI) if its name ends in
+#: "Foam". That is OpenFOAM's own naming convention for applications that
+#: advance a solution — buoyantBoussinesqSimpleFoam, chtMultiRegionFoam,
+#: potentialFoam. Utilities do not follow it (blockMesh, checkMesh,
+#: decomposePar), which is exactly the distinction we need. A heuristic, but a
+#: documented one: get it wrong and the step simply runs serial, never wrong.
+def _is_solver_step(step):
+    return step.split()[0].endswith("Foam")
+
+
+def write_decompose_par_dict(case_dir, ranks):
+    """Write ``system/decomposeParDict`` for ``ranks`` subdomains.
+
+    ⛳ **scotch**, not simple. `simple` needs the user to hand-pick an n-by-n-by-n
+    split that must multiply to exactly the rank count, and a bad guess either
+    refuses to run or produces wildly unbalanced subdomains. `scotch` partitions
+    the actual mesh graph and needs nothing but a number — which is the only
+    input we can honestly ask a workbench user for.
+    """
+    txt = (
+        "FoamFile\n{\n    version     2.0;\n    format      ascii;\n"
+        "    class       dictionary;\n    object      decomposeParDict;\n}\n\n"
+        "numberOfSubdomains %d;\n\nmethod          scotch;\n" % int(ranks))
+    sysdir = os.path.join(case_dir, "system")
+    if not os.path.isdir(sysdir):
+        os.makedirs(sysdir)
+    path = os.path.join(sysdir, "decomposeParDict")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(txt)
+    return path
+
+
+def parallel_chain(steps, ranks):
+    """Rewrite a serial step chain into a decompose / mpirun / reconstruct one.
+
+    ⚠⚠ **Until 2026-08-22 EMStudio had NO parallel path at all** — decomposePar
+    and reconstructPar sat in the tool list, were probed for at install time,
+    and were never invoked. Every CFD case in this product's history ran on ONE
+    core, on machines with dozens, and CFD is by far the slowest thing it does.
+
+    Only SOLVER steps get MPI. Meshing stays serial on purpose: blockMesh is
+    serial by nature, and running snappyHexMesh in parallel needs its own
+    decomposition and reconstruction dance that is not worth coupling to this
+    change.
+
+    ⛳ `reconstructPar` is appended ONCE, after the last solver step, not after
+    each. Reconstructing between solvers would throw away the decomposition the
+    next one is about to need.
+
+    ⚠⚠ **MORE RANKS IS NOT MONOTONICALLY BETTER.** Measured on this box
+    (Threadripper 3990X, 64 physical cores, ONE NUMA node), 4,096,000-cell
+    simpleFoam, steady s/iter:
+
+        ranks    1      4      8     16     32     64
+        s/iter  10.37   3.78   2.93   2.33   1.93   1.76
+        speedup  1.00x  2.75x  3.54x  4.46x  5.38x  5.88x
+        eff      100%    69%    44%    28%    17%     9%
+
+    The knee is between 8 and 16 and it saturates hard: 64 ranks buys 5.9x for
+    64x the cores, because this machine is memory-BANDWIDTH bound, not core
+    bound. Do not expect cluster-shaped scaling on a workstation.
+
+    ⚠ **And the serial overhead is not small.** decomposePar 48-59 s and
+    reconstructPar ~50 s on that mesh — about 103 s wrapped around the parallel
+    section. Over 20 iterations N=32 was the best wall clock (2.42x) and **N=64
+    was WORSE than N=32 (2.39x)**, entirely because of it. Over a realistic
+    3750-iteration run the overhead amortises to ~1.4 % and 16-32 wins.
+    That is why the default is capped rather than "use every core".
+
+    ⛳ **scotch, and only scotch, by default.** decomposePar advertises ten
+    methods; `metis` and `kahip` are FATAL on this install because they ship as
+    dummy stub libraries ("Attempted to use <metis> without the metisDecomp
+    library loaded"). scotch/simple/hierarchical work, and only scotch needs no
+    geometry knowledge from the user.
+    ⚠ OpenFOAM's own RunFunctions adds `--oversubscribe` to mpirun. **Do not
+    copy that** — it exists so tutorials run on small CI boxes, and here it
+    would let ranks contend for cores that do not exist.
+    """
+    if int(ranks) <= 1 or not any(_is_solver_step(s) for s in steps):
+        return list(steps)
+    out = []
+    for step in steps:
+        if _is_solver_step(step):
+            if "decomposePar" not in out:
+                out.append("decomposePar -force")
+            out.append("mpirun -np %d %s -parallel" % (int(ranks), step))
+        else:
+            out.append(step)
+    out.append("reconstructPar -latestTime")
+    return out
+
+
 def run_chain(case_dir, info=None, steps=CAVITY_STEPS, timeout=3600,
+              ranks=1,
               cancel=None):
     """Run each step in order. Returns a report; does NOT raise on a bad step.
 
@@ -187,7 +280,11 @@ def run_chain(case_dir, info=None, steps=CAVITY_STEPS, timeout=3600,
             "buoyantBoussinesqSimpleFoam) and will fail on the first "
             "dictionary read against %s" % info.describe())
 
-    report = {"ok": True, "install": info.describe(), "steps": []}
+    if int(ranks) > 1:
+        write_decompose_par_dict(case_dir, ranks)
+        steps = parallel_chain(steps, ranks)
+    report = {"ok": True, "install": info.describe(), "steps": [],
+              "ranks": int(ranks)}
     for step in steps:
         # A cancel that fired between steps (or before the chain started —
         # the dialog closed the instant after Solve) must not spawn a doomed

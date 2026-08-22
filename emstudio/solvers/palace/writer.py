@@ -84,9 +84,44 @@ def _apply_refinement(config, mesh_refinement, refinement_tol):
     return config
 
 
+def radiation_boundaries(attr, nsample=64, order=2, theta_phis=None):
+    """Boundaries block for an OPEN (radiating) domain.
+
+    Returns the two pieces Palace needs to let a wave leave and then measure
+    where it went:
+
+      * ``Absorbing`` — a farfield absorbing (scattering) boundary. ``Order``
+        1 or 2; second order is available for FREQUENCY-DOMAIN DRIVEN
+        simulations only, which is the case this is for, so 2 is the default
+        and is the better absorber.
+      * ``Postprocessing.FarField`` — far-field electric-field extraction on
+        the SAME attribute. Palace's schema requires these attributes to
+        "enclose the system and be on an external boundary", which is exactly
+        what :func:`emstudio.meshing.gmsh_box.write_geo_open` tags.
+
+    ⚠⚠ **This is the piece whose absence made Palace look incapable.** The
+    docs recorded that nothing radiating was gated above 2.435 GHz and implied
+    a Palace limitation. Palace was never the problem: every mesh EMStudio
+    handed it tagged the whole outer boundary ``pec_walls``, i.e. a closed
+    metal box, and a closed metal box cannot radiate. Palace has supported both
+    of these boundaries all along.
+
+    ``nsample`` discretises the far-field sphere; ``theta_phis`` adds specific
+    (theta, phi) pairs in degrees, which is how you pin boresight exactly
+    rather than hoping a uniform sample lands on it.
+    """
+    ff = {"Attributes": [int(attr)], "NSample": int(nsample)}
+    if theta_phis:
+        ff["ThetaPhis"] = [[float(t), float(p)] for t, p in theta_phis]
+    return {
+        "Absorbing": {"Attributes": [int(attr)], "Order": int(order)},
+        "Postprocessing": {"FarField": ff},
+    }
+
+
 def build_eigenmode_config(mesh_name, n_modes=8, target_ghz=1.0, order=3,
                            eps_r=1.0, mu_r=1.0, loss_tan=0.0, output="postpro",
-                           save_modes=0, mesh_refinement=0, refinement_tol=0.01):
+                           save_modes=0, mesh_refinement=0, refinement_tol=0.01, device="CPU"):
     """Return the Palace eigenmode config as a dict.
 
     :param mesh_name: mesh filename relative to the config (e.g. "cavity.msh").
@@ -118,7 +153,11 @@ def build_eigenmode_config(mesh_name, n_modes=8, target_ghz=1.0, order=3,
         },
         "Solver": {
             "Order": int(order),
-            "Device": "CPU",
+            # ⚠ "GPU" needs a Palace BUILT with CUDA or HIP. A CPU-only
+            # build does not fail on it — MFEM falls back and says so in
+            # the log — so this is safe to set, but "it ran" is NOT proof
+            # the GPU was used. Read the Palace banner.
+            "Device": str(device),
             "Eigenmode": {
                 "N": int(n_modes),
                 "Tol": 1.0e-8,
@@ -205,7 +244,7 @@ def build_driven_config(mesh_name, f1_ghz, f2_ghz, step_ghz, order=3,
                         eps_r=1.0, mu_r=1.0, loss_tan=0.0, output="postpro",
                         fast_sweep=False, adaptive_tol=1.0e-3,
                         mesh_refinement=0, refinement_tol=0.01,
-                        n_ports=2):
+                        n_ports=2, device="CPU"):
     """Return a Palace driven (S-parameter) config for an N-port waveguide.
 
     Port ``excite_port`` is the driven wave port; every other port is passive.
@@ -251,7 +290,11 @@ def build_driven_config(mesh_name, f1_ghz, f2_ghz, step_ghz, order=3,
         },
         "Solver": {
             "Order": int(order),
-            "Device": "CPU",
+            # ⚠ "GPU" needs a Palace BUILT with CUDA or HIP. A CPU-only
+            # build does not fail on it — MFEM falls back and says so in
+            # the log — so this is safe to set, but "it ran" is NOT proof
+            # the GPU was used. Read the Palace banner.
+            "Device": str(device),
             "Driven": _driven_block(f1_ghz, f2_ghz, step_ghz, fast_sweep, adaptive_tol),
             "Linear": {
                 "Type": "Default",
@@ -268,7 +311,7 @@ def build_lumped_coax_config(mesh_name, f1_ghz, f2_ghz, step_ghz, a_mm, b_mm,
                              order=2, eps_r=1.0, mu_r=1.0, loss_tan=0.0,
                              r_ohm=None, output="postpro",
                              fast_sweep=False, adaptive_tol=1.0e-3,
-                             mesh_refinement=0, refinement_tol=0.01):
+                             mesh_refinement=0, refinement_tol=0.01, device="CPU"):
     """Return a Palace driven (S-parameter) config for a 2-port coaxial line.
 
     Radial lumped ports (``Direction "+R"``) at each annular end face; port 1
@@ -313,7 +356,11 @@ def build_lumped_coax_config(mesh_name, f1_ghz, f2_ghz, step_ghz, a_mm, b_mm,
         },
         "Solver": {
             "Order": int(order),
-            "Device": "CPU",
+            # ⚠ "GPU" needs a Palace BUILT with CUDA or HIP. A CPU-only
+            # build does not fail on it — MFEM falls back and says so in
+            # the log — so this is safe to set, but "it ran" is NOT proof
+            # the GPU was used. Read the Palace banner.
+            "Device": str(device),
             "Driven": _driven_block(f1_ghz, f2_ghz, step_ghz, fast_sweep, adaptive_tol),
             "Linear": {
                 "Type": "Default",
