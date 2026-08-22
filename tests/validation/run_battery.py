@@ -58,6 +58,7 @@ FAST = {
     "p452": "itu_maps:P452.npz",
     "pattern_vtu": None,
     "pattern_sweep": None,
+    "palace_gpu_plan": None,
     "propagation": None,
     "small_antenna": None,
     "solid_setup": None,
@@ -95,6 +96,7 @@ SOLVER = [
     "patch_stl_openems", "solenoid3d_elmer",
     "stl_mesh_openems", "n_port_live_palace",
     "team7_elmer", "two_port_openems", "two_port_palace", "waveguide_palace",
+    "waveguide_port_openems",
     "whitney3d_elmer",
     "wire_current_sharing", "wire_fasthenry", "wire_from_solid", "wpt_elmer",
     "yagi_nec2",
@@ -150,6 +152,16 @@ SOLVER_REQS = {
     "patch_auto_openems": "openems_python",
     "patch_stl_openems": "openems_python",
     "two_port_openems": "openems_python",
+    "waveguide_port_openems": "openems_python",
+    # ⚠ These five were tiered SOLVER but never declared a backend, so on a box
+    # without the solver they returned 0 from their own skip branch and the
+    # battery printed "ok". A gate that reports a pass it did not earn is worse
+    # than one that is missing. Declared here, the battery says "skip".
+    "horn_openems": "openems_python",
+    "isolation_openems": "openems_python",
+    "isolation_patch_openems": "openems_python",
+    "stl_mesh_openems": "openems_python",
+    "openfoam_solid": "openfoam",
 }
 
 

@@ -8,6 +8,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 
+## [1.5.0] — 2026-08-22
+
 ### Added
 
 * **Parallel solving.** Palace was invoked with a hard-coded `-np 1` in two
@@ -25,10 +27,52 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   whether the installed solver binary is linked against a GPU runtime. GPU is
   offered only when both agree; every other combination gets a specific reason
   instead of a silent fallback to CPU.
-* **openEMS rectangular waveguide ports.** Anchored: a WR-90 port reproduces the
-  published TE10 cutoff to **0.0021 %** (6.557140 vs 6.557 GHz). This is what a
-  horn or a guide-fed filter needs, and its absence had left the shipped
-  pyramidal-horn designer with no solver able to feed it.
+* **openEMS rectangular waveguide ports.** Anchored two ways. The cheap one: a
+  WR-90 port reproduces the published TE10 cutoff to **0.0021 %** (6.557140 vs
+  6.557 GHz). ⚠ That number is computed analytically from `a` and `b` BEFORE
+  any field exists, so it proves the plumbing and nothing about the port's
+  behaviour — two defects lived underneath it. The real one is now
+  `tests/validation/waveguide_port_openems.py`: a straight PEC-walled WR-28
+  section terminated in PML is a perfectly matched line, so `|S11|` must
+  vanish and `P_acc/P_inc` must be 1. Measured: **−43 dB and 1.0000**, with
+  both historical mis-configurations kept as RUN negative controls.
+* **GPU solving is now REACHABLE, not just offered.** `Device = GPU` has existed
+  on a Palace solver since v1.4.0 and `accel.py` has always refused it unless
+  the resolved binary is linked against a GPU runtime — but EMStudio's own
+  guided Palace build had **no GPU flags at all**, so no customer following our
+  instructions could ever get a binary that satisfied the check. The option was
+  reachable in theory and unreachable in practice.
+  `emstudio.setup.solvers.palace_gpu_plan()` closes it: for the machine in
+  front of you it reports whether a GPU build is possible, **the exact cmake
+  flags**, the one source patch that cannot be expressed as a flag, and **which
+  prerequisites are missing with how to get each one** — checked BEFORE a
+  30-60 minute compile rather than discovered halfway through it.
+  ⚠ **The three platforms genuinely differ and are stated separately** (`os.name`
+  is `"posix"` on macOS and Linux, so treating them alike would ship a
+  falsehood): **Linux** CUDA or HIP; **macOS never** — Palace declares only
+  `PALACE_WITH_CUDA`/`PALACE_WITH_HIP` and Apple silicon has neither, which is a
+  limit of the solver rather than a gap; **Windows** inside WSL2 only, where
+  NVIDIA's CUDA route applies and AMD's ROCm route is untested and therefore not
+  claimed. Full recipe with the reasoning in `docs/PALACE_GPU_BUILD.md`, gated
+  by `palace_gpu_plan` (FAST) so the code and the document cannot drift.
+  ⛳ **MEASURED on an RX 7900 XTX (gfx1100, ROCm 6.4.2) against the same case on
+  16 CPU ranks of a Threadripper 3990X**, 353 208 unknowns, solve only:
+  **GPU 165.1 s vs CPU 199.6 s (1.21x faster), preconditioner 67.4 s vs 158.9 s
+  (2.4x), peak memory 2.3 GB vs 36.7 GB (16x less)**, and eigenfrequencies
+  agreeing to **12 significant figures**. ⚠ With ParaView field output on, the
+  GPU LOSES overall (292 s vs 208 s) to a 127 s field write that costs the CPU
+  9 s — device-to-host transfer, not solver speed. ⚠ Beating 16 ranks of a
+  64-core CPU is a stronger result than it looks and a smaller CPU would widen
+  the margin, but never quote a speed-up without naming the CPU.
+  ⚠ Four defects in Palace's own superbuild had to be fixed to get there, all
+  documented; the worst **succeeds and silently yields a CPU-only libCEED**, so
+  the recipe gates on the artefact (`nm -D libceed.so | grep -ci hip`) and never
+  on the build log.
+* **`PatternFrequencies` on openEMS.** N radiation patterns across a chosen
+  band, in the results dialog's existing picker. ⚠ The cost is NOT NEC2's: the
+  NF2FF box is recorded broadband in the time domain, so extra frequencies are
+  extra transforms of one recording — no extra solve and no extra solver
+  output. The dialog's cost sentence is per backend for exactly that reason.
 * **Palace open/radiating domains.** `Boundaries.Absorbing` plus
   `Boundaries.Postprocessing.FarField`, validated by `palace -dry-run` against
   the real schema. Palace supported both all along; EMStudio's mesher tagged
@@ -49,13 +93,145 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   inflated reported gain by 12 dB. Out-of-range efficiency now falls back to
   reporting DIRECTIVITY (an upper bound on gain) and says so.
 
-### Known issue
+* **THE HORN'S MISSING 3 dB WAS THE NEAR-TO-FAR-FIELD TRANSFORM, NOT THE
+  APERTURE.** The previous entry's hypothesis — aperture illumination from the
+  waveguide port — is REFUTED by measurement: dumping the field on the aperture
+  plane gives a textbook H-plane cosine, matching `cos(pi*x/a1)` to **2.35 %
+  RMS**, and integrating that simulated aperture field gives **19.42 dBi**
+  against the vendor's 19.7. Three separate causes, each measured:
+  * **The NF2FF box was counting the port's BACKWARD radiation: −2.14 dB.**
+    openEMS's waveguide port is a soft source on a plane, so it launches the
+    mode in both directions; `CreateNF2FFBox` wraps all six faces, so the half
+    that leaves the guide's open end was being counted as radiated power, and
+    directivity is `4*pi*U_max/P_rad`. One run, two recording boxes over
+    identical fields: all six faces **16.113 dBi with 40.7 % of P_rad going
+    backwards**, the −z face off **18.252 dBi with 4.1 %**. Upstream's own
+    `Horn_Antenna.m` passes `'Directions',[1 1 1 1 0 1]` for exactly this. The
+    writer now builds the box by hand when an excited waveguide port is
+    present, drops the face behind it and clamps that face to the port's
+    excitation plane. Every other analysis keeps `CreateNF2FFBox()` byte for
+    byte.
+  * **Mesh, once the transform was clean: +0.94 dB from lambda/20 to
+    lambda/30.** The earlier "refining WIDENED it" reading was taken through
+    the contaminated box.
+  * **The modelled aperture was not the drawing's: −0.14 dB.** The flare's
+    inner loft was built from the FINAL cross-sections at the overshoot planes,
+    stretching the taper over L + 2t. Measured by parsing the BINARY STL the
+    writer exports: mouth **39.282 x 27.495 mm** against 39.88 x 27.94, and a
+    step at the throat, 7.112 -> 7.710 mm. Both now land exactly on the
+    drawing. ⚠ The gate could not see this: it checks the module CONSTANTS, not
+    the solid that gets built.
+  ⛳ Ruled out by measurement and worth not re-testing: box placement (five
+  positions, 0.19 dB), domain padding (1 lambda vs 3 lambda, 22.3 M cells,
+  0.19 dB), feed length (15 mm vs 40 mm, 0.03 dB), and the far-field angular
+  grid and phase centre (identical to six figures — openEMS computes Dmax and
+  Prad from the recording surface, not from the sampled pattern).
+* **A waveguide port was being handed a 50-ohm reference impedance, and its
+  probes sat half a cell from its own source.** Both are proved on a new
+  benchmark with no unknowns — a straight PEC-walled WR-28 section terminated
+  in PML, i.e. a perfectly matched line, where the only physical answer is
+  `|S11| ~ 0` and `P_acc/P_inc = 1`:
 
-* `tests/validation/horn_openems.py` (SOLVER tier) **fails** on ~3 dB of
-  missing directivity. Ruled out by measurement: mesh convergence (refining
-  widened it), the far-field code (the patch reproduces its reference), and
-  geometry export. The remaining hypothesis is the aperture illumination from
-  the waveguide port. The gate is red because it is reporting this accurately.
+  | what the writer emitted | \|S11\| | P_acc/P_inc |
+  |---|---|---|
+  | `ref_impedance=50` | **−1.6 dB** | **0.31** |
+  | port span `min(a,b)/20` = **0.48 cells** | **0.00 dB** | **0.0004** |
+  | modal reference, span >= 1 cell | −45 to −53 dB | **1.0000** |
+
+  `WaveguidePort.CalcPort` computes the analytic modal impedance (529 ohm for
+  WR-28 at 30 GHz) and the deck was overwriting it with 50. The span formula
+  was a fraction of the guide's narrow wall with no relation to the grid,
+  described in a comment as "exactly ONE mesh cell"; upstream's *excited* port
+  spans four (the one-cell port in that tutorial is the UNEXCITED one). On the
+  shipped horn this moves `|S11|` from **0.00 dB across the whole band** to
+  −19…−27 dB, and `P_rad/P_acc` from **1642 % to 122 %**. The CSV's `z0` column
+  now carries the modal impedance per frequency instead of a nominal 50 that
+  contradicted the `zin` beside it.
+* **`PatternFrequencies` was never declared on the openEMS solver**, so the
+  horn template's attempt to pin its far-field frequency to ~30 GHz sat behind
+  `if "PatternFrequencies" in solver.PropertiesList:` — a condition that is
+  False on every openEMS solver, measured. It has never executed once, and the
+  previous handoff's claim that "the horn template now pins ~30 GHz" was
+  describing something that did not happen.
+* **`argmin|S11|` is meaningless on a flat band.** The same horn chose
+  28.45 GHz at one mesh density and 39.55 GHz at another. The deck now falls
+  back to the sweep CENTRE — already the Gaussian excitation centre, so the
+  best-conditioned bin — whenever `|S11|` varies by less than 3 dB across the
+  sweep, and says so. Resonant documents (patch, dipole, notch) have tens of dB
+  of range and are untouched.
+* **PML_8 occupies the outer eight cells — nine, counting the NF2FF surface —
+  and the padding is measured in wavelengths.** With the 0.25-wavelength
+  default those are not the same thing: measured on the horn at Ka band, the
+  absorber's inner face lands **0.372 mm inside the geometry** on all six
+  sides. The writer now computes each face's absorber depth from the boundary
+  it was actually given and ENLARGES the domain where the absorber would start
+  inside the structure, saying so in the deck and on stdout; where the
+  clearance is merely thin it says that and moves nothing. It fires on no
+  shipped template — the patch and microstrip decks are unchanged and the horn
+  at its own 1.0 lambda is unchanged. ⚠ The microstrip path is exempt by
+  design: it hugs the geometry so the line runs INTO the absorber, which is
+  what makes that termination matched.
+* **OpenFOAM discovery was returning a release candidate.** `find_openfoam()`
+  answered **v2606** on this box — the ESI repo's `2606.0~rc2-1`, a tree with
+  neither `src/` nor `tutorials/` — while `APT_PACKAGE` pins
+  `openfoam2512-default` and the install doc says the same. Two causes:
+  Debian's `openfoam-selector` symlink was matched as a second candidate, and
+  "newest wins" cannot tell an rc from a final because `WM_PROJECT_VERSION`
+  reads `v2606` for both. Candidates are now de-duplicated by resolved path,
+  and a COMPLETE tree outranks a newer one. Measured after the change:
+  v2512, the pinned release. Negative-controlled four ways.
+* **MEASURED, and it changes how every openEMS gain figure should be read:
+  openEMS is NOT run-to-run reproducible in RADIATED POWER.** Ten runs of a
+  byte-identical deck on the shipped 2.435 GHz patch:
+
+  | quantity | spread over 10 identical runs |
+  |---|---|
+  | directivity | **0.0016 dB** — reproducible |
+  | radiation efficiency | **0.932 to 0.965, 3.33 %** |
+  | reported GAIN | **0.152 dB** |
+
+  The mechanism is truncation, and it is monotone: the run stops on an energy
+  criterion that openEMS evaluates on a WALL-CLOCK cadence, so the stopping
+  timestep varies with machine load — 12 987 to 19 227 across those ten runs —
+  and eta rises with it in lock step (12 987 -> 0.95006, 14 196 -> 0.95680,
+  19 227 -> 0.96527). Sweeping `EndCriteria` from −40 to −70 dB on an idle box
+  converges at **eta = 0.966, G = 6.483 dBi**, so every shorter run
+  UNDER-reports efficiency. ⚠ Directivity is a ratio and cancels it; the
+  absolute radiated power does not.
+  ⛳ Consequences, and they are the point: **do not quote an openEMS gain to
+  better than ~0.1 dB, or an efficiency to better than ~1 %.** v1.4.0's
+  directivity-as-gain correction (0.166 dB) is real and still worth having, but
+  it is only marginally larger than this noise floor and the two must not be
+  quoted to the same precision. It also means the horn reporting DIRECTIVITY is
+  the *stable* choice, not merely the conservative one.
+
+* **Five SOLVER-tier gates declared no backend**, so on a box without the
+  solver they returned 0 from their own skip branch and the battery printed
+  "ok" — a pass they had not earned. `horn_openems`, `isolation_openems`,
+  `isolation_patch_openems`, `stl_mesh_openems` and `openfoam_solid` are now in
+  `SOLVER_REQS` and report "skip".
+
+### Changed
+
+* **The Ka-band horn template now meshes at lambda/30**, not the lambda/20
+  default: 6.08 M cells becomes 19.97 M and the SOLVER-tier gate goes from
+  ~2 min to ~9 min. Measured directivity at 30.000 GHz against the vendor's
+  19.7 dBi — 18.13 dBi at lambda/20, **19.29 at lambda/30**, 18.95 at
+  lambda/40. ⚠ It is not monotone, and run-to-run directivity is reproducible
+  to 0.0016 dB, so that 0.34 dB is real: it is the staircasing of a
+  13.7-degree slanted PEC flare on a Cartesian grid. Read the lambda/30 figure
+  as "19.3 dBi with about 0.3 dB of mesh uncertainty".
+
+* **`horn_openems` now gates its own MESH SENSITIVITY.** The gain check passes
+  at the template's lambda/30 and would fail at lambda/40 (18.95 dBi, −0.75),
+  so leaving it there would mean the gate was green at a mesh chosen partly
+  because it is green. The gate now solves a SECOND time at lambda/40 and
+  asserts the two meshes agree to within **0.50 dB** (measured: 0.34), that the
+  fine mesh is still within 1.0 dB of the vendor curve, and that it also points
+  forward. ⚠ AJ's call, in preference to widening the +/-0.5 dB window — that
+  window is aperture theory's OWN uncertainty (IEEE Std 149-1979, Bodnar) and
+  must not be made to absorb ours. ⚠ The gate is now the most expensive in the
+  project: two Ka-band FDTD runs, ~25 minutes.
 
 ## [1.4.0] — 2026-08-22
 

@@ -164,30 +164,71 @@ def run(analysis, solver, workdir=None, line_callback=None, full_smatrix=False):
 
     # optional far field written by the deck (ComputeFarField)
     result.farfield = None
+    result.farfields = []
     ff_path = os.path.join(workdir, "farfield_port_{0}.csv".format(port_nr))
     if os.path.isfile(ff_path):
+        import glob as _glob
+
+        import numpy as _np
+
         from emstudio.post.farfield import FarFieldResult
 
-        ff_meta = {"backend": "openEMS"}
         # The deck writes directivity and radiation efficiency BESIDE the
         # pattern (see writer.py): the pattern CSV stays four columns because
         # post.farfield.load_csv and NEC2's save_csv both depend on that shape.
         # Carrying eta here is what lets a report say "gain 6.1 dBi at 94 %
         # efficiency" instead of quoting directivity and calling it gain.
+        # ⛳ ONE META ROW PER PATTERN FREQUENCY, in the deck's own order, so a
+        # multi-frequency run pairs each pattern with ITS OWN efficiency
+        # instead of stamping the first one on all of them.
         meta_path = os.path.join(workdir,
                                  "farfield_meta_{0}.csv".format(port_nr))
+        meta_rows = []
         if os.path.isfile(meta_path):
-            import numpy as _np
+            meta_rows = list(_np.atleast_2d(
+                _np.loadtxt(meta_path, delimiter=",", skiprows=1)))
 
-            row = _np.atleast_2d(_np.loadtxt(meta_path, delimiter=",",
-                                             skiprows=1))[0]
-            ff_meta.update({
+        def _meta_for(freq_hz):
+            m = {"backend": "openEMS"}
+            if not len(meta_rows):
+                return m
+            row = min(meta_rows, key=lambda r: abs(float(r[0]) - freq_hz))
+            m.update({
                 "directivity_dbi": float(row[1]),
                 "eta_rad": float(row[2]),
                 "p_acc_w": float(row[3]),
                 "p_rad_w": float(row[4]),
             })
-        result.farfield = FarFieldResult.load_csv(ff_path, meta=ff_meta)
+            return m
+
+        # PatternFrequencies > 1 writes farfield_port_<n>_<k>.csv per frequency
+        # and copies the middle one to the plain name. ``.farfield`` therefore
+        # stays the single pattern every existing caller already reads — the
+        # 2-D cuts, the 3-D balloon, the PDF report, horn_openems — and
+        # ``.farfields`` is what the results dialog's picker needs.
+        # ⚠ Sorted by FREQUENCY, not by filename: '_10' sorts before '_2'.
+        numbered = _glob.glob(os.path.join(
+            workdir, "farfield_port_{0}_*.csv".format(port_nr)))
+        for path in numbered:
+            ff = FarFieldResult.load_csv(path)
+            ff.meta = _meta_for(ff.freq)
+            result.farfields.append(ff)
+        result.farfields.sort(key=lambda ff: ff.freq)
+
+        default_ff = FarFieldResult.load_csv(ff_path)
+        default_ff.meta = _meta_for(default_ff.freq)
+        if result.farfields:
+            # ⚠ THE SAME OBJECT, not an equal one. The plain-named CSV is a COPY
+            # of one of the numbered files, so loading it separately would give
+            # ``.farfield`` a twin that is equal to an entry of ``.farfields``
+            # and is not it — and anything that pairs them by identity (a
+            # picker index, a shared selection) would silently disagree. NEC2
+            # takes the same care (``min(result.farfields, key=...)``).
+            result.farfield = min(result.farfields,
+                                  key=lambda ff: abs(ff.freq - default_ff.freq))
+        else:
+            result.farfield = default_ff
+            result.farfields = [default_ff]
 
     # optional transmission S-parameters (multi-port): sparam_<to>_<from>.csv
     import glob

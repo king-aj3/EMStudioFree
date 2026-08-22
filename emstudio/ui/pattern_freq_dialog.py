@@ -20,7 +20,14 @@ MHZ = 1e6
 
 
 class PatternFrequenciesDialog(QtWidgets.QDialog):
-    """Set the radiation-pattern band and spacing on a NEC2 solver.
+    """Set the radiation-pattern band and spacing on a NEC2 or openEMS solver.
+
+    ⚠ THE COST SENTENCE IS PER BACKEND AND MUST STAY THAT WAY. NEC2 pays one
+    extra solver run and ~0.33 MB of output per pattern; openEMS pays neither —
+    its NF2FF box is recorded broadband in the time domain, so each extra
+    frequency is one more transform of data the run already holds. Showing an
+    openEMS user NEC2's disk cost would be a number that lies, which is the
+    same defect class this dialog's own feature was fixing.
 
     Two entrances, one dialog. ``prerun=True`` is the Run Solver path (AJ,
     2026-08-06): the choice pops up AFTER pressing Run and BEFORE the solve,
@@ -57,8 +64,9 @@ class PatternFrequenciesDialog(QtWidgets.QDialog):
         self.enable = QtWidgets.QCheckBox(
             "Compute a radiation pattern at several frequencies")
         self.enable.setToolTip(
-            "Off = one pattern at the best-match frequency (the default, and "
-            "what every earlier run produced).")
+            "Off = one pattern at the default frequency (the default, and what "
+            "every earlier run produced): the best match where there is a "
+            "resonance to find, and the sweep centre where |S11| is flat.")
         layout.addWidget(self.enable)
 
         self.body = QtWidgets.QWidget(self)
@@ -135,12 +143,29 @@ class PatternFrequenciesDialog(QtWidgets.QDialog):
         self._enable_toggled(self.enable.isChecked())
 
     # -- construction helpers -------------------------------------------------
+    def _is_openems(self):
+        try:
+            return str(self.solver.EMStudioType) == "EMStudio::SolverOpenEMS"
+        except Exception:                                        # noqa: BLE001
+            return False
+
     def _intro(self):
-        lab = QtWidgets.QLabel(
-            "NEC2 evaluates the pattern at every step of its frequency card, so "
-            "N patterns cost <b>one</b> extra solver run, not N (measured: 201 "
-            "patterns in 7.18 s). What they cost is output — about "
-            "{0:.2f} MB each.".format(pattern_band.MB_PER_PATTERN))
+        if self._is_openems():
+            text = (
+                "openEMS records the near-field box across the whole band in "
+                "one run, so N patterns cost <b>no extra solve and no extra "
+                "solver output</b> — each is another transform of data the run "
+                "already holds. The cost is post-processing memory: openEMS "
+                "holds one complex array per frequency per box face at once, "
+                "so a large radiating model and a large count together can be "
+                "heavy.")
+        else:
+            text = (
+                "NEC2 evaluates the pattern at every step of its frequency "
+                "card, so N patterns cost <b>one</b> extra solver run, not N "
+                "(measured: 201 patterns in 7.18 s). What they cost is output "
+                "— about {0:.2f} MB each.".format(pattern_band.MB_PER_PATTERN))
+        lab = QtWidgets.QLabel(text)
         lab.setWordWrap(True)
         return lab
 
@@ -218,8 +243,8 @@ class PatternFrequenciesDialog(QtWidgets.QDialog):
     def _refresh(self):
         if not self.enable.isChecked():
             self.summary.setText(
-                "<b>One pattern</b>, at the best-match frequency — the "
-                "results dialog will show it with no frequency picker.")
+                "<b>One pattern</b>, at the default frequency — the results "
+                "dialog will show it with no frequency picker.")
             return
         count, f1, f2 = self.resolved()
         if count < 2:
@@ -263,5 +288,5 @@ class PatternFrequenciesDialog(QtWidgets.QDialog):
         self.solver.PatternFreqStart = 0.0 if follows_sweep else float(f1)
         self.solver.PatternFreqStop = 0.0 if follows_sweep else float(f2)
         if count < 2:
-            return "one pattern, at the best-match frequency"
+            return "one pattern, at the default frequency"
         return pattern_band.describe(f1, f2, count)

@@ -126,9 +126,52 @@ class SolverOpenEMS(_SolverBase):
                 "App::PropertyBool",
                 "ComputeFarField",
                 _GROUP,
-                "Record an NF2FF box and compute the radiation pattern at the best-match frequency",
+                "Record an NF2FF box and compute the radiation pattern",
             )
             obj.ComputeFarField = True
+        # ⚠⚠ THESE THREE WERE DECLARED ON NEC2 ONLY, AND THE HORN TEMPLATE HAS
+        # BEEN SETTING THEM SINCE 2026-08-22 BEHIND
+        # ``if "PatternFrequencies" in solver.PropertiesList:`` — a guard that
+        # was always False on an openEMS solver. Measured under freecadcmd on a
+        # freshly built horn: PatternFreq props == []. So the "the horn template
+        # now pins ~30 GHz" line in the handoff described something that had
+        # never executed once. Declaring them here is what makes that true.
+        # ⛳ The semantics are NEC2's, deliberately: 0 = one pattern at the
+        # default frequency, N > 1 = N patterns across PatternFreqStart..Stop.
+        # ⚠ The COST NOTE IS NOT NEC2's. NEC2 pays one extra solver run and
+        # ~0.33 MB per frequency; openEMS pays neither. Its NF2FF box is
+        # recorded broadband in the time domain, so every extra frequency is one
+        # more DFT over data the run already holds — no extra solve, and one
+        # small CSV. What it DOES cost is post-processing memory: openEMS holds
+        # one complex array per frequency per box face at once.
+        # ⚠ Do NOT hoist these into _ensure_common. Palace, Elmer, OpenFOAM and
+        # FastHenry would each sprout a field nothing reads, which is the exact
+        # defect this is fixing.
+        if "PatternFrequencies" not in props:
+            obj.addProperty(
+                "App::PropertyInteger",
+                "PatternFrequencies",
+                _GROUP,
+                "How many radiation patterns to compute across the sweep. "
+                "0 = one, at the default frequency (default). Set e.g. 11 to "
+                "scroll the pattern across the band in the results dialog. "
+                "On openEMS these are extra transforms of one recording, not "
+                "extra solver runs, so the run time does not change.",
+            )
+            obj.PatternFrequencies = 0
+        for _name, _doc in (
+                ("PatternFreqStart",
+                 "First frequency of the radiation-pattern pass. 0 = start "
+                 "where the analysis sweep starts (default). Only used when "
+                 "PatternFrequencies is 2 or more."),
+                ("PatternFreqStop",
+                 "Last frequency of the radiation-pattern pass. 0 = stop where "
+                 "the analysis sweep stops (default). Only used when "
+                 "PatternFrequencies is 2 or more."),
+        ):
+            if _name not in props:
+                obj.addProperty("App::PropertyFrequency", _name, _GROUP, _doc)
+                setattr(obj, _name, 0.0)
         if "NearFieldPlane" not in props:
             obj.addProperty(
                 "App::PropertyEnumeration",

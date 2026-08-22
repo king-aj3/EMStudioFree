@@ -281,25 +281,66 @@ class _Candidate:
     source: str
     version: str
     fork: str
+    #: Does the tree carry its SOURCE and TUTORIALS, not just the binaries?
+    #: The ESI deb repo publishes release candidates alongside finals, and an
+    #: rc package can be a runtime-only stub. Measured on this box: v2606 is
+    #: ``2606.0~rc2-1`` and its tree has neither ``src/`` nor ``tutorials/``,
+    #: while the pinned final v2512 has both. See :func:`_tree_is_complete`.
+    complete: bool = True
+
+
+def _tree_is_complete(bashrc):
+    """True if the install carries ``src/`` and ``tutorials/`` beside ``etc/``.
+
+    ⚠ THIS IS THE ONLY WAY TO TELL A FINAL RELEASE FROM A RELEASE CANDIDATE
+    HERE. ``WM_PROJECT_VERSION`` says ``v2606`` for both the rc and a final —
+    the ``~rc2`` lives in the DEB version, which is not in the tree — so a
+    version string cannot answer it. What can be read off the filesystem is
+    whether the package shipped more than the runtime.
+
+    ⛳ MEASURED 2026-08-22: ``/usr/lib/openfoam/openfoam2606`` (the rc) has
+    ``bin etc META-INFO platforms`` and no ``src`` or ``tutorials``;
+    ``openfoam2512`` (the pinned final) has ``src``, ``tutorials``, ``wmake``
+    and the rest. Missing tutorials is not cosmetic: the turbulent-buoyant
+    validation anchor this project needs (the Betts & Bokhari ``buoyantCavity``
+    case, with its digitised experimental profiles) ships in that tree.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(bashrc)))
+    return all(os.path.isdir(os.path.join(root, d))
+               for d in ("src", "tutorials"))
 
 
 def _candidate(bashrc, source, version=""):
     ver = version or bashrc_version(bashrc)
-    return _Candidate(bashrc, source, ver, fork_of(ver))
+    return _Candidate(bashrc, source, ver, fork_of(ver),
+                      _tree_is_complete(bashrc))
 
 
 def _pick_best(candidates):
-    """Best candidate: ESI beats non-ESI, then newest version wins.
+    """Best candidate: ESI beats non-ESI, a COMPLETE tree beats a stub, then
+    newest version wins.
 
     A Foundation or unknown install is still RETURNED when it is all there
     is — the caller reports it honestly instead of pretending nothing is
     installed — it just never wins over any ESI install.
+
+    ⚠⚠ COMPLETENESS RANKS ABOVE VERSION, and that ordering is the point.
+    "Newest wins" sounds obviously right and was wrong here: the ESI deb repo
+    carries release candidates under the same ``vYYMM`` name as finals, so on a
+    box with both, discovery returned the **rc** — measured live on
+    2026-08-22, ``find_openfoam()`` answered ``v2606`` while
+    :data:`APT_PACKAGE` deliberately pins ``openfoam2512-default`` because
+    "v2606 is still 2606.0~rc2-1". The product was therefore running a version
+    its own guided install refuses to install and its own docs do not claim.
+    ⛳ A version string cannot distinguish them (see :func:`_tree_is_complete`);
+    the filesystem can.
     """
     if not candidates:
         return None
     return sorted(
         candidates,
-        key=lambda c: (c.fork == "esi", _version_rank(c.version)),
+        key=lambda c: (c.fork == "esi", bool(getattr(c, "complete", True)),
+                       _version_rank(c.version)),
         reverse=True)[0]
 
 
@@ -554,11 +595,23 @@ def _pref_string(key):
 
 
 def _posix_candidates():
+    # ⚠ DE-DUPLICATE BY RESOLVED PATH. Debian's ``openfoam-selector`` leaves a
+    # ``/usr/lib/openfoam/openfoam`` SYMLINK beside the real trees, and the
+    # glob matches it, so one install was offered twice — once under its own
+    # name and once under whatever the system default happened to point at.
+    # Following the selector also meant the product's choice was made by a
+    # system-wide symlink rather than by this module.
     cands = []
+    seen = set()
     for pattern, source in LINUX_BASHRC_GLOBS:
         for hit in sorted(glob.glob(pattern)):
-            if os.path.isfile(hit):
-                cands.append(_candidate(hit, source))
+            if not os.path.isfile(hit):
+                continue
+            real = os.path.realpath(hit)
+            if real in seen:
+                continue
+            seen.add(real)
+            cands.append(_candidate(real, source))
     return cands
 
 

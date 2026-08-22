@@ -1021,20 +1021,29 @@ class _PatternFrequencies:
         if ana is None:
             _warn("No EM Analysis in this document yet.")
             return
-        nec2_solvers = [s for s in query.get_solvers(ana)
-                        if query.em_type(s) == "EMStudio::SolverNEC2"]
+        # ⚠ openEMS belongs here too, as of 2026-08-22. Its solver now
+        # DECLARES PatternFrequencies (it never did, so the horn template's
+        # attempt to pin ~30 GHz sat behind a guard that was always False), and
+        # a property the engine honours but no dialog can reach is only a
+        # quieter version of the same defect. The dialog's cost sentence is
+        # per backend — see PatternFrequenciesDialog.
+        _PATTERN_TYPES = ("EMStudio::SolverNEC2", "EMStudio::SolverOpenEMS")
+        pat_solvers = [s for s in query.get_solvers(ana)
+                       if query.em_type(s) in _PATTERN_TYPES]
         # Selected solver wins, exactly as Run Solver does.
         for sel in FreeCADGui.Selection.getSelection():
-            if query.em_type(sel) == "EMStudio::SolverNEC2":
-                nec2_solvers = [sel]
+            if query.em_type(sel) in _PATTERN_TYPES:
+                pat_solvers = [sel]
                 break
-        if not nec2_solvers:
-            _warn("Per-frequency radiation patterns are a NEC2 feature — add a "
-                  "NEC2 solver to this analysis first.")
+        if not pat_solvers:
+            _warn("Per-frequency radiation patterns need a NEC2 or openEMS "
+                  "solver — add one to this analysis first.")
             return
-        if len(nec2_solvers) > 1:
-            _warn("Multiple NEC2 solvers present — select the one to set up.")
+        if len(pat_solvers) > 1:
+            _warn("Multiple pattern-capable solvers present — select the one "
+                  "to set up.")
             return
+        nec2_solvers = pat_solvers
 
         from emstudio.setup.solvers import PREF_GROUP
         params = FreeCAD.ParamGet(PREF_GROUP)
@@ -1234,6 +1243,14 @@ class _RunSolver:
                 return nec2.run(a, s, line_callback=cb)
         elif stype == "EMStudio::SolverOpenEMS":
             from emstudio.solvers import openems
+
+            # Same pre-run pattern-band choice as NEC2, and only when this run
+            # will actually produce a far field — asking about pattern
+            # frequencies before an S-parameter-only solve would be a dialog
+            # about nothing.
+            if bool(getattr(solver, "ComputeFarField", False)):
+                if not self._pattern_freq_prerun(ana, solver):
+                    return
 
             def run_fn(a, s, cb):
                 return openems.run(

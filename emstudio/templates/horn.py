@@ -47,9 +47,12 @@ horns have materially different apertures (Mi-Wave 39.9 x 27.9 mm vs Pasternack
 state outright that the pattern and gain data are SIMULATED, which would make
 the gate circular.
 
-**Cost.** At 40 GHz lambda is 7.5 mm, so a lambda/20 grid is 0.375 mm and the
-domain must hold the horn plus radiating padding. This is an expensive run by
-EMStudio's standards; it is a SOLVER-tier gate, never part of the fast battery.
+**Cost.** At 40 GHz lambda is 7.5 mm, and this template asks for lambda/30
+there — 0.2498 mm — over a domain holding the horn plus a wavelength of
+radiating padding: **19.97 M cells, about 9 minutes** on a 128-thread box. That
+is an expensive run by EMStudio's standards and it is deliberate; see
+``makeHorn`` for the convergence table behind the choice. SOLVER tier, never
+part of the fast battery.
 """
 
 from __future__ import annotations
@@ -133,8 +136,30 @@ def makeHorn(doc=None, feed_len_mm=15.0, pad_mm=None):
 
     flare_outer = _loft(WR28_A_MM + 2 * t, WR28_B_MM + 2 * t, z_throat,
                         APERTURE_A_MM + 2 * t, APERTURE_B_MM + 2 * t, z_aper)
-    flare_inner = _loft(WR28_A_MM, WR28_B_MM, z_throat - t,
-                        APERTURE_A_MM, APERTURE_B_MM, z_aper + t)
+    # ⚠⚠ THE CUTTING TOOL MUST FOLLOW THE TAPER, NOT JUST OVERSHOOT IT.
+    # The inner loft has to start below the throat and end above the mouth so
+    # the boolean leaves no skin, but it was built by putting the FINAL
+    # cross-sections at those overshot planes — WR-28 at z = -t and the full
+    # aperture at z = L + t. That stretches the taper over L + 2t instead of L,
+    # so the cavity is too NARROW at the mouth and too WIDE at the throat.
+    # ⛳ MEASURED by parsing the binary STL the writer actually exports (the
+    # BRep BoundBox is the loose pre-boolean one and says z 0..68.33 for a solid
+    # that ends at 67.06 — read the tessellation, not the BoundBox):
+    #     mouth  39.282 x 27.495 mm   against the drawing's 39.88 x 27.94
+    #     throat  7.710 x  4.001 mm   against WR-28's 7.112 x 3.556
+    # The mouth error is -0.135 dB of aperture area, and the throat error is a
+    # step discontinuity where the feed section meets the flare — neither is
+    # large, and both are invisible because horn_openems.py checks the
+    # CONSTANTS above rather than the solid that gets built.
+    # ⛳ Extrapolating along the taper instead puts z = 0 and z = L exactly on
+    # the drawing; verified on the exported STL, 39.880 x 27.940 at the mouth
+    # and 7.112 x 3.556 at the throat.
+    slope_a = (APERTURE_A_MM - WR28_A_MM) / FLARE_LEN_MM
+    slope_b = (APERTURE_B_MM - WR28_B_MM) / FLARE_LEN_MM
+    flare_inner = _loft(WR28_A_MM - slope_a * t, WR28_B_MM - slope_b * t,
+                        z_throat - t,
+                        APERTURE_A_MM + slope_a * t, APERTURE_B_MM + slope_b * t,
+                        z_aper + t)
     flare = doc.addObject("Part::Feature", "HornFlare")
     flare.Shape = flare_outer.cut(flare_inner)
     flare.Label = "Horn flare (PEC)"
@@ -174,6 +199,25 @@ def makeHorn(doc=None, feed_len_mm=15.0, pad_mm=None):
     # ⛳ One wavelength leaves ~9 mm: three times the absorber depth, plus real
     # air for the aperture's near field to form in before it is absorbed.
     ana.DomainPaddingWavelengths = 1.0
+    # ⚠⚠ lambda/30 AT THE BAND TOP, NOT THE lambda/20 DEFAULT — and this is a
+    # COST decision as much as an accuracy one: 6.08 M cells becomes 19.97 M and
+    # the solve goes from ~2 min to ~9 min on a 128-thread box. SOLVER tier, so
+    # it never touches the fast battery.
+    # ⛳ MEASURED on the shipped deck, directivity at 30.000 GHz against the
+    # vendor's 19.7 dBi (the transform and the geometry both corrected first —
+    # before that, refining appeared to make things WORSE, because the reading
+    # was taken through a recording box that was counting backward radiation):
+    #     MeshResolution 20   0.3747 mm    6.08 M cells   18.13 dBi   -1.57
+    #     MeshResolution 30   0.2498 mm   19.97 M cells   19.29 dBi   -0.41
+    #     MeshResolution 40   0.1874 mm   47.05 M cells   18.95 dBi   -0.75
+    # ⚠⚠ IT IS NOT MONOTONE, AND THAT MATTERS MORE THAN THE HEADLINE. Run-to-run
+    # directivity is reproducible to 0.0016 dB (ten identical decks), so the
+    # 0.34 dB between lambda/30 and lambda/40 is REAL mesh behaviour — the
+    # staircasing of a 13.7-degree slanted PEC flare on a Cartesian grid, whose
+    # error oscillates rather than converging. Read the lambda/30 figure as
+    # "19.3 dBi with about 0.3 dB of mesh uncertainty", not as a converged
+    # number, and do NOT quote it to two decimals.
+    ana.MeshResolution = 30
 
     metal = material_mod.makeMaterial(doc, ana, name="HornPEC")
     metal.Label = "Horn walls (PEC)"

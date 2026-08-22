@@ -1381,7 +1381,7 @@ S22, produces a file a VNA comparison would read as measured data.
 - **S21 (dB)**: transmission to a second port; ~0 dB passband, deep dip at a notch.
 - **VSWR**: the same match expressed as a ratio; 2:1 equals −9.5 dB S11.
 - **Impedance**: R + jX at the feed. Resonance = X through zero.
-- **Pattern (dBi)**: gain relative to isotropic at the best-match frequency; θ is
+- **Pattern (dBi)**: gain relative to isotropic at the pattern frequency; θ is
   measured from +Z, cuts at φ = 0°/90°.
 - **Touchstone (`.sNp`)**: standard S-parameter exchange format (references your
   port impedance, default 50 Ω). The ORDER follows what was actually solved:

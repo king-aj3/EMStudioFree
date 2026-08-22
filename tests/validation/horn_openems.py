@@ -41,7 +41,42 @@ check passes for a mesh or port error that happens to land near the right
 number; the ~2.8 dB monotonic rise from 26.5 to 40 GHz is a property of the
 aperture and catches those.
 
-SOLVER tier — a full Ka-band FDTD run. Never in the fast battery.
+⛳ **WHERE THE SOLVER ACTUALLY LANDS, MEASURED 2026-08-22 on the shipped deck,
+directivity at 30.000 GHz against the vendor's 19.7 dBi.** Read this before
+reacting to a red run: the number moves with the mesh by more than the
+tolerance, and NOT monotonically.
+
+| MeshResolution | cell | cells | D | vs vendor |
+|---|---|---|---|---|
+| 20 | 0.3747 mm | 6.08 M | 18.13 dBi | −1.57 |
+| **30 (the template)** | 0.2498 mm | 19.97 M | **19.29 dBi** | **−0.41** |
+| 40 | 0.1874 mm | 47.05 M | 18.95 dBi | −0.75 |
+
+⚠⚠ **lambda/30 passes and lambda/40 does not, and that is a fact about the
+solver, not a licence to pick the mesh that passes.** Run-to-run directivity on
+this backend is reproducible to **0.0016 dB** (ten identical decks), so the
+0.34 dB between the two is REAL — it is the staircasing of a 13.7-degree slanted
+PEC flare on a Cartesian grid, whose error oscillates rather than converging.
+The honest reading of this gate is "openEMS reproduces aperture theory for this
+horn to within about half a decibel, with roughly 0.3 dB of mesh uncertainty on
+top", and the +/-0.5 dB window — which is aperture theory's OWN uncertainty —
+is only just wide enough to contain that. ⛳ **RESOLVED (AJ, 2026-08-22): gate the SPREAD instead.** The window stays at
+the citable +/-0.5 dB, and the gate now solves a SECOND time at lambda/40 and
+asserts the two meshes agree to within 0.50 dB. That turns "green at a mesh that
+happens to pass" into a stated, checked bound on the discretisation error — and
+it fails if a future change makes the solver MORE mesh-sensitive, which widening
+the window would have hidden.
+
+⛳ **Efficiency is NOT reproducible on this backend** — 3.33 % spread over those
+same ten runs, which is 0.15 dB of GAIN, because openEMS evaluates its energy
+stop criterion on a wall-clock cadence and the far-field DFT is truncated
+differently each time. Directivity is a ratio and cancels it. Never tighten a
+check on ``eta_rad`` here.
+
+SOLVER tier, and now the most expensive gate in the project: **TWO** Ka-band
+FDTD runs, lambda/30 (19.97 M cells, ~9 min) plus lambda/40 (47.05 M cells,
+~14 min) — budget ~25 minutes. Reported rather than hidden, because a gate whose
+cost surprises you gets skipped.
 
 Run:  freecadcmd tests/validation/horn_openems.py
 """
@@ -54,6 +89,24 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 FAILURES = []
+
+#: The SECOND mesh the gate solves, to bound the discretisation error rather
+#: than hope it is small. lambda/40 at the band top: 47.05 M cells.
+FINE_MESH_RESOLUTION = 40
+
+#: How far the two meshes may disagree. MEASURED 2026-08-22: 19.29 dBi at
+#: lambda/30 against 18.95 at lambda/40 — **0.34 dB**. 0.50 leaves ~45 % headroom
+#: over that, which is enough to absorb an honest geometry change and tight
+#: enough to catch a regression that doubles the solver's mesh sensitivity.
+#: ⚠ Do NOT relax this to make a red run green — a wider spread means the
+#: lambda/30 number is less trustworthy, not more.
+MESH_SPREAD_MAX_DB = 0.50
+
+#: The fine mesh is NOT held to the +/-0.5 dB anchor tolerance, because it does
+#: not meet it (-0.75 dB, measured) and pretending otherwise is the whole thing
+#: this section exists to avoid. It IS held to a wider window, so a fine-mesh
+#: run that collapses is still caught.
+FINE_TOL_DB = 1.0
 
 
 def check(name, ok, detail=""):
@@ -153,12 +206,80 @@ def main():
           "peak at theta=%.0f deg, phi=%.0f deg" % (th, ph))
 
     eta = (ff.meta or {}).get("eta_rad")
-    if eta is not None:
+    # ⚠⚠ NaN IS THE DECK SAYING "I DECLINED", NOT A FAILURE — and a naive
+    # ``eta > 0.90`` reads it as one, because every comparison against NaN is
+    # False. When the power budget does not close the deck deliberately reports
+    # DIRECTIVITY and prints why (writer.py); the gate's job then is to confirm
+    # that the number it is holding is that conservative fallback, not to fail
+    # an arithmetic test the deck never claimed to pass.
+    # ⛳ It does not close on this model, and the reason is understood and
+    # MEASURED. openEMS's waveguide port is a soft source on a plane, so it
+    # launches the mode BOTH ways; the backward half leaves the guide's open
+    # end at z = -15 and part of it re-enters through the NF2FF box's side
+    # faces, which begin at that same plane. P_rad therefore exceeds the
+    # forward power the port delivers. Measured at lambda/20: P_rad/P_acc =
+    # 1.22 — down from **16.42** before the port's reference impedance and span
+    # were fixed, and the residual is this geometric artefact, not the port.
+    # ⚠ For a PEC horn D and G are equal anyway, so the reported number is the
+    # right one either way; what would NOT be acceptable is applying a
+    # 22 %-too-large efficiency and calling the result gain.
+    if eta is not None and eta == eta:              # not NaN
         # PEC walls and air: essentially all accepted power must radiate. A low
         # efficiency here means power is being absorbed somewhere it should not
         # be — usually the boundary eating the near field.
         check("radiation efficiency is near unity for a PEC horn",
               eta > 0.90, "eta_rad = %.1f %%" % (100.0 * eta))
+    else:
+        p_acc = (ff.meta or {}).get("p_acc_w")
+        p_rad = (ff.meta or {}).get("p_rad_w")
+        ratio = (p_rad / p_acc) if (p_acc and p_rad) else float("nan")
+        check("the power budget is declared open, and by a KNOWN margin",
+              1.0 < ratio < 1.5,
+              "P_rad/P_acc = %.3f (was 16.42 before the port fixes); the "
+              "reported figure is DIRECTIVITY" % ratio)
+
+    # --- 2. THE MESH SENSITIVITY IS GATED, NOT HIDDEN --------------------
+    # ⚠⚠ WHY THIS SECOND SOLVE EXISTS, AND IT IS THE POINT OF THE WHOLE GATE.
+    # The check above passes at the template's lambda/30 and would FAIL at
+    # lambda/40 (18.95 dBi, -0.75). Leaving it there would mean the gate was
+    # green at a mesh chosen partly because it is green — a tolerance the
+    # solver only meets on one grid, presented as if it met it generally.
+    # ⛳ So the SPREAD is the thing gated. Run-to-run directivity on this
+    # backend is reproducible to 0.0016 dB (ten byte-identical decks), so the
+    # difference between two meshes is deterministic and a real property of the
+    # discretisation — the staircasing of a 13.7-degree slanted PEC flare on a
+    # Cartesian grid, whose error oscillates rather than converging. Gating it
+    # turns "we got lucky" into "we know how big the luck is".
+    # ⚠ AJ's call, 2026-08-22, in preference to widening the +/-0.5 dB window:
+    # that window is aperture theory's OWN uncertainty (IEEE Std 149-1979,
+    # Bodnar) and must not be made to absorb ours.
+    print("  .... second solve at MeshResolution %d for the mesh-sensitivity "
+          "check (this is the expensive half)" % FINE_MESH_RESOLUTION)
+    fine = horn_tpl.makeHorn(doc=FreeCAD.newDocument("horn_fine"))
+    fine.MeshResolution = FINE_MESH_RESOLUTION
+    fine_solver = [o for o in fine.Group
+                   if "Solver" in str(getattr(o, "EMStudioType", ""))][0]
+    fine_ff = getattr(oe.run(fine, fine_solver), "farfield", None)
+    if fine_ff is None:
+        check("the fine-mesh run produced a far field", False)
+    else:
+        fine_peak, fine_th, _ = fine_ff.peak()
+        spread = abs(fine_peak - peak_dbi)
+        check("the two meshes agree to within {0:g} dB".format(MESH_SPREAD_MAX_DB),
+              spread <= MESH_SPREAD_MAX_DB,
+              "%.2f dBi at lambda/%d vs %.2f at lambda/%d -> %.2f dB "
+              "(measured 0.34 dB on 2026-08-22)"
+              % (fine_peak, FINE_MESH_RESOLUTION, peak_dbi,
+                 int(ana.MeshResolution), spread))
+        # ...and the fine mesh must still be in the right postcode. The spread
+        # check alone would pass on two meshes that agree with each other and
+        # not with physics.
+        check("the fine mesh is still within {0:g} dB of the vendor curve"
+              .format(FINE_TOL_DB),
+              abs(fine_peak - ref) <= FINE_TOL_DB,
+              "%.2f dBi vs %.2f published" % (fine_peak, ref))
+        check("the fine mesh also points forward", fine_th < 20.0,
+              "peak at theta=%.0f deg" % fine_th)
 
     if FAILURES:
         print("HORN OPENEMS GATE FAILED (%d)" % len(FAILURES))

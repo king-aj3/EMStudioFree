@@ -343,7 +343,7 @@ Matching / Array / RFDF are Pro.
 | **Far-field radiation pattern** | ✅ validated | openEMS NF2FF, NEC2 RP | dipole 2.13 dBi + axial null; patch 6.6 dBi; full sphere 37×72 |
 | **3-D pattern balloon (rotate/zoom/pan)** | ✅ validated (v0.72.0) | mplot3d tab + FreeCAD viewport object; reachable from Results, Element Designer and Array Designer | `pattern_vtu.py`: 46 checks — radius follows the gain law pointwise, phase-centre registration, closed-phi wrap, read back by our own VTU parser; mutation-tested 7/7 |
 | **3-D currents / field plane in viewport** | ✅ validated (v0.72.0) | FemPostPipeline VTU | `pattern_vtu.py`: polyline cell + m→mm + mA conversion; quad cells, fixed-axis offset, dB self-normalisation |
-| **Pattern per swept frequency + picker** | ✅ validated (v0.90.0–0.91.0) | NEC2 multi-frequency `FR`+`RP`; **Pattern Frequencies…** dialog with editable band + a recommended step landing on S11 sample points; both pattern tabs and the 3-D export share one selection | `pattern_sweep.py`: 79 checks — N patterns from ONE run (201 in 7.18 s), per-frequency gains pinned, band round-trip, and the far-field sort proven on a DESCENDING file; 11/11 + 5/5 + 3/3 mutations caught |
+| **Pattern per swept frequency + picker** | ✅ validated (v0.90.0–0.91.0), openEMS added 2026-08-22 | NEC2 multi-frequency `FR`+`RP`; **openEMS from one broadband NF2FF recording — no extra solve at all**; **Pattern Frequencies…** dialog with editable band + a recommended step landing on S11 sample points; both pattern tabs and the 3-D export share one selection | `pattern_sweep.py`: 79 checks — N patterns from ONE run (201 in 7.18 s), per-frequency gains pinned, band round-trip, and the far-field sort proven on a DESCENDING file; 11/11 + 5/5 + 3/3 mutations caught |
 | **NEC-2 thin-wire validity check** | ✅ validated (v0.91.0) | `thin_wire_report()` from the GW cards actually written; warning under the result plots when d/a < 8 (Burke & Poggio) | polyline chords freed of the lone-wire 3-seg floor: real 72-chord helix 240→80 segments, d/a 2.63→8.19; dipole frozen deck byte-identical (2.13 dBi) |
 | **Near-field \|E\| map** | ✅ validated | openEMS FD dump | patch XY-plane map |
 | **Current distribution** | ✅ validated | NEC2 | dipole half-sine |
@@ -464,6 +464,48 @@ Matching / Array / RFDF are Pro.
 | **P.1812-6 path-specific propagation + delta-Bullington** | ✅ validated | vendored ITU-R reference (py1812, lazy ITU maps — never bundled); replays ALL 19 official profiles / 63 datasets (Lb, Ep AND the Eq-21/27 delta-Bullington intermediates) to 0.000000 dB |
 | **P.452-18 interference prediction** | ✅ validated | vendored ITU-R reference (Py452, lazy ITU maps — never bundled; official-zip downloader/manual fallback in `itu_maps`); replays ALL 17 official CG-3M profiles / 595 cases — Lb + 8 sub-model losses to 5e-9 dB, geometry intermediates to 5e-7 |
 | **P.2001-6 wide-range propagation (0-100 % of year)** | ✅ validated | vendored ITU-R reference (Py2001, lazy ITU maps); replays ALL official examples — 2 profiles / 4430 cases to 1.2e-12 dB |
+
+## Performance — parallel CPU and GPU
+
+Every figure here is measured on named hardware. A speed-up without a machine
+beside it is not a claim, it is a mood.
+
+| capability | status | evidence |
+|---|---|---|
+| **Palace MPI (multi-core)** | ✅ measured | **18.9×** on a 40×20×60 mm cavity — 346.4 s at 1 rank, 18.3 s at 16. Until v1.4.0 every Palace solve in this project's history ran on ONE core (`-np 1` was hard-coded) |
+| **OpenFOAM MPI** | ✅ measured | first parallel path in the product: `decomposePar` → `mpirun -parallel` → `reconstructPar`, scotch partitioning. ⚠ Not monotonic — **5.9× for 64× the cores** on a 4.096 M-cell case, knee at 8–16, memory-bandwidth bound, and ~103 s of serial decompose/reconstruct overhead makes 64 ranks SLOWER than 32 on a short run |
+| **Elmer sweep concurrency** | ✅ capped | was `os.cpu_count()` (128 here), now bounded — 128 concurrent solvers is not 128× |
+| **GPU solving (Palace, CUDA/HIP)** | ✅ **detected, offered, and reachable** | see below |
+| **GPU on macOS** | ❌ **not possible** | Palace declares only `PALACE_WITH_CUDA`/`PALACE_WITH_HIP` and Apple silicon has neither. A limit of the solver, not a gap. Macs use the CPU path |
+| **GPU on Windows** | ⚠ **WSL2 only** | no native Windows Palace exists. NVIDIA's CUDA-under-WSL2 route applies; AMD ROCm under WSL2 is untested here and is not claimed |
+
+### GPU, measured
+
+Radeon RX 7900 XTX (gfx1100, ROCm 6.4.2) against **16 MPI ranks** of a
+Threadripper 3990X, `cylinder/cavity_pec` at order 3, **353 208 unknowns**,
+5 eigenmodes, solve only:
+
+| | GPU (1 rank) | CPU (16 ranks) |
+|---|---|---|
+| total | **165.1 s** | 199.6 s |
+| preconditioner | **67.4 s** | 158.9 s |
+| peak memory | **2.3 GB** | 36.7 GB |
+
+**1.21× faster overall, 2.4× on the preconditioner, and 16× less memory** — and
+the eigenfrequencies agree with the CPU to **12 significant figures**.
+
+⚠ **Three caveats, all load-bearing.** With ParaView field output enabled the
+GPU loses overall (292 s vs 208 s) to a 127 s field write that costs the CPU
+9 s — device-to-host transfer, not solver speed. Beating sixteen ranks of a
+64-core CPU is a stronger result than it looks, and a more ordinary CPU widens
+the margin considerably — but the number is only meaningful with the CPU named.
+And Palace's default build is CPU-only: `docs/PALACE_GPU_BUILD.md` is the
+recipe, and `palace_gpu_plan()` tells you on YOUR machine what is missing and
+how to get it, before a 30–60 minute compile rather than during one.
+
+⛳ EMStudio refuses `Device = GPU` when the resolved binary is not linked
+against a GPU runtime, with a reason naming the card. A GPU request that
+silently ran on the CPU would be a setting that changes nothing.
 
 ## Deliverables
 

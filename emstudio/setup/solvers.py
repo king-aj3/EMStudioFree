@@ -414,6 +414,11 @@ BACKENDS = {
             "~/opt/palace-src -B ~/opt/palace-src/build "
             "-DCMAKE_INSTALL_PREFIX=$HOME/opt/palace && cmake --build "
             "~/opt/palace-src/build -j $(nproc)"
+            "  |  GPU (optional): this default build is CPU-ONLY, so "
+            "Solver Device=GPU will be offered and then correctly refused. "
+            "Add -DPALACE_WITH_CUDA=ON (NVIDIA) or -DPALACE_WITH_HIP=ON "
+            "(AMD) — the AMD path needs three more flags and one small patch, "
+            "all measured and written out in docs/PALACE_GPU_BUILD.md."
         ),
         homepage="https://github.com/awslabs/palace",
         extra_dirs=(
@@ -843,6 +848,169 @@ def check_prereqs(backend):
             ok = False
         results.append((p, ok))
     return results
+
+
+#: Where the GPU build recipe lives. Referenced from the installer hint and
+#: from :func:`palace_gpu_plan`, so the two can never drift apart.
+PALACE_GPU_DOC = "docs/PALACE_GPU_BUILD.md"
+
+
+def palace_gpu_plan(gpus=None, platform=None):
+    """What it would take to get a GPU-capable Palace on THIS machine.
+
+    Returns a dict:
+      supported   — bool, can a GPU build work on this OS at all
+      vendor/arch — "AMD"/"NVIDIA" and e.g. "gfx1100", "" when unknown
+      reason      — why not, when ``supported`` is False (always populated then)
+      flags       — the exact cmake flags, in order
+      patch       — "" or a one-line description of the source edit still needed
+      missing     — [(what, how to get it), ...] prerequisites NOT found
+      doc         — where the full recipe with the reasoning lives
+
+    ⚠⚠ THE POINT OF THIS FUNCTION IS THAT A GPU BUILD MUST NOT FAIL SILENTLY OR
+    FAIL LATE. Palace's superbuild is a 30-60 minute compile; discovering
+    halfway through that ROCm or nvcc is absent wastes all of it. Worse, one of
+    the AMD defects produces a build that SUCCEEDS and yields a CPU-only
+    libCEED, so "it compiled" is not evidence of anything. Everything knowable
+    up front is checked up front, and the artefact check is in the doc.
+
+    ⚠ ALL THREE PLATFORMS, and they genuinely differ — this is not a case where
+    one branch covers two. ``os.name`` is "posix" on macOS AND Linux, so macOS
+    needs its own test.
+    """
+    import sys as _sys
+
+    plat = platform or ("nt" if os.name == "nt"
+                        else ("darwin" if _sys.platform == "darwin" else "linux"))
+    out = {"supported": False, "vendor": "", "arch": "", "reason": "",
+           "flags": [], "patch": "", "missing": [], "doc": PALACE_GPU_DOC,
+           "platform": plat}
+
+    if plat == "darwin":
+        # ⚠ PERMANENT, not a gap waiting to be closed. Palace declares exactly
+        # two GPU options, PALACE_WITH_CUDA and PALACE_WITH_HIP (verified by
+        # reading its CMakeLists: no SYCL, Metal or OpenCL path exists), and
+        # Apple silicon has neither CUDA nor ROCm. Saying "not yet" here would
+        # be a promise nobody can keep.
+        out["reason"] = (
+            "macOS cannot run a GPU solve: Palace offers only CUDA and HIP "
+            "back ends, and Apple silicon has neither. This is a limit of the "
+            "solver, not of EMStudio, and it is not expected to change. Macs "
+            "use the CPU path, which is fully supported.")
+        return out
+
+    if gpus is None:
+        try:
+            from emstudio.setup.accel import detect_gpus
+            gpus = detect_gpus()
+        except Exception:                                        # noqa: BLE001
+            gpus = []
+    if not gpus:
+        out["reason"] = (
+            "No CUDA or ROCm GPU was detected, so there is nothing for a GPU "
+            "build to run on. EMStudio will keep using the CPU path.")
+        return out
+
+    gpu = gpus[0]
+    out["vendor"] = gpu.get("vendor", "")
+    out["arch"] = gpu.get("arch", "")
+
+    if plat == "nt":
+        # Palace has no native Windows build (see WIN_HINTS), so a Windows GPU
+        # solve inherits WSL2's story. NVIDIA supports CUDA inside WSL2;
+        # ROCm-in-WSL2 is not a route this project has tested, and saying
+        # otherwise would be guessing on the user's time.
+        out["reason"] = (
+            "Palace has no native Windows build, so a GPU solve would have to "
+            "run inside WSL2. NVIDIA supports CUDA there; AMD ROCm under WSL2 "
+            "is not a route EMStudio has tested, so it is not claimed. Build "
+            "inside the WSL2 distribution following {0}.".format(PALACE_GPU_DOC))
+        return out
+
+    common = ["-DCMAKE_INSTALL_PREFIX=$HOME/opt/palace"]
+    if "NVIDIA" in out["vendor"].upper():
+        out["supported"] = True
+        arch = "".join(c for c in out["arch"] if c.isdigit()) or "<sm_XX>"
+        out["flags"] = common + ["-DPALACE_WITH_CUDA=ON",
+                                 "-DCMAKE_CUDA_ARCHITECTURES=" + arch]
+        for name, token, how in (
+                ("CUDA compiler (nvcc)", "nvcc",
+                 "Install the NVIDIA CUDA Toolkit for your distribution: "
+                 "https://developer.nvidia.com/cuda-downloads"),
+                ("NVIDIA driver tools", "nvidia-smi",
+                 "Install the NVIDIA proprietary driver package for your "
+                 "distribution"),
+        ):
+            if shutil.which(token) is None:
+                out["missing"].append((name, how))
+        # ⚠ NOT VALIDATED HERE — no NVIDIA card exists on any machine this
+        # project owns. The flags are Palace's own documented ones and the AMD
+        # defects below are all AMD-specific, but "expected" is not "measured".
+        out["reason"] = ("CUDA flags are Palace's documented ones and have NOT "
+                         "been run on hardware by this project.")
+        return out
+
+    if "AMD" in out["vendor"].upper():
+        out["supported"] = True
+        rocm = _rocm_root()
+        arch = out["arch"] or "<gfxNNNN>"
+        out["flags"] = common + [
+            "-DPALACE_WITH_HIP=ON",
+            "-DCMAKE_HIP_ARCHITECTURES=" + arch,
+            "-DROCM_DIR=" + (rocm or "/opt/rocm"),
+            "-DCMAKE_CXX_COMPILER=" + (rocm or "/opt/rocm") + "/lib/llvm/bin/clang++",
+            "-DBUILD_SHARED_LIBS=ON",
+            "-DPALACE_WITH_MAGMA=OFF",
+        ]
+        out["patch"] = (
+            "cmake/ExternalMFEM.cmake needs three -D*_TARGET_NAMES lines added "
+            "for ROCm >= 6 (see {0}); without them MFEM's configure fails with "
+            "'rocsparse: unknown target'.".format(PALACE_GPU_DOC))
+        for name, token, how in (
+                ("HIP compiler (hipcc)", "hipcc",
+                 "Install ROCm: https://rocm.docs.amd.com/ (AMD's "
+                 "amdgpu-install script is the supported route)"),
+                ("ROCm device query (rocminfo)", "rocminfo",
+                 "Part of ROCm — install the rocminfo component"),
+        ):
+            if shutil.which(token) is None:
+                out["missing"].append((name, how))
+        if rocm and not os.path.isfile(
+                os.path.join(rocm, "lib", "llvm", "bin", "clang++")):
+            out["missing"].append(
+                ("ROCm clang++ ({0}/lib/llvm/bin/clang++)".format(rocm),
+                 "Install the ROCm LLVM component; MFEM cannot be compiled by "
+                 "GNU g++ when HIP is on"))
+        if rocm and not os.path.isfile(
+                os.path.join(rocm, "lib", "libamdhip64.so")):
+            # This is THE silent one: libCEED probes for exactly this file and
+            # drops every /gpu/hip backend without a word if it is absent.
+            out["missing"].append(
+                ("HIP runtime ({0}/lib/libamdhip64.so)".format(rocm),
+                 "Install the ROCm HIP runtime. Without it the build SUCCEEDS "
+                 "and produces a CPU-only libCEED with no warning"))
+        return out
+
+    out["reason"] = (
+        "A GPU was detected but its vendor ({0!r}) is neither NVIDIA nor AMD, "
+        "and Palace supports only CUDA and HIP.".format(out["vendor"]))
+    return out
+
+
+def _rocm_root():
+    """The ROCm INSTALL ROOT, or "" — never the lib/llvm subdirectory.
+
+    ⚠ This distinction is the whole of AMD defect (1): on ROCm >= 6 the HIP
+    compiler lives at <root>/lib/llvm/bin, so anything deriving the root from
+    the compiler's path lands two levels too deep, in a directory with no
+    lib/libamdhip64.so.
+    """
+    import glob as _glob
+
+    for cand in sorted(_glob.glob("/opt/rocm-*"), reverse=True) + ["/opt/rocm"]:
+        if os.path.isfile(os.path.join(cand, "lib", "libamdhip64.so")):
+            return cand
+    return ""
 
 
 def install_plan():
