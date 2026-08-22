@@ -34,6 +34,7 @@ and labels how it saw it; it does not promise a solve will be faster.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 
@@ -153,6 +154,101 @@ def solver_gpu_backend(binary_path):
         for api, libs in _GPU_LIBS.items():
             if any(lib in out for lib in libs):
                 return api
+    return ""
+
+
+#: libCEED backends we will fall back to, best first, when the one Palace would
+#: pick by default is not compiled into the install.
+#:
+#: ⚠⚠ ``/gpu/hip/gen`` IS DELIBERATELY ABSENT AND MUST STAY ABSENT. It is the
+#: JIT-fused backend and it is the FASTEST of the three, which is exactly why
+#: somebody will be tempted to add it. MEASURED 2026-08-22 on gfx1100 (RDNA3),
+#: Palace's own cylinder/cavity_pec at 353 208 unknowns against the same case on
+#: CPU: ``/gpu/hip/gen`` came back **83-939 ppm wrong**, with a backward error of
+#: 1e-5 against the CPU's 1e-10, and it SPLIT a degenerate pair the CPU resolves
+#: to nine figures. ``/gpu/hip/ref`` and ``/gpu/hip/shared`` reproduced the CPU
+#: to twelve significant figures. A wrong answer quickly is not a feature.
+CEED_FALLBACKS = {
+    "HIP": ("/gpu/hip/shared", "/gpu/hip/ref"),
+    "CUDA": ("/gpu/cuda/shared", "/gpu/cuda/ref"),
+}
+
+#: What Palace picks on its own when nothing overrides it
+#: (``palace/main.cpp``, ConfigureCeedBackend).
+CEED_DEFAULT = {"HIP": "/gpu/hip/magma", "CUDA": "/gpu/cuda/magma"}
+
+
+def _libceed_path(binary_path):
+    """The libceed shared library beside a Palace binary, or ""."""
+    if not binary_path:
+        return ""
+    prefix = os.path.dirname(os.path.dirname(os.path.abspath(binary_path)))
+    for libdir in ("lib", "lib64"):
+        d = os.path.join(prefix, libdir)
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if name.startswith("libceed.so"):
+                return os.path.join(d, name)
+    return ""
+
+
+def ceed_capabilities(binary_path):
+    """(gpu_family, has_magma) for the libCEED beside ``binary_path``.
+
+    ``gpu_family`` is "HIP", "CUDA" or "" (none, or unprovable).
+
+    ⚠⚠ **READ THE LINKAGE, NOT THE STRING TABLE.** libceed's strings contain
+    the name of EVERY backend it knows about — including the ones it did not
+    compile — because the weak-registry error path has to print them. A first
+    version of this function scanned strings and cheerfully reported
+    ``/gpu/hip/magma`` present on an install that aborts with "Backend not
+    currently compiled: /gpu/hip/magma". Names in a binary are not capabilities.
+    ⛳ What IS evidence: a compiled backend drags its runtime in.
+    MEASURED on this box — HIP build: links libamdhip64, 42 undefined hip
+    symbols, ZERO magma. CPU-only build: zero of all three.
+    """
+    lib = _libceed_path(binary_path)
+    if not lib:
+        return "", False
+    out = _run(["ldd", lib])
+    if out is None:
+        return "", False              # unprovable — never read as "absent"
+    low = out.lower()
+    family = ""
+    if "libamdhip64" in low:
+        family = "HIP"
+    elif "libcudart" in low:
+        family = "CUDA"
+    return family, ("magma" in low)
+
+
+def ceed_backend_override(binary_path, gpu_kind):
+    """The ``Solver.Backend`` string Palace needs, or "" to leave it alone.
+
+    ⚠⚠ "" IS THE IMPORTANT RETURN VALUE. Palace chooses its backend from the
+    device it detects, so hard-coding one would **abort on a CPU-only or NVIDIA
+    machine** and would discard the tuned backend on a CDNA card where MAGMA
+    works. A string comes back ONLY when the default Palace would choose is
+    provably absent from this install — i.e. only when saying nothing is
+    guaranteed to produce::
+
+        Backend not currently compiled: /gpu/hip/magma
+
+    ⛳ That abort is not hypothetical. It is what EMStudio's own GPU path did on
+    an RX 7900 XTX: MAGMA cannot target gfx1100 at all (its VALID_GFXS list
+    stops at gfx1033), so a working HIP build has to be made without it, and
+    Palace's default then names a backend that is not there.
+    """
+    if not gpu_kind:
+        return ""
+    family, has_magma = ceed_capabilities(binary_path)
+    if family != gpu_kind:
+        return ""            # can't prove anything about this install
+    if has_magma:
+        return ""            # Palace's own default is available; leave it alone
+    for cand in CEED_FALLBACKS.get(gpu_kind, ()):
+        return cand          # best available, first in the measured order
     return ""
 
 

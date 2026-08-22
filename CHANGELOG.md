@@ -8,6 +8,37 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 
+## [1.5.1] — 2026-08-22
+
+### Fixed
+
+* **v1.5.0 CLAIMED GPU SOLVING THAT ITS OWN CODE COULD NOT PERFORM, on the very
+  hardware the published numbers were measured on.** The measurements were real
+  but they were taken through a config file edited BY HAND. EMStudio never
+  emitted `Solver.Backend`, and Palace defaults to `/gpu/hip/magma` on HIP —
+  a backend that cannot exist on RDNA3, because MAGMA's `VALID_GFXS` list stops
+  at gfx1033 and a working gfx1100 build must be made without it. So the product
+  path aborted with `Backend not currently compiled: /gpu/hip/magma` while the
+  site quoted a speed-up. That is precisely the defect class v1.4.0 and v1.5.0
+  were released to remove, reintroduced by the release that removed it.
+  ⛳ `accel.ceed_backend_override()` now probes the INSTALLED binary and emits a
+  backend **only when the one Palace would choose is provably absent**. A
+  literal would abort on a CPU-only or NVIDIA machine and would discard the
+  tuned backend on a CDNA card where MAGMA works, so it stays a probe.
+  ⚠ The probe reads **linkage, not strings**: libceed's string table names every
+  backend it knows about, including ones it did not compile, and a first attempt
+  cheerfully reported `/gpu/hip/magma` present on an install that aborts on it.
+  Measured — HIP build links `libamdhip64` with 42 HIP symbols and ZERO magma;
+  the CPU-only build has none of the three.
+  ⚠ `/gpu/hip/gen` is deliberately excluded from the fallbacks despite being the
+  fastest: measured 83-939 ppm wrong on gfx1100, backward error 1e-5 against the
+  CPU's 1e-10, and it splits a degenerate pair the CPU resolves to nine figures.
+  ⛳ VERIFIED END TO END through the product, not a hand-written config:
+  EMStudio's own generated config reports `Detected 1 HIP device`,
+  `Device configuration: hip,cpu`, `libCEED backend: /gpu/hip/shared`, exit 0,
+  and returns the same eigenfrequency as the CPU to seven significant figures.
+  A CPU run is byte-unchanged — no `Backend` key is emitted at all.
+
 ## [1.5.0] — 2026-08-22
 
 ### Added

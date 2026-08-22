@@ -30,6 +30,39 @@ _C0 = 299792458.0
 
 
 
+def _ceed_backend_of(device, info=None, line_callback=None):
+    """The ``Solver.Backend`` string for this run, or "" to let Palace choose.
+
+    ⚠⚠ THIS EXISTS BECAUSE EMStudio's OWN GPU PATH ABORTED WITHOUT IT, and the
+    abort stayed invisible until somebody ran the PRODUCT rather than a
+    hand-written config. Palace defaults to ``/gpu/hip/magma`` on HIP, but MAGMA
+    cannot target gfx1100 at all — its VALID_GFXS list stops at gfx1033 — so a
+    working RDNA3 build must be made without MAGMA, and Palace's default then
+    names a backend that is not there::
+
+        Backend not currently compiled: /gpu/hip/magma
+
+    ⚠ Returns "" unless the default is PROVABLY missing. A literal backend would
+    abort on a CPU-only or NVIDIA machine and would discard the tuned backend on
+    a CDNA card where MAGMA works, so this must stay a probe of the installed
+    binary and never a constant.
+    """
+    if device != "GPU":
+        return ""
+    from emstudio.setup import accel
+
+    path = getattr(info, "path", None) if info else None
+    if not path:
+        return ""
+    override = accel.ceed_backend_override(path, accel.solver_gpu_backend(path))
+    if override and line_callback is not None:
+        line_callback(
+            "EMStudio: this Palace build has no MAGMA, which is what it would "
+            "choose by default - using %s instead (measured to reproduce the "
+            "CPU result exactly)." % override)
+    return override
+
+
 def _device_of(solver, info=None, line_callback=None):
     """"CPU" or "GPU" for the MFEM device, from the solver object.
 
@@ -176,11 +209,12 @@ def _solve_eigenmodes(msh, workdir, t0, n_modes, order, eps_r, mu_r, loss_tan,
     from emstudio.post.eigenmodes import EigenModeResult
 
     info = solver_setup.find_backend("palace")
+    _dev = _device_of(solver, info, line_callback)
     config = writer.build_eigenmode_config(
         os.path.basename(msh), n_modes=n_modes, target_ghz=target_ghz, order=order,
         eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output="postpro",
         mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
-        device=_device_of(solver, info, line_callback))
+        device=_dev, ceed_backend=_ceed_backend_of(_dev, info, line_callback))
     cfg_path = writer.write_config(config, os.path.join(workdir, "config.json"))
 
     # PHASE progress only. Palace is one long invocation and is not installed
@@ -288,6 +322,8 @@ def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=
 
     msh = gmsh_box.mesh_waveguide(size_mm, workdir, axis=axis, elem_mm=elem_mm,
                                   line_callback=line_callback)
+    _dev = _device_of(solver, info, line_callback)
+
     def build_cfg(excite_port, output):
         return writer.build_driven_config(
             os.path.basename(msh), f1_ghz, f2_ghz, step_ghz, order=order,
@@ -295,7 +331,7 @@ def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=
             eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output=output,
             fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
             mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
-        device=_device_of(solver, info, line_callback))
+        device=_dev, ceed_backend=_ceed_backend_of(_dev, info, line_callback))
 
     # PHASE progress only. Palace is one long invocation and is not installed
     # on the machine this was written on, so any regex against its output
@@ -373,6 +409,8 @@ def run_waveguide_brep(brep_path, axis, bbox_mm, f1_ghz=8.0, f2_ghz=12.0,
     msh = gmsh_brep.mesh_brep_driven(brep_path, workdir, axis, bbox_mm,
                                      elem_mm=elem_mm, line_callback=line_callback,
                                      ports=faces)
+    _dev = _device_of(solver, info, line_callback)
+
     def build_cfg(excite_port, output):
         return writer.build_driven_config(
             os.path.basename(msh), f1_ghz, f2_ghz, step_ghz, order=order,
@@ -438,6 +476,8 @@ def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=
 
     msh = gmsh_coax.mesh_coax(a_mm, b_mm, length_mm, workdir, elem_mm=elem_mm,
                               line_callback=line_callback)
+    _dev = _device_of(solver, info, line_callback)
+
     def build_cfg(excite_port, output):
         return writer.build_lumped_coax_config(
             os.path.basename(msh), f1_ghz, f2_ghz, step_ghz, a_mm, b_mm,
@@ -445,7 +485,7 @@ def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=
             eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output=output,
             fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
             mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
-        device=_device_of(solver, info, line_callback))
+        device=_dev, ceed_backend=_ceed_backend_of(_dev, info, line_callback))
 
     # PHASE progress only. Palace is one long invocation and is not installed
     # on the machine this was written on, so any regex against its output

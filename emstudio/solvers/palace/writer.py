@@ -121,7 +121,7 @@ def radiation_boundaries(attr, nsample=64, order=2, theta_phis=None):
 
 def build_eigenmode_config(mesh_name, n_modes=8, target_ghz=1.0, order=3,
                            eps_r=1.0, mu_r=1.0, loss_tan=0.0, output="postpro",
-                           save_modes=0, mesh_refinement=0, refinement_tol=0.01, device="CPU"):
+                           save_modes=0, mesh_refinement=0, refinement_tol=0.01, device="CPU", ceed_backend=""):
     """Return the Palace eigenmode config as a dict.
 
     :param mesh_name: mesh filename relative to the config (e.g. "cavity.msh").
@@ -158,6 +158,11 @@ def build_eigenmode_config(mesh_name, n_modes=8, target_ghz=1.0, order=3,
             # the log — so this is safe to set, but "it ran" is NOT proof
             # the GPU was used. Read the Palace banner.
             "Device": str(device),
+            # ⚠ Emitted ONLY when the default Palace would pick is
+            # provably absent from the installed binary — see
+            # accel.ceed_backend_override. A literal here would abort on
+            # a CPU-only or NVIDIA machine.
+            **({"Backend": str(ceed_backend)} if ceed_backend else {}),
             "Eigenmode": {
                 "N": int(n_modes),
                 "Tol": 1.0e-8,
@@ -244,7 +249,7 @@ def build_driven_config(mesh_name, f1_ghz, f2_ghz, step_ghz, order=3,
                         eps_r=1.0, mu_r=1.0, loss_tan=0.0, output="postpro",
                         fast_sweep=False, adaptive_tol=1.0e-3,
                         mesh_refinement=0, refinement_tol=0.01,
-                        n_ports=2, device="CPU"):
+                        n_ports=2, device="CPU", ceed_backend=""):
     """Return a Palace driven (S-parameter) config for an N-port waveguide.
 
     Port ``excite_port`` is the driven wave port; every other port is passive.
@@ -295,6 +300,11 @@ def build_driven_config(mesh_name, f1_ghz, f2_ghz, step_ghz, order=3,
             # the log — so this is safe to set, but "it ran" is NOT proof
             # the GPU was used. Read the Palace banner.
             "Device": str(device),
+            # ⚠ Emitted ONLY when the default Palace would pick is
+            # provably absent from the installed binary — see
+            # accel.ceed_backend_override. A literal here would abort on
+            # a CPU-only or NVIDIA machine.
+            **({"Backend": str(ceed_backend)} if ceed_backend else {}),
             "Driven": _driven_block(f1_ghz, f2_ghz, step_ghz, fast_sweep, adaptive_tol),
             "Linear": {
                 "Type": "Default",
@@ -311,7 +321,7 @@ def build_lumped_coax_config(mesh_name, f1_ghz, f2_ghz, step_ghz, a_mm, b_mm,
                              order=2, eps_r=1.0, mu_r=1.0, loss_tan=0.0,
                              r_ohm=None, output="postpro",
                              fast_sweep=False, adaptive_tol=1.0e-3,
-                             mesh_refinement=0, refinement_tol=0.01, device="CPU"):
+                             mesh_refinement=0, refinement_tol=0.01, device="CPU", ceed_backend=""):
     """Return a Palace driven (S-parameter) config for a 2-port coaxial line.
 
     Radial lumped ports (``Direction "+R"``) at each annular end face; port 1
@@ -361,6 +371,11 @@ def build_lumped_coax_config(mesh_name, f1_ghz, f2_ghz, step_ghz, a_mm, b_mm,
             # the log — so this is safe to set, but "it ran" is NOT proof
             # the GPU was used. Read the Palace banner.
             "Device": str(device),
+            # ⚠ Emitted ONLY when the default Palace would pick is
+            # provably absent from the installed binary — see
+            # accel.ceed_backend_override. A literal here would abort on
+            # a CPU-only or NVIDIA machine.
+            **({"Backend": str(ceed_backend)} if ceed_backend else {}),
             "Driven": _driven_block(f1_ghz, f2_ghz, step_ghz, fast_sweep, adaptive_tol),
             "Linear": {
                 "Type": "Default",
