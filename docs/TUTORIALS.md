@@ -1283,9 +1283,181 @@ that was never built.
 
 ---
 
+## 29. A log-periodic that actually works across its band
+
+**Needs:** **NEC2** (`nec2c`) and FreeCAD geometry.
+
+⛳ **Why an LPDA is the honest test of a wire modeller.** A dipole has one
+resonance and forgives a lot. An LPDA is a *dozen* coupled dipoles fed by a
+crossed transmission line, and it only behaves if the mutual coupling AND the
+feeder phase reversal are both right. Get either wrong and you still get a
+plausible-looking antenna — just not a log-periodic one.
+
+**Do**
+1. **Templates ▸ LPDA**. It builds the classic **Carrel 54–216 MHz** design,
+   τ = 0.865 / σ = 0.158.
+2. **Run Solver**. About a minute; NEC2 sweeps the band and takes far fields at
+   three spot frequencies.
+
+**You should see** gain that holds up across a 4:1 band — which is the entire
+point of the geometry:
+
+| quantity | gate window | reference run |
+|---|---|---|
+| forward gain @ 60 / 120 / 200 MHz | ±0.7 dBi | **8.29 / 8.84 / 8.54 dBi** |
+| front-to-back @ the same three | — | **20.2 / 20.8 / 20.0 dB** |
+| median VSWR (65 Ω), 41-point sweep | — | **1.215**, 38 of 41 points under 2.0 |
+
+⚠ **Three points in that sweep spike, worst 6.0.** They are documented weak
+spots between the low-end element resonances, not a modelling failure — a real
+Carrel array does this too. A sweep that came back flawless everywhere would be
+the suspicious result.
+
+⛳ **Try breaking it — and this one is worth doing.** Feed the array with an
+*uncrossed* line instead of the crossed one. Front-to-back collapses from
+20 dB to **5.7 dB**: the antenna still radiates, still looks converged, and is
+no longer a log-periodic. The negative-Z0 crossed-line convention is
+load-bearing, and the gate regression-guards exactly that control.
+
+**Prove it** — `tests/validation/lpda_nec2.py`, which pins the band impedance
+and all three spot-frequency far fields against
+`docs/upstream/lpda-carrel-anchors.md`.
+
+## 30. Ground-wave coverage at LF/MF, where the ground is the circuit
+
+**Needs:** nothing — the ground-wave engines are pure Python (SciPy for the
+spherical one).
+
+⛳ **Why this band is different.** Above VHF you reason about line of sight and
+obstacles. At LF/MF the wave is *attached to the ground* and the ground's
+conductivity is a circuit element: the same transmitter over sea water and over
+dry inland soil are two different antennas.
+
+**Do**
+1. **Analysis ▸ Area Coverage Map**.
+2. Set the frequency into the **kHz** range, then pick a **Propagation model**:
+   *Ground-wave flat earth (LF/MF, P.368, <100 km)* or *Ground-wave spherical
+   (ITU-R P.368-10)*.
+3. **Compute**.
+
+**You should see** the mixed-path answer bracketed by the two homogeneous ones,
+which is the physical sanity check that matters:
+
+| quantity | reference run |
+|---|---|
+| homogeneous **land** | **20.9 dBµV/m** |
+| **Millington mixed path** | **41.5 dBµV/m** |
+| homogeneous **sea** | **57.6 dBµV/m** |
+
+A mixed land/sea path must land *between* the two pure cases. If it does not,
+the mixing is wrong, and no amount of agreement at the endpoints will tell you.
+
+⛳ **The two engines disagree on purpose, and where they disagree is the
+lesson.** Beyond about 212 km the flat-earth model reads **28.0 dBµV/m** while
+the spherical P.368-10 reference reads **22.6 dBµV/m** — flat earth is
+optimistic because it has no horizon. Inside ~100 km they agree; that is the
+flat model's stated validity, and this is what leaving it silently is worth.
+
+⚠ **Below 10 kHz the spherical model hard-stops** rather than extrapolating —
+that is P.684's band, not P.368's. A model that answers outside its validity is
+worse than one that refuses.
+
+**Prove it** — `tests/validation/lfmf.py`.
+
+## 31. Will my station interfere with theirs? (ITU-R P.452)
+
+**Needs:** the **ITU P.452 digital maps** (`emstudio.coverage.itu_maps.install_p452_maps()`
+— they are integral ITU products EMStudio may not redistribute, so you install
+them once yourself).
+
+⛳ **What P.452 is for.** It is the *coordination* model: basic transmission
+loss between two terrestrial stations, evaluated at a **small percentage of
+time**, because interference is a worst-case question. You are not asking "how
+does this link usually behave" — you are asking "how good does the path get on
+the rare occasions that hurt me".
+
+**Do**
+1. **Analysis ▸ Point-to-Point Link Budget**.
+2. Set frequency, distance and antenna heights, then under **ITU-R terrestrial
+   models** choose **ITU-R P.452-18**.
+3. Set the **time percentage** and the **radio zone**, enter TX/RX latitude and
+   longitude (they drive the digital-map lookups), and press **Analyze**.
+
+**You should see** a basic transmission loss well above free space, and — this
+is the part worth understanding — a loss that *falls* as the time percentage
+falls:
+
+| time % | inland | coastal | sea |
+|---|---|---|---|
+| 50 | 165.67 | 165.67 | 165.68 dB |
+| 1 | 142.42 | 137.00 | **131.78 dB** |
+| 0.01 | 128.07 | 127.05 | 126.30 dB |
+
+*(2 GHz, 50 km, smooth earth — the run behind this table.)*
+
+⛳ **Read the 50 % row before the others.** The radio zone changes nothing there
+(0.01 dB), and changes it by **10.64 dB** at p = 1 %. That is not a bug: the
+zone drives the ducting/anomalous term, which is simply not active half the
+time. Ducting over **sea** is why a coastal interference path is the one that
+bites — the rare hours are the ones that matter, and they are exactly the hours
+the 50 % figure hides.
+
+⚠ **Radio-zone codes are not shared between Recommendations** — P.452 numbers
+them 1 coastal / 2 inland / 3 sea, P.2001 uses 1 sea / 3 coastal / 4 inland.
+EMStudio gives you one human label and maps it. A wrong zone never raises; it
+returns a believable loss for the wrong ground.
+
+⚠ **The profile is smooth earth at 0 m AMSL, not your terrain**, and the
+readout says so. It is a real member of the official validation set — but a
+site answer needs a site profile.
+
+**Prove it** — `tests/validation/p452.py`, which replays **595 official ITU
+validation cases** (worst basic-transmission-loss deviation **5.0e-09 dB**) and
+checks the wrapper reproduces the reference case to **194.249746 dB** vs the
+official 194.24974628. It also confirms the engine refuses 60 GHz, outside
+P.452's 0.1–50 GHz validity.
+
+## 32. The whole distribution, not one number (ITU-R P.2001)
+
+**Needs:** the **ITU P.2001 digital maps**
+(`emstudio.coverage.itu_maps.install_p2001_maps()`).
+
+⛳ **Why a second terrestrial model.** P.452 answers a worst-case coordination
+question. **P.2001 answers a statistical one**: it is a general-purpose model,
+30 MHz–50 GHz, valid at *any* time percentage from ~0.00001 % to 99.99999 %, so
+it gives you the **distribution** of path loss — fades and enhancements both.
+That is what a Monte-Carlo sharing study needs, and it is why the two models
+exist side by side rather than one superseding the other.
+
+**Do**
+1. **Analysis ▸ Point-to-Point Link Budget**, then **ITU-R P.2001-6**.
+2. Sweep the **time percentage** and watch the loss move. That sweep *is* the
+   model's output.
+
+**You should see** the same ordering as P.452 but a stronger zone effect, and —
+the useful cross-check — near-identical agreement with P.452 at 50 %:
+
+| quantity | reference run |
+|---|---|
+| P.2001 vs P.452 at p = 50 % | **165.67 dB both** — two independent engines |
+| sea − inland at p = 1 % | **−23.06 dB** |
+| sea − inland at p = 0.01 % | **−13.92 dB** |
+
+⛳ **Two independently vendored implementations landing on the same 165.67 dB is
+worth more than either number alone.** They share no code path.
+
+⚠ **Validity is enforced, not assumed**: 0.03–50 GHz, path length 3–1000 km,
+and 0 < Tpc < 100. Ask for Tpc = 0 and it refuses — "never exceeded" is not a
+percentage, and a model that quietly returned a number there would be inventing
+one.
+
+**Prove it** — `tests/validation/p2001.py`, which replays **4,430 official ITU
+validation cases** (worst deviation **1.17e-12 dB**) and reproduces the
+reference case to **101.263441 dB** vs the official 101.2634406454913.
+
 # Coverage — the standing order is met
 
-> ✅ **All twenty-seven capabilities have a tutorial.** Every solver and every
+> ✅ **Tutorials are available for every capability.** Every solver and every
 > capability EMStudio ships is covered, and the four Pro ones carry public stubs
 > giving what they do and the number they measured, with the walkthrough
 > Pro-side. *"There is nothing showing how to use EMStudio"* is now factually

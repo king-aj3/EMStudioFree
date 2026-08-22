@@ -48,6 +48,7 @@ FAST = {
     "lfmf": None,
     "lib_present_platforms": None,
     "litz_noscipy": None,
+    "material_loss": None,
     "openfoam_runner_cancel": None,
     "openfoam_setup": None,
     "p1546": None,

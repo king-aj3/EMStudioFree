@@ -234,8 +234,25 @@ def _iter_material_edges(analysis, with_polyline_flag=False):
     floor — see :func:`build_wire_model_multi`.
     """
     for mat in query.get_materials(analysis):
-        if not str(mat.Category).startswith("Metal"):
+        # ⚠⚠ "Conductor" USED TO BE DROPPED HERE, SILENTLY. material.py offers
+        # three categories — "Metal (PEC)", "Dielectric", "Conductor" — and a
+        # user who picked Conductor and typed a real sigma got a deck with NO
+        # WIRES from that material at all: not a lossless answer, an absent
+        # structure, with nothing said. A wrong number is bad; missing geometry
+        # that still solves and reports is worse, because it looks like a
+        # result. Conductor is now a first-class wire material and its
+        # conductivity reaches NEC2 as an LD card (see _ld_cards).
+        category = str(mat.Category)
+        if not (category.startswith("Metal") or category.startswith("Conductor")):
             continue
+        # PEC stays PEC: sigma <= 0 means "no LD card", byte-identical to the
+        # decks this project has always written.
+        try:
+            sigma = float(mat.Conductivity)
+        except Exception:
+            sigma = 0.0
+        if category.startswith("Metal"):
+            sigma = 0.0
         radius_m = float(mat.WireRadius.getValueAs("m"))
         for link_obj, shape, sub in query.resolved_references(mat):
             if shape is None:
@@ -245,12 +262,13 @@ def _iter_material_edges(analysis, with_polyline_flag=False):
                 poly = len(edges) > 1
                 for i, edge in enumerate(edges):
                     key = _edge_key(link_obj, "Edge{0}".format(i + 1))
-                    yield ((edge, radius_m, key, poly) if with_polyline_flag
-                           else (edge, radius_m, key))
+                    yield ((edge, radius_m, key, poly, sigma)
+                           if with_polyline_flag
+                           else (edge, radius_m, key, sigma))
             elif sub.startswith("Edge"):
-                yield ((shape, radius_m, _edge_key(link_obj, sub), False)
+                yield ((shape, radius_m, _edge_key(link_obj, sub), False, sigma)
                        if with_polyline_flag
-                       else (shape, radius_m, _edge_key(link_obj, sub)))
+                       else (shape, radius_m, _edge_key(link_obj, sub), sigma))
             # faces/solids are ignored by the wire backend
 
 
@@ -469,7 +487,7 @@ def build_wire_model_multi(analysis, solver):
     wires = []
     seen_keys = set()
     key_to_index = {}
-    for edge, radius_m, key, is_polyline in _iter_material_edges(
+    for edge, radius_m, key, is_polyline, sigma in _iter_material_edges(
             analysis, with_polyline_flag=True):
         if key in seen_keys and len(ports) > 1:
             raise WireModelError(
@@ -546,7 +564,8 @@ def build_wire_model_multi(analysis, solver):
                 key_to_index[key] = len(wires)
             wires.append(
                 {"p1": p1, "p2": p2, "radius": radius_m, "nseg": nseg,
-                 "fed": fed, "key": key, "center": i == fed_piece}
+                 "fed": fed, "key": key, "center": i == fed_piece,
+                 "sigma": sigma}
             )
 
     if not wires:
@@ -602,6 +621,35 @@ def _ex_cards(wires, feeds, ground_active):
     return cards
 
 
+def _ld_cards(wires):
+    """LD cards giving each finite-conductivity wire its ohmic loss.
+
+    ⚠⚠ **Without these, NEC2 reports 100.00 % efficiency for every antenna it
+    has ever solved here.** A bare NEC2 deck is a PERFECT CONDUCTOR — that is
+    correct, documented NEC behaviour and every NEC user knows it. What was not
+    defensible is that EMStudio let a user pick the "Conductor" material
+    category, type sigma = 5.8e7, and then wrote a deck containing no loss and
+    no wires from that material, while the results pane reported an efficiency
+    figure as though it had been computed.
+
+    ``LD 5`` is NEC-2's wire-conductivity load: tag, segment range (0,0 = every
+    segment of that tag), then conductivity in mhos/m. Loss matters most
+    exactly where the antenna is small compared with a wavelength — a loop or a
+    short vertical can be tens of dB down from its lossless directivity, which
+    is the regime this project's users actually work in.
+
+    ⛳ A PEC material yields sigma = 0 and therefore NO card, so every deck this
+    project wrote before 2026-08-22 is reproduced byte-for-byte.
+    """
+    cards = []
+    for i, w in enumerate(wires):
+        sigma = float(w.get("sigma") or 0.0)
+        if sigma > 0.0:
+            cards.append("LD 5,{tag:d},0,0,{sigma:.6g}".format(tag=i + 1,
+                                                               sigma=sigma))
+    return cards
+
+
 def write_nec(analysis, solver, path, report=None):
     """Write the .nec deck. Returns (path, sweep, z0).
 
@@ -644,6 +692,7 @@ def write_nec(analysis, solver, path, report=None):
     lines.append(ge_card)
     if gn_card:
         lines.append(gn_card)
+    lines.extend(_ld_cards(wires))
     lines.extend(_tl_cards(analysis, wires))
     lines.extend(_ex_cards(wires, feeds, ground_active))
     lines.append("FR 0,{0:d},0,0,{1:.6f},{2:.6f}".format(npts, f1_mhz, dfrq))
@@ -689,6 +738,7 @@ def write_nec_farfield(analysis, solver, path, f_hz, npts=1, f2_hz=None):
     lines.append(ge_card)
     if gn_card:
         lines.append(gn_card)
+    lines.extend(_ld_cards(wires))
     lines.extend(_tl_cards(analysis, wires))
     lines.extend(_ex_cards(wires, feeds, ground_active))
     if npts > 1 and f2_hz and f2_hz > f_hz:

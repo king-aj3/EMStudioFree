@@ -139,7 +139,17 @@ def main():
             # Stubs name their gate on a "**Gate:**" line instead.
             m = re.search(r"\*\*Gate:\*\*(.+?)(?=\n\n|\n---|\Z)", body, re.S)
         else:
-            m = re.search(r"\*\*Prove it\*\*(.+?)(?=\n---|\Z)", body, re.S)
+            # ⚠ Stop at a HEADING as well as a rule. The body of the LAST
+            # numbered tutorial runs to end-of-file, so a capture that ended
+            # only at "\n---" or \Z swallowed every following section — the
+            # Coverage block and "Notes for whoever writes the rest" — and
+            # inherited their prose mentions of gates that deliberately do NOT
+            # exist (`link_budget.py`, `litz.py`, named there precisely as
+            # examples of files not to look for). That produced two impossible
+            # failures against a correct tutorial. Latent since the check was
+            # written: it could only fire when the last tutorial was not a 🔒
+            # stub, because the stub branch already stops at a blank line.
+            m = re.search(r"\*\*Prove it\*\*(.+?)(?=\n---|\n#|\Z)", body, re.S)
         if not m:
             continue                      # already reported by the shape check
         named = set(re.findall(r"`?tests/validation/([A-Za-z0-9_]+\.py)`?",
@@ -178,7 +188,15 @@ def main():
 
     # 4. no count in the prose
     bad = []
-    for m in re.finditer(r"(\w+)?\s*([A-Za-z\-]+)\s+tutorials?\b", text, re.I):
+    # ⚠ The noun matters as much as the count. This guarded only "<N>
+    # tutorials" until 2026-08-21, and the coverage line read "All twenty-seven
+    # CAPABILITIES have a tutorial" -- the same stale-able claim about the same
+    # thing, attached to a different noun, sailing straight past the check
+    # built to stop it. It was wrong by one at the time. A deny-list of count
+    # words is only as good as the nouns it watches.
+    for m in re.finditer(
+            r"(\w+)?\s*([A-Za-z\-]+)\s+(?:tutorials?|capabilit(?:y|ies))\b",
+            text, re.I):
         prev, word = (m.group(1) or "").lower(), m.group(2).lower()
         # "at LEAST one tutorial for every capability" is the standing order
         # itself -- a policy, not a count of what exists, and it cannot go

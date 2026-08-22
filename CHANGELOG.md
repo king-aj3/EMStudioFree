@@ -3,6 +3,83 @@
 All notable changes to EMStudio are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.4.0] — 2026-08-22
+
+### Fixed — results correctness (read this section first)
+
+Four defects found together, all of which made numbers **optimistic**. If you
+have quoted an EMStudio figure anywhere, this is the section to check it
+against.
+
+* **openEMS reported DIRECTIVITY as GAIN.** The deck wrote openEMS's `Dmax`
+  into a column headed `gain_dbi`, and the results layer documented that column
+  as gain. They are equal only for a lossless antenna, and EMStudio emits lossy
+  dielectrics, so the reported figure overstated gain by the radiation
+  efficiency. **Measured on the shipped 2.4 GHz patch template: directivity
+  6.6350 dBi, radiation efficiency 96.24 %, true gain 6.4686 dBi — the
+  published number was 0.166 dB high.** Gain is now computed as D x eta with
+  eta = P_radiated / P_accepted, both of which openEMS already produced and
+  nothing read. Directivity, efficiency and the power budget are written
+  alongside the pattern.
+* **NEC2 silently DISCARDED "Conductor" geometry.** The wire builder skipped
+  every material category that did not begin with "Metal", so choosing the
+  Conductor category and entering a conductivity produced a deck containing no
+  wires from that material at all — not a lossless answer, an absent structure,
+  reported as a result.
+* **NEC2 reported 100.00 % efficiency for every antenna**, because no `LD`
+  card was ever emitted. Finite-conductivity materials now emit `LD 5`, so
+  ohmic loss is real. This matters most where it is largest: small loops and
+  short verticals can sit tens of dB below their lossless directivity.
+* **openEMS DISCARDED the conductivity you typed**, folding Conductor into
+  `AddMetal` (PEC). It now emits `AddConductingSheet` with your sigma and a
+  modelled thickness.
+
+⛳ **PEC-only models are unaffected and their decks are byte-identical.** A
+perfect conductor emits no `LD` card and no conducting sheet, so every result
+produced before this release with PEC materials stands unchanged.
+
+⛳ All four are now pinned by `tests/validation/material_loss.py`, which runs in
+the fast battery with no solver and no FreeCAD required.
+
+### Added
+
+* **Named material library (31 materials), in the spirit of CST/HFSS/FEKO.**
+  Pick a material by name and its properties and category come with it —
+  copper, silver, gold, aluminium 1350 and 6061-T6, brass, bronze, zinc, tin,
+  solder, tungsten, titanium, nickel, mild steel, stainless 304, graphite,
+  seawater; PTFE, PE, PS, RT/duroid 5880, RO4003C, FR-4, polycarbonate, ABS,
+  nylon, borosilicate glass, alumina. Conductors carry sigma, the temperature
+  coefficient and mu_r (ferromagnetics are flagged, because a mu_r of several
+  hundred collapses skin depth). `Custom` leaves your own numbers alone.
+  **Perfect conductor (PEC) leads the list and remains the default** — an
+  idealised lossless metal is a legitimate and often correct choice, not a
+  placeholder. ⚠ Library values are NOMINAL at 20 C; for anything you will
+  build, use the vendor's number.
+* **ITU-R P.452-18 and P.2001-6 are reachable from the GUI for the first time.**
+  Both engines shipped validated — 595 and 4,430 official ITU cases replayed,
+  worst deviation 5.0e-09 dB and 1.2e-12 dB — but nothing in the product could
+  call them. Point-to-Point Link Budget now offers both, with time percentage,
+  terminal coordinates and a radio-zone picker that maps to each
+  Recommendation's own (different) zone numbering.
+* **Four new tutorials**: LPDA over NEC2, LF/MF ground-wave coverage, P.452 and
+  P.2001. Every shipped capability now has one.
+
+### Fixed — macOS
+
+* **A keg-only Homebrew library read as "provably missing"**, blocking guided
+  source builds behind prerequisites the user had already installed.
+  `_lib_present()` globbed only `<prefix>/lib`; Homebrew keeps `openblas` and
+  `lapack` keg-only under `<prefix>/opt/<name>/lib` because they collide with
+  Accelerate. Verified on an arm64 host: `_lib_present("openblas")` returned
+  False with openblas installed, and now returns True.
+
+### Changed
+
+* `tests/smoke.py`'s GUI-registration contract compares unique toolbar NAMES
+  rather than `appendToolbar` call count. FreeCAD merges a same-named toolbar
+  and the Pro overlay relies on that, so the contract could not pass whenever
+  Pro was installed — every paying customer's configuration.
+
 ## [1.3.0] — 2026-08-21
 
 > ⛳ Renamed from `[Unreleased]` on release, which is the step that was

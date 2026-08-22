@@ -168,7 +168,26 @@ def run(analysis, solver, workdir=None, line_callback=None, full_smatrix=False):
     if os.path.isfile(ff_path):
         from emstudio.post.farfield import FarFieldResult
 
-        result.farfield = FarFieldResult.load_csv(ff_path, meta={"backend": "openEMS"})
+        ff_meta = {"backend": "openEMS"}
+        # The deck writes directivity and radiation efficiency BESIDE the
+        # pattern (see writer.py): the pattern CSV stays four columns because
+        # post.farfield.load_csv and NEC2's save_csv both depend on that shape.
+        # Carrying eta here is what lets a report say "gain 6.1 dBi at 94 %
+        # efficiency" instead of quoting directivity and calling it gain.
+        meta_path = os.path.join(workdir,
+                                 "farfield_meta_{0}.csv".format(port_nr))
+        if os.path.isfile(meta_path):
+            import numpy as _np
+
+            row = _np.atleast_2d(_np.loadtxt(meta_path, delimiter=",",
+                                             skiprows=1))[0]
+            ff_meta.update({
+                "directivity_dbi": float(row[1]),
+                "eta_rad": float(row[2]),
+                "p_acc_w": float(row[3]),
+                "p_rad_w": float(row[4]),
+            })
+        result.farfield = FarFieldResult.load_csv(ff_path, meta=ff_meta)
 
     # optional transmission S-parameters (multi-port): sparam_<to>_<from>.csv
     import glob

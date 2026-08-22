@@ -159,7 +159,22 @@ def _collect_materials(analysis, workdir):
             "prims": prims,
             "priority": int(mat.Priority),
         }
-        if category.startswith("Metal") or category.startswith("Conductor"):
+        if category.startswith("Conductor") and float(mat.Conductivity) > 0.0:
+            # ⚠⚠ UNTIL 2026-08-22 THIS FELL INTO THE "metal" BRANCH AND THE
+            # USER'S SIGMA WAS DISCARDED — a settable field that changed
+            # nothing, on a backend that reported the resulting lossless gain
+            # as fact. openEMS models finite-conductivity metal with a SURFACE
+            # IMPEDANCE sheet, which is the only tractable choice: resolving a
+            # real skin depth (2 um in copper at 1 GHz) on an FDTD grid is not
+            # affordable, and a lossy VOLUME material would demand exactly that.
+            entry["kind"] = "conducting_sheet"
+            entry["sigma"] = float(mat.Conductivity)
+            try:
+                entry["thickness_m"] = float(
+                    mat.SheetThickness.getValueAs("m"))
+            except Exception:
+                entry["thickness_m"] = 35e-6      # 1 oz copper
+        elif category.startswith("Metal") or category.startswith("Conductor"):
             entry["kind"] = "metal"
         else:
             entry["kind"] = "dielectric"
@@ -385,6 +400,25 @@ def write_deck(analysis, solver, workdir, excite_port=None):
         w("# --- material: {0} ({1}) ---".format(m["name"], m["kind"]))
         if m["kind"] == "metal":
             w("{0} = CSX.AddMetal('{0}')".format(m["name"]))
+        elif m["kind"] == "conducting_sheet":
+            # ⛳ CSPropConductingSheet is documented "Only 2D primitives
+            # (sheets) should be added to this property". A solid handed to it
+            # is not a supported model, so we say so and fall back to PEC
+            # LOUDLY rather than emit something openEMS will interpret in a way
+            # nobody predicted. Silence here would recreate the exact defect
+            # this branch exists to fix.
+            solid = any(p["kind"] != "box" or p["sheet_axis"] is None
+                        for p in m["prims"])
+            if solid:
+                w("print('EMStudio: WARNING - material {0} is a SOLID; the "
+                  "finite-conductivity sheet model needs a 2-D sheet, so it "
+                  "is modelled as PEC (lossless). Gain/Q will be optimistic.')"
+                  .format(m["name"]))
+                w("{0} = CSX.AddMetal('{0}')".format(m["name"]))
+            else:
+                w("{0} = CSX.AddConductingSheet('{0}', conductivity={1:.9g}, "
+                  "thickness={2:.9g})".format(m["name"], m["sigma"],
+                                              m["thickness_m"]))
         else:
             kappa = m["kappa"]
             if kappa <= 0 and m["tanD"] > 0:
@@ -610,21 +644,47 @@ def write_deck(analysis, solver, workdir, excite_port=None):
         w("")
         w("# --- far field at the best-match frequency (NF2FF) ---")
         w("s11_db = 20*np.log10(np.maximum(np.abs(s11), 1e-30))")
-        w("f_ff = f[int(np.argmin(s11_db))]")
+        w("i_ff = int(np.argmin(s11_db))")
+        w("f_ff = f[i_ff]")
         w("# full sphere for 3-D balloon plots (phi=0/90 columns feed the 2-D cuts)")
         w("theta = np.arange(0.0, 180.1, 5.0)")
         w("phi = np.arange(0.0, 360.0, 5.0)")
         w("ff = nf2ff_box.CalcNF2FF(sim_path, f_ff, theta, phi, center={0})".format(_fmt_v(center)))
+        # ⚠⚠ ``ff.Dmax`` IS DIRECTIVITY, NOT GAIN. Until 2026-08-22 this block
+        # wrote Dmax straight into a column headed ``gain_dbi``, and
+        # emstudio/post/farfield.py documents that column as "Gain pattern
+        # G(theta, phi) in dBi". They are equal ONLY for a lossless antenna.
+        # This writer emits lossy dielectrics (kappa synthesised from
+        # tan(delta) a few lines above), so every lossy model shipped a number
+        # that OVERSTATED gain by exactly the radiation efficiency — the
+        # dangerous direction, in a product whose whole claim is checkable
+        # numbers.
+        # ⛳ G = D * eta_rad, with eta_rad = P_radiated / P_accepted. openEMS
+        # gives both directly: nf2ff carries Prad, and CalcPort leaves P_acc on
+        # the port. No extra simulation is needed — the numbers were already in
+        # the run and simply never read.
         w("Dmax_dbi = 10.0*np.log10(ff.Dmax[0])")
         w("E_norm = ff.E_norm[0] / np.max(ff.E_norm[0])")
-        w("gain_dbi = 20.0*np.log10(np.maximum(E_norm, 1e-8)) + Dmax_dbi  # (Nt, Np)")
+        w("dir_dbi = 20.0*np.log10(np.maximum(E_norm, 1e-8)) + Dmax_dbi  # DIRECTIVITY")
+        w("p_acc = float(np.real(np.ravel(port.P_acc)[i_ff]))")
+        w("p_rad = float(np.real(np.ravel(ff.Prad)[0]))")
+        w("eta = (p_rad / p_acc) if p_acc > 0 else float('nan')")
+        w("eta_db = 10.0*np.log10(eta) if (eta == eta and eta > 0) else -99.0")
+        w("gain_dbi = dir_dbi + eta_db  # (Nt, Np) TRUE GAIN")
         w("ff_rows = []")
         w("for i_t, th in enumerate(theta):")
         w("    for i_p, ph in enumerate(phi):")
         w("        ff_rows.append((f_ff, th, ph, gain_dbi[i_t, i_p]))")
         w("np.savetxt(os.path.join(sim_path, 'farfield_port_{0}.csv'), np.asarray(ff_rows),".format(excited["nr"]))
         w("           delimiter=',', header='freq_hz,theta_deg,phi_deg,gain_dbi', comments='')")
-        w("print('EMStudio: far field at %.4g Hz, Dmax = %.2f dBi' % (f_ff, Dmax_dbi))")
+        # A sidecar, not a 5th column: post.farfield.load_csv unpacks exactly
+        # four fields, and NEC2's save_csv writes the same four. Widening the
+        # pattern CSV would break both for a scalar that belongs beside it.
+        w("np.savetxt(os.path.join(sim_path, 'farfield_meta_{0}.csv'),".format(excited["nr"]))
+        w("           np.asarray([(f_ff, Dmax_dbi, eta, p_acc, p_rad)]), delimiter=',',")
+        w("           header='freq_hz,directivity_dbi,eta_rad,p_acc_w,p_rad_w', comments='')")
+        w("print('EMStudio: far field at %.4g Hz, D = %.2f dBi, eta_rad = %.1f %%, "
+          "G = %.2f dBi' % (f_ff, Dmax_dbi, 100.0*eta, Dmax_dbi + eta_db))")
     if nf_plane in ("XY", "XZ", "YZ"):
         w("")
         w("# --- near-field h5 -> npz (|E| map; venv has h5py, FreeCAD may not) ---")

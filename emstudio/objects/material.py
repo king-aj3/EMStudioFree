@@ -22,6 +22,12 @@ _GROUP = "EMStudio"
 
 CATEGORIES = ["Metal (PEC)", "Dielectric", "Conductor"]
 
+# The library lives in material_library.py so it can be imported (and gated)
+# without FreeCAD. Re-exported here so every existing import keeps working.
+from emstudio.objects.material_library import (  # noqa: F401
+    MATERIAL_LIBRARY, PEC_PRESET, PRESETS, apply_preset,
+)
+
 
 class Material:
     """Proxy for an EM material assignment."""
@@ -67,6 +73,19 @@ class Material:
                 "Dielectric loss tangent tan(d) at the analysis center frequency",
             )
             obj.LossTangent = 0.0
+        if "Preset" not in props:
+            obj.addProperty(
+                "App::PropertyEnumeration",
+                "Preset",
+                _GROUP,
+                "Named material from the EMStudio library (CST/HFSS-style). "
+                "Selecting one fills in this material's properties and sets "
+                "its Category. 'Custom' leaves your typed values alone. "
+                "Library values are NOMINAL at 20 C — see MATERIAL_LIBRARY; "
+                "for anything you will build, use the vendor's number.",
+            )
+            obj.Preset = PRESETS
+            obj.Preset = PEC_PRESET
         if "Conductivity" not in props:
             obj.addProperty(
                 "App::PropertyFloat",
@@ -161,6 +180,17 @@ class Material:
                 "Specific heat capacity in J/(kg*K) (transient heating only)",
             )
             obj.SpecificHeat = 0.0
+        if "SheetThickness" not in props:
+            obj.addProperty(
+                "App::PropertyLength",
+                "SheetThickness",
+                _GROUP,
+                "Modelled metal thickness for the finite-conductivity SHEET "
+                "model (openEMS AddConductingSheet). Default 35 um = 1 oz "
+                "copper, the PCB standard. Only used when Category is "
+                "Conductor; ignored for PEC.",
+            )
+            obj.SheetThickness = "0.035 mm"
         if "WireRadius" not in props:
             obj.addProperty(
                 "App::PropertyLength",
@@ -169,6 +199,33 @@ class Material:
                 "Wire radius used when edges of this material feed the NEC2 backend",
             )
             obj.WireRadius = "1 mm"
+
+    def onChanged(self, obj, prop):
+        """Apply a library material the moment the user picks one.
+
+        ⚠ Guarded three ways, because onChanged also fires while properties are
+        being CREATED and while a document is being RESTORED. Without the
+        guards, opening a saved file would re-apply the preset over whatever
+        the user had customised since — silently reverting their numbers on
+        load, which is a far nastier bug than the one this feature fixes.
+        """
+        if prop != "Preset":
+            return
+        if getattr(self, "_applying", False):
+            return
+        doc = getattr(obj, "Document", None)
+        if doc is not None and getattr(doc, "Restoring", False):
+            return
+        if "Conductivity" not in obj.PropertiesList:
+            return                      # still mid-construction
+        name = str(getattr(obj, "Preset", "Custom"))
+        if name == "Custom":
+            return
+        self._applying = True
+        try:
+            apply_preset(obj, name)
+        finally:
+            self._applying = False
 
     def onDocumentRestored(self, obj):
         self._ensure_properties(obj)

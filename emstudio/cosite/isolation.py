@@ -58,7 +58,10 @@ def build_multiport_model(analysis, solver, f_hz=None):
 
     wires = []
     key_to_wire = {}
-    for edge, radius_m, key in nec_writer._iter_material_edges(analysis):
+    # sigma is carried for the LD cards the single-port writer emits; the
+    # multi-port isolation model is PEC-only today, so it is unpacked and
+    # ignored rather than silently dropped by a short tuple.
+    for edge, radius_m, key, _sigma in nec_writer._iter_material_edges(analysis):
         if not nec_writer._is_straight(edge):
             raise IsolationModelError(
                 "edge {0} is not straight; NEC2 wires must be line segments".format(key))

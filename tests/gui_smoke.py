@@ -2133,14 +2133,74 @@ def _cosite_dialog():
 
 
 def _link_budget_dialog():
-    """The point-to-point link-budget dialog constructs + computes under the GUI."""
+    """The point-to-point link-budget dialog constructs + computes under the GUI.
+
+    Also drives the ITU-R models, because they reached users only in v1.4.0 and
+    before that were engine-only: `emstudio.coverage.p452` / `p2001` were
+    imported by NOTHING but the tests, so 5,025 replayed official ITU cases sat
+    behind no dialog at all. A capability with no route to a user is a finding,
+    and the way it stays fixed is a check that drives the route.
+    """
+    from emstudio.coverage import itu_maps
     from emstudio.ui.link_dialog import LinkBudgetDialog
 
     dlg = LinkBudgetDialog()  # __init__ -> _analyze: propagation models + plot
     txt = dlg.readout.toPlainText()
     assert "LINK BUDGET" in txt, "link-budget read-out empty"
     assert "free-space loss" in txt and "field strength" in txt, "readout incomplete"
-    return "link budget + path-loss plot OK"
+    assert dlg.itu_model.currentIndex() == 0, "ITU model must default to off"
+    assert "ITU-R" not in txt, "ITU section shown while the model is off"
+
+    # The ITU digital maps are integral ITU products EMStudio may not
+    # redistribute, so a machine without them is NORMAL -- CI is one. Absence
+    # is a SKIP of the numeric half, never a failure; but the dialog must still
+    # say how to get them rather than raising.
+    have = (itu_maps.find_npz("P452.npz") and itu_maps.find_npz("P2001.npz"))
+    if not have:
+        dlg.itu_model.setCurrentIndex(1)
+        txt = dlg.readout.toPlainText()
+        assert "ITU-R P.452-18" in txt, "no ITU section at all"
+        assert "not installed" in txt or "install" in txt.lower(), (
+            "maps absent and the readout does not say how to install them")
+        return "link budget OK; ITU maps absent -> install guidance shown"
+
+    losses = {}
+    for idx, tag in ((1, "ITU-R P.452-18"), (2, "ITU-R P.2001-6")):
+        dlg.itu_model.setCurrentIndex(idx)
+        txt = dlg.readout.toPlainText()
+        assert tag in txt, "%s section missing" % tag
+        assert "basic transmission loss" in txt, "%s produced no loss" % tag
+        lb = float([l for l in txt.splitlines()
+                    if "basic transmission loss" in l][0].split(":")[1].split()[0])
+        assert 30.0 < lb < 400.0, "%s loss %.2f dB is not physical" % (tag, lb)
+        losses[tag] = lb
+
+    # ⚠ THE ZONE CONTROL MUST DO WORK. Radio zone drives the anomalous
+    # /ducting term, which is inactive at 50 % of time -- so a check at the
+    # default time percentage passes whether or not the zone is wired up at
+    # all, and would be a control that looks gated and is not. At a SMALL time
+    # percentage sea must propagate materially better than inland. Measured
+    # 2026-08-21, 2 GHz / 50 km smooth earth: P.452 sea-inland = -10.64 dB at
+    # p = 1 %, and +0.01 dB at p = 50 %.
+    dlg.itu_model.setCurrentIndex(1)
+    dlg.time_pct.setValue(1.0)
+    dlg._analyze()          # numeric fields follow the dialog's Analyze convention
+
+    def _loss():
+        line = [l for l in dlg.readout.toPlainText().splitlines()
+                if "basic transmission loss" in l][0]
+        return float(line.split(":")[1].split()[0])
+
+    dlg.itu_zone.setCurrentText("Inland")
+    inland = _loss()
+    dlg.itu_zone.setCurrentText("Sea")
+    sea = _loss()
+    assert sea < inland - 2.0, (
+        "radio zone is not load-bearing: sea %.2f vs inland %.2f dB at p=1%% "
+        "(ducting over sea must lower the loss)" % (sea, inland))
+    return ("link budget + path-loss plot OK; P.452 %.1f dB, P.2001 %.1f dB, "
+            "zone sea-inland %+.1f dB at p=1%%"
+            % (losses["ITU-R P.452-18"], losses["ITU-R P.2001-6"], sea - inland))
 
 
 def _coverage_dialog():
