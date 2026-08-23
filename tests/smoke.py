@@ -94,6 +94,19 @@ def _version_matches_package_xml():
             "pro/emstudio_pro/__init__.py version != version.py ({0}) — all "
             "THREE version strings must agree".format(version.__version__))
 
+    # ⛳ AND THE README's Status line — the one version string nothing gated,
+    # flagged by the 2026-08-20 sweep and found three releases stale (v0.99.0
+    # while 1.2.0 shipped, then v1.5.0 while 1.5.1 shipped). The README is
+    # exported to the public repo, so this holds in both trees. Absent README
+    # would be a broken checkout, so unlike pro/ it is NOT a skip.
+    readme = os.path.join(_ROOT, "README.md")
+    with open(readme, "r", encoding="utf-8") as fh:
+        readme_text = fh.read()
+    want_readme = "**Status:** v{0}".format(version.__version__)
+    assert want_readme in readme_text, (
+        "README.md Status line != version.py ({0}) — the README is a version "
+        "surface too, and it has drifted twice".format(version.__version__))
+
 
 def _package_xml_subdirectory_guard():
     """Regression guard for the invisible-workbench bug (2026-07-05).

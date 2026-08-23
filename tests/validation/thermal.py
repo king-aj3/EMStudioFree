@@ -236,7 +236,8 @@ def main():
     _TREFOIL = [(-0.015, -0.00866), (0.015, -0.00866), (0.0, 0.01732)]
 
     class _StubRes:
-        # the MEASURED trefoil result — Nu 3.1542 at Ra 6341
+        # a recorded trefoil measurement (2026-08-12, pre-T1 mesh) used as a
+        # FIXTURE — this test checks the factor arithmetic, not the CFD
         nu_d, ra_d = 3.1542, 6341.0
 
     class _StubCase:

@@ -5,6 +5,9 @@ engineering approachable**: guided workflows, real calculations, automatic
 meshing, validated solvers, and professional outputs (Touchstone, radiation
 patterns, build specs and BOMs).
 
+> **Status:** v1.6.0 — this line is checked against `package.xml` by the smoke
+> test, so it cannot silently go stale.
+
 > 🎓 **For educational, hobbyist and experimental use — and under active
 > development.** EMStudio is a learning and exploration tool, not a certified
 > engineering product, and not a substitute for qualified engineering,

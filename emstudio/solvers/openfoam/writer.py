@@ -58,18 +58,28 @@ def rayleigh(nu, alpha, g=G, beta=BETA, dt=DT, length=L):
     return g * beta * dt * length ** 3 / (nu * alpha)
 
 
-def _properties_for(ra, pr):
+def _properties_for(ra, pr, dt=DT, width=L):
     """(nu, alpha) giving exactly this Ra and Pr.
 
-    Ra = g b dT L^3 / (nu alpha) and Pr = nu / alpha
-      => nu alpha = g b dT L^3 / Ra  and  nu = Pr alpha
-      => alpha = sqrt(g b dT L^3 / (Ra Pr)),  nu = Pr alpha
+    Ra = g b dT W^3 / (nu alpha) and Pr = nu / alpha
+      => nu alpha = g b dT W^3 / Ra  and  nu = Pr alpha
+      => alpha = sqrt(g b dT W^3 / (Ra Pr)),  nu = Pr alpha
+
+    ⚠ dT and width default to the module constants, which is the shipped
+    square-cavity contract — but they must track the CASE when a caller sets
+    t_hot/t_cold or a non-square geometry, or the derivation quietly holds Ra
+    for a cavity the case no longer describes (the latent trap the tall
+    Betts & Bokhari case exposed: dt was 19.6 while the algebra assumed 1).
     """
     if ra <= 0:
         raise ValueError("Rayleigh number must be positive")
     if pr <= 0:
         raise ValueError("Prandtl number must be positive")
-    alpha = (G * BETA * DT * L ** 3 / (ra * pr)) ** 0.5
+    if dt <= 0:
+        raise ValueError("t_hot must exceed t_cold")
+    if width <= 0:
+        raise ValueError("cavity width must be positive")
+    alpha = (G * BETA * dt * width ** 3 / (ra * pr)) ** 0.5
     return pr * alpha, alpha
 
 
@@ -83,19 +93,52 @@ class CavityCase:
     iterations: int = 2000
     t_hot: float = T_REF + DT / 2.0
     t_cold: float = T_REF - DT / 2.0
+    #: Cavity width (the Ra length scale — hot-to-cold gap). The default is
+    #: the module's original square metre; the tall Betts & Bokhari anchor is
+    #: 0.076 m wide by 2.18 m high.
+    width: float = L
+    #: Cavity height; None = width (square, the shipped contract).
+    height: float = None
+    #: Cells up the height; None derives from the aspect ratio so cell aspect
+    #: stays near 1 (a square cavity gets cells x cells, exactly as before).
+    cells_y: int = None
+    #: "" = laminar — byte-identical to the pre-T2 case. "kOmegaSST" = RAS
+    #: with wall functions (T2 of docs/OPENFOAM_TURBULENCE_PLAN.md). Any
+    #: other string raises: a model name the writer cannot honour must not
+    #: pass silently — that is the v1.4.0 defect class.
+    turbulence: str = ""
+
+    def __post_init__(self):
+        if self.turbulence not in ("", "kOmegaSST"):
+            raise ValueError(
+                "unsupported turbulence model %r — this writer knows laminar "
+                "(\"\") and \"kOmegaSST\"; a name it cannot honour must fail "
+                "here, not run laminar and report success" % (self.turbulence,))
+        if self.height is not None and self.height <= 0:
+            raise ValueError("cavity height must be positive")
+
+    @property
+    def height_m(self):
+        return self.width if self.height is None else self.height
+
+    @property
+    def cells_up(self):
+        if self.cells_y is not None:
+            return int(self.cells_y)
+        return max(2, int(round(self.cells * self.height_m / self.width)))
 
     @property
     def nu(self):
-        return _properties_for(self.ra, self.pr)[0]
+        return _properties_for(self.ra, self.pr, self.dt, self.width)[0]
 
     @property
     def alpha(self):
-        return _properties_for(self.ra, self.pr)[1]
+        return _properties_for(self.ra, self.pr, self.dt, self.width)[1]
 
     @property
     def ra_written(self):
         """Ra recomputed from the derived properties — must match .ra."""
-        return rayleigh(self.nu, self.alpha)
+        return rayleigh(self.nu, self.alpha, dt=self.dt, length=self.width)
 
     @property
     def dt(self):
@@ -139,20 +182,21 @@ def write_cavity(case_dir, case=None):
             fh.write(text)
 
     # --- mesh: one hex block, `empty` front/back so the solve is 2-D --------
-    thick = L / n
+    W, H, ny = case.width, case.height_m, case.cells_up
+    thick = W / n
     put("system/blockMeshDict", _header("dictionary", "blockMeshDict", "system") +
         "scale   1;\n\nvertices\n(\n"
-        "    (0 0 0)\n    (%(L)g 0 0)\n    (%(L)g %(L)g 0)\n    (0 %(L)g 0)\n"
-        "    (0 0 %(t)g)\n    (%(L)g 0 %(t)g)\n    (%(L)g %(L)g %(t)g)\n"
-        "    (0 %(L)g %(t)g)\n);\n\n"
-        "blocks\n(\n    hex (0 1 2 3 4 5 6 7) (%(n)d %(n)d 1) simpleGrading (1 1 1)\n);\n\n"
+        "    (0 0 0)\n    (%(W)g 0 0)\n    (%(W)g %(H)g 0)\n    (0 %(H)g 0)\n"
+        "    (0 0 %(t)g)\n    (%(W)g 0 %(t)g)\n    (%(W)g %(H)g %(t)g)\n"
+        "    (0 %(H)g %(t)g)\n);\n\n"
+        "blocks\n(\n    hex (0 1 2 3 4 5 6 7) (%(n)d %(ny)d 1) simpleGrading (1 1 1)\n);\n\n"
         "edges ();\n\nboundary\n(\n"
         "    hot   { type wall;  faces ( (0 4 7 3) ); }\n"
         "    cold  { type wall;  faces ( (1 2 6 5) ); }\n"
         "    walls { type wall;  faces ( (0 1 5 4) (3 7 6 2) ); }\n"
         "    frontAndBack { type empty; faces ( (0 3 2 1) (4 5 6 7) ); }\n"
         ");\n\nmergePatchPairs ();\n"
-        % {"L": L, "t": thick, "n": n})
+        % {"W": W, "H": H, "t": thick, "n": n, "ny": ny})
 
     # --- physical properties ------------------------------------------------
     # Pr here is the LAMINAR Prandtl number; the solver forms the molecular
@@ -166,9 +210,16 @@ def write_cavity(case_dir, case=None):
         "Pr              %.10g;\n"
         "Prt             0.85;\n" % (nu, BETA, T_REF, case.pr))
 
-    put("constant/turbulenceProperties",
-        _header("dictionary", "turbulenceProperties", "constant") +
-        "simulationType  laminar;\n")
+    ras = case.turbulence == "kOmegaSST"
+    if ras:
+        put("constant/turbulenceProperties",
+            _header("dictionary", "turbulenceProperties", "constant") +
+            "simulationType  RAS;\n\nRAS\n{\n    RASModel        kOmegaSST;\n"
+            "    turbulence      on;\n    printCoeffs     off;\n}\n")
+    else:
+        put("constant/turbulenceProperties",
+            _header("dictionary", "turbulenceProperties", "constant") +
+            "simulationType  laminar;\n")
 
     put("constant/g", _header("uniformDimensionedVectorField", "g", "constant") +
         "dimensions      [0 1 -2 0 0 0 0];\nvalue           (0 -%.10g 0);\n" % G)
@@ -196,12 +247,53 @@ def write_cavity(case_dir, case=None):
         "    walls { type fixedFluxPressure; value uniform 0; }\n"
         "    frontAndBack { type empty; }\n"))
 
-    put("0/alphat", _field(
-        "alphat", "[0 2 -1 0 0 0 0]", "0",
-        "    hot   { type calculated; value uniform 0; }\n"
-        "    cold  { type calculated; value uniform 0; }\n"
-        "    walls { type calculated; value uniform 0; }\n"
-        "    frontAndBack { type empty; }\n"))
+    if ras:
+        # RAS turbulent thermal diffusivity is MODELLED at the wall — the
+        # Jayatilleke wall function — where the laminar `calculated` form
+        # would leave the near-wall heat flux unmodelled and the solution
+        # laminar-but-labelled-turbulent. BC types are the v2512 tree's own
+        # (hotRoom Boussinesq tutorial), not remembered names.
+        put("0/alphat", _field(
+            "alphat", "[0 2 -1 0 0 0 0]", "0",
+            "    hot   { type alphatJayatillekeWallFunction; Prt 0.85; "
+            "value uniform 0; }\n"
+            "    cold  { type alphatJayatillekeWallFunction; Prt 0.85; "
+            "value uniform 0; }\n"
+            "    walls { type alphatJayatillekeWallFunction; Prt 0.85; "
+            "value uniform 0; }\n"
+            "    frontAndBack { type empty; }\n"))
+        # Seeds only: a steady solve forgets its initial turbulence, but a
+        # zero k or omega divides by zero before it can. Buoyant velocity
+        # scale U_b = sqrt(g beta dT W), 5 % intensity, mixing length 7 % of
+        # the gap — ordinary seeding, stated so nobody reads physics into it.
+        u_b = (G * BETA * case.dt * W) ** 0.5
+        k0 = max(1.5 * (0.05 * u_b) ** 2, 1e-8)
+        omega0 = max(k0 ** 0.5 / (0.09 ** 0.25 * 0.07 * W), 1e-6)
+        put("0/k", _field(
+            "k", "[0 2 -2 0 0 0 0]", "%.6g" % k0,
+            "    hot   { type kqRWallFunction; value uniform %(k)0.6g; }\n"
+            "    cold  { type kqRWallFunction; value uniform %(k)0.6g; }\n"
+            "    walls { type kqRWallFunction; value uniform %(k)0.6g; }\n"
+            "    frontAndBack { type empty; }\n" % {"k": k0}))
+        put("0/omega", _field(
+            "omega", "[0 0 -1 0 0 0 0]", "%.6g" % omega0,
+            "    hot   { type omegaWallFunction; value uniform %(w)0.6g; }\n"
+            "    cold  { type omegaWallFunction; value uniform %(w)0.6g; }\n"
+            "    walls { type omegaWallFunction; value uniform %(w)0.6g; }\n"
+            "    frontAndBack { type empty; }\n" % {"w": omega0}))
+        put("0/nut", _field(
+            "nut", "[0 2 -1 0 0 0 0]", "0",
+            "    hot   { type nutkWallFunction; value uniform 0; }\n"
+            "    cold  { type nutkWallFunction; value uniform 0; }\n"
+            "    walls { type nutkWallFunction; value uniform 0; }\n"
+            "    frontAndBack { type empty; }\n"))
+    else:
+        put("0/alphat", _field(
+            "alphat", "[0 2 -1 0 0 0 0]", "0",
+            "    hot   { type calculated; value uniform 0; }\n"
+            "    cold  { type calculated; value uniform 0; }\n"
+            "    walls { type calculated; value uniform 0; }\n"
+            "    frontAndBack { type empty; }\n"))
 
     # --- control ------------------------------------------------------------
     # writeInterval == endTime: only the final state is needed and a per-
@@ -215,6 +307,9 @@ def write_cavity(case_dir, case=None):
         "writeCompression off;\ntimeFormat      general;\ntimePrecision   6;\n"
         "runTimeModifiable false;\n" % (case.iterations, case.iterations))
 
+    # ⚠ kOmegaSST needs a wall-distance method — v2512 has no default and
+    # aborts on the first omega evaluation without one. RAS-only, so the
+    # laminar file stays byte-identical.
     put("system/fvSchemes", _header("dictionary", "fvSchemes", "system") +
         "ddtSchemes      { default steadyState; }\n"
         "gradSchemes     { default Gauss linear; }\n"
@@ -223,20 +318,34 @@ def write_cavity(case_dir, case=None):
         "    div(phi,T)      bounded Gauss limitedLinear 1;\n"
         "    div(phi,k)      bounded Gauss limitedLinear 1;\n"
         "    div(phi,epsilon) bounded Gauss limitedLinear 1;\n"
-        "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
+        + ("    div(phi,omega)  bounded Gauss limitedLinear 1;\n" if ras else "")
+        + "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
         "laplacianSchemes { default Gauss linear corrected; }\n"
         "interpolationSchemes { default linear; }\n"
-        "snGradSchemes   { default corrected; }\n")
+        "snGradSchemes   { default corrected; }\n"
+        + ("wallDist        { method meshWave; }\n" if ras else ""))
 
-    put("system/fvSolution", _header("dictionary", "fvSolution", "system") +
-        "solvers\n{\n"
-        "    p_rgh { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0.01; }\n"
-        "    \"(U|T)\" { solver PBiCGStab; preconditioner DILU; tolerance 1e-10; relTol 0.1; }\n"
-        "}\n\n"
-        "SIMPLE\n{\n    nNonOrthogonalCorrectors 0;\n"
-        "    pRefCell        0;\n    pRefValue       0;\n"
-        "    residualControl { p_rgh 1e-6; U 1e-6; T 1e-7; }\n}\n\n"
-        "relaxationFactors\n{\n    fields { p_rgh 0.7; }\n"
-        "    equations { U 0.3; T 0.5; }\n}\n")
+    if ras:
+        put("system/fvSolution", _header("dictionary", "fvSolution", "system") +
+            "solvers\n{\n"
+            "    p_rgh { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0.01; }\n"
+            "    \"(U|T|k|omega)\" { solver PBiCGStab; preconditioner DILU; tolerance 1e-10; relTol 0.1; }\n"
+            "}\n\n"
+            "SIMPLE\n{\n    nNonOrthogonalCorrectors 0;\n"
+            "    pRefCell        0;\n    pRefValue       0;\n"
+            "    residualControl { p_rgh 1e-6; U 1e-6; T 1e-7; \"(k|omega)\" 1e-6; }\n}\n\n"
+            "relaxationFactors\n{\n    fields { p_rgh 0.7; }\n"
+            "    equations { U 0.3; T 0.5; \"(k|omega)\" 0.5; }\n}\n")
+    else:
+        put("system/fvSolution", _header("dictionary", "fvSolution", "system") +
+            "solvers\n{\n"
+            "    p_rgh { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0.01; }\n"
+            "    \"(U|T)\" { solver PBiCGStab; preconditioner DILU; tolerance 1e-10; relTol 0.1; }\n"
+            "}\n\n"
+            "SIMPLE\n{\n    nNonOrthogonalCorrectors 0;\n"
+            "    pRefCell        0;\n    pRefValue       0;\n"
+            "    residualControl { p_rgh 1e-6; U 1e-6; T 1e-7; }\n}\n\n"
+            "relaxationFactors\n{\n    fields { p_rgh 0.7; }\n"
+            "    equations { U 0.3; T 0.5; }\n}\n")
 
     return case

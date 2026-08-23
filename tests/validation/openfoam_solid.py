@@ -3,16 +3,18 @@
 
 SOLVER tier. Two rungs, both on the UV sphere because the sphere is the
 one solid with closed-form anchors, and both at a GATE fidelity smaller
-than the recorded full-fidelity probes (2026-08-17, cells_bg 32):
+than the recorded full-fidelity probes (re-measured 2026-08-23 on the T1
+layered mesh, cells_bg 32):
 
-* full-fidelity conduction: Nu_D 2.5575, mid-sandwich (the gate rung at
-  cells_bg 24 lands 2.5511 — 0.25 % apart, so the anchor is comfortably
+* full-fidelity conduction: Nu_D 2.5613, mid-sandwich (the gate rung at
+  cells_bg 24 lands 2.5548 — 0.25 % apart, so the anchor is comfortably
   mesh-insensitive);
-* full-fidelity convection: Nu_D 18.1748 at Ra_D 1.33e6 — Churchill's
-  sphere correlation gives 17.42 there, so the whole arbitrary-geometry
-  chain (tessellate -> snappy -> flux BC -> patch read) lands +4.3 %
-  (+5.6 % at gate fidelity), inside the correlation's own scatter and
-  beside the bundle ladder's single-cylinder rungs (+7.0 %/+3.0 %).
+* full-fidelity convection: Nu_D 17.9709 at Ra_D 1.35e6 — Churchill's
+  sphere correlation gives 17.4656 there, so the whole arbitrary-geometry
+  chain (tessellate -> snappy -> layers -> flux BC -> patch read) lands
+  +2.9 % (+2.0 % at gate fidelity; the unlayered mesh read +4.3 %), inside
+  the correlation's own scatter and beside the bundle ladder's
+  single-cylinder rungs (+6.8 %/+3.1 %).
 
 Rung 1 — CONDUCTION SANDWICH (g = 0). The exact two-sided bound
 2/(1-r/r_cir) <= Nu <= 2/(1-r/r_ins) holds for the CONTINUUM solution;
@@ -58,12 +60,19 @@ def check(label, ok, detail=""):
 GATE_CELLS = 24
 R_SPHERE = 0.05
 
-#: SELF-PINS, measured 2026-08-18 at GATE_CELLS on the reference box.
+#: SELF-PINS, measured at GATE_CELLS on the reference box.
 #: These are this project's own numbers with their configuration recorded —
 #: not literature anchors. See docs/PROJECT_MEMORY.md for the full-fidelity
 #: (cells_bg 32) companions.
-PIN_CONDUCTION_NU = 2.5511    # measured 2026-08-17, first gate run
-PIN_CONVECTION_NU = 18.3508   # measured 2026-08-17, first gate run
+#: ⛳ RE-PINNED 2026-08-23 for T1 of the turbulence plan (prism layers on the
+#: sphere patch, `wall_layers=3`). The stated move, unlayered -> layered:
+#: conduction 2.5511 -> 2.5548 (+0.15 %); convection 18.3508 -> 17.8471
+#: (-2.74 %), which took the Churchill agreement from +4.9 % to +2.0 % —
+#: the layers moved the answer TOWARD the correlation, as wall resolution
+#: should. Layer coverage on this geometry: 100 %, 3 full layers, 0 illegal
+#: faces (snappy log, first layered run).
+PIN_CONDUCTION_NU = 2.5548    # measured 2026-08-23, first layered run (T1)
+PIN_CONVECTION_NU = 17.8471   # measured 2026-08-23, first layered run (T1)
 PIN_TOL = 0.03                # re-run reproducibility band
 #: Discretisation margin at gate fidelity. ⚠ It also covers the small gap
 #: between the UNWEIGHTED face mean the reader computes and the

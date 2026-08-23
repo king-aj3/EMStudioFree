@@ -15,8 +15,10 @@ by ``open_air`` bounding radii around the solid. That is an APPROXIMATION
 with a measurable size: the conduction anchor below bounds the box
 EXACTLY, and for convection the box bias is folded into the gate's
 Churchill band — the conduction offset (Nu 2.56 vs the unbounded 2)
-predicts +3-4 %, which is almost exactly the measured +4.3 % — while the
-gate's cells 24 -> 32 self-pins put MESH sensitivity at 0.25 %/1.0 %.
+predicts +3-4 %, and the T1 layered mesh measures +2.9 % (the unlayered
+mesh read +4.3 %; wall layers moved the answer toward the correlation) —
+while the gate's cells 24 -> 32 self-pins put MESH sensitivity at
+0.25 %/0.7 % (re-measured 2026-08-23, layered).
 There is deliberately no unbounded-domain pretence — a wall the solve
 contains is honest; an "infinite" claim the mesh cannot deliver is not.
 
@@ -187,6 +189,14 @@ class SolidCase:
     t_film_k: float = 315.0
     gravity: float = G               # 0.0 = the conduction anchor
     patch: str = "solid"
+    #: Prism layers grown on the solid's surface (T1 of the turbulence plan).
+    #: Near-wall resolution is where the thermal boundary layer lives, and a
+    #: castellated-only mesh samples it with stair-stepped hex cells; layers
+    #: resolve the gradient the flux BC feeds. 0 = no layers — byte-identical
+    #: to the pre-T1 mesh, kept as the escape hatch for geometry where snappy's
+    #: layer addition degrades (it collapses layers rather than failing, so
+    #: coverage is read from the snappy log by the gate, never assumed).
+    wall_layers: int = 3
 
     def __post_init__(self):
         if not self.triangles:
@@ -202,6 +212,8 @@ class SolidCase:
                 "the solid — that is an enclosure study, not open air")
         if self.cells_bg < 8:
             raise ValueError("need at least 8 background cells across")
+        if self.wall_layers < 0:
+            raise ValueError("wall_layers is a count (0 disables layers)")
         if self.area_m2 <= 0:
             raise ValueError("the triangulation has zero area")
         if self.iterations < 1:
@@ -338,9 +350,22 @@ def write_solid(case_dir, case=None):
     loc = (cx + 0.93 * h, cy + 0.90 * h, cz + 0.87 * h)
     loc_r = math.sqrt(sum((a - b) ** 2 for a, b in zip(loc, (cx, cy, cz))))
     assert loc_r > case.bounding_radius, "locationInMesh landed in the solid"
+    # T1 of the turbulence plan: prism layers on the solid's surface.
+    # ⚠ wall_layers == 0 must reproduce the pre-T1 dict byte-for-byte (empty
+    # layers{}, expansionRatio 1.0) — that is the differential control the
+    # bundle writer's sha256 identity and the gates rely on.
+    if case.wall_layers > 0:
+        add_layers = "true"
+        layers = "layers { %s { nSurfaceLayers %d; } }" % (case.patch,
+                                                           case.wall_layers)
+        expansion = "1.2"
+    else:
+        add_layers = "false"
+        layers = "layers {}"
+        expansion = "1.0"
     put("system/snappyHexMeshDict",
         _header("dictionary", "snappyHexMeshDict", "system")
-        + "castellatedMesh true;\nsnap true;\naddLayers false;\n\n"
+        + "castellatedMesh true;\nsnap true;\naddLayers %s;\n\n"
           "geometry\n{\n    %s.stl { type triSurfaceMesh; name %s; }\n}\n\n"
           "castellatedMeshControls\n{\n    maxLocalCells 2000000;\n"
           "    maxGlobalCells 8000000;\n    minRefinementCells 10;\n"
@@ -353,12 +378,12 @@ def write_solid(case_dir, case=None):
           "    nSolveIter 50;\n    nRelaxIter 5;\n    nFeatureSnapIter 10;\n"
           "    implicitFeatureSnap false;\n    explicitFeatureSnap true;\n"
           "    multiRegionFeatureSnap false;\n}\n\n"
-          "addLayersControls\n{\n    relativeSizes true;\n    layers {}\n"
-          "    expansionRatio 1.0;\n    finalLayerThickness 0.3;\n"
+          "addLayersControls\n{\n    relativeSizes true;\n    %s\n"
+          "    expansionRatio %s;\n    finalLayerThickness 0.3;\n"
           "    minThickness 0.1;\n    nGrow 0;\n    featureAngle 60;\n"
           "    nRelaxIter 3;\n    nSmoothSurfaceNormals 1;\n    nSmoothNormals 3;\n"
           "    nSmoothThickness 10;\n    maxFaceThicknessRatio 0.5;\n"
-          "    maxThicknessToMedialRatio 0.3;\n    minMedianAxisAngle 90;\n"
+          "    maxThicknessToMedialRatio 0.3;\n    minMedialAxisAngle 90;\n"
           "    nBufferCellsNoExtrude 0;\n    nLayerIter 50;\n}\n\n"
           "meshQualityControls\n{\n    maxNonOrtho 65;\n    maxBoundarySkewness 20;\n"
           "    maxInternalSkewness 4;\n    maxConcave 80;\n    minVol 1e-13;\n"
@@ -366,8 +391,9 @@ def write_solid(case_dir, case=None):
           "    minDeterminant 0.001;\n    minFaceWeight 0.02;\n    minVolRatio 0.01;\n"
           "    minTriangleTwist -1;\n    nSmoothScale 4;\n    errorReduction 0.75;\n}\n\n"
           "mergeTolerance 1e-6;\n"
-        % (case.patch, case.patch, case.patch, case.patch,
-           case.refine_min, case.refine_max, loc[0], loc[1], loc[2]))
+        % (add_layers, case.patch, case.patch, case.patch, case.patch,
+           case.refine_min, case.refine_max, loc[0], loc[1], loc[2],
+           layers, expansion))
 
     put("constant/transportProperties",
         _header("dictionary", "transportProperties", "constant")

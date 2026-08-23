@@ -80,6 +80,7 @@ SOLVER = [
     "amr_palace", "antenna_from_selection", "openfoam_bundle", "openfoam_cavity", "openfoam_cht",
     "openfoam_cht_convection",
     "openfoam_cylinder",
+    "openfoam_ras_cavity",
     "openfoam_solid",
     "openfoam_wind",
     "openfoam_wind_transient",
@@ -91,7 +92,8 @@ SOLVER = [
     "induction_elmer", "isolation_nec2", "isolation_openems",
     "horn_openems",
     "isolation_patch_openems", "lpda_nec2", "mmwave_palace", "monopole_nec2",
-    "msl_notch_openems", "open_coil_elmer", "patch_auto_openems",
+    "msl_notch_openems", "open_coil_elmer", "palace_gpu_agreement",
+    "patch_auto_openems",
     "patch_openems",
     "patch_stl_openems", "solenoid3d_elmer",
     "stl_mesh_openems", "n_port_live_palace",
@@ -140,6 +142,12 @@ def _tier_audit():
 #: fails loudly when the backend is absent — correct, because you asked for it.
 SOLVER_REQS = {
     "n_port_live_palace": "palace",
+    # ⚠ Needs a GPU-LINKED Palace *and* a matching GPU — which on the
+    # reference box is the side build at ~/opt/palace-hip, NOT the resolved
+    # ~/opt/palace. find_gpu_palace() probes for it; a skip here on a
+    # GPU-equipped machine means the side build went missing, and the skip
+    # reason says so rather than printing a pass that proved nothing.
+    "palace_gpu_agreement": "palace_gpu",
     "openfoam_cavity": "openfoam",
     "openfoam_cylinder": "openfoam",
     "openfoam_bundle": "openfoam",
@@ -162,6 +170,7 @@ SOLVER_REQS = {
     "isolation_patch_openems": "openems_python",
     "stl_mesh_openems": "openems_python",
     "openfoam_solid": "openfoam",
+    "openfoam_ras_cavity": "openfoam",
 }
 
 
@@ -192,6 +201,34 @@ def _requirement_missing(req):
             if not info.usable:
                 return ("OpenFOAM found but NOT usable: {0} — {1}".format(
                     info.describe(), _of.status_note() or "probe unhappy"))
+        finally:
+            sys.path.pop(0)
+        return None
+    if kind == "palace":
+        # ⚠ This kind was DECLARED (n_port_live_palace, f95129d) before it was
+        # HANDLED — `--all` died mid-battery on "unknown requirement kind:
+        # palace" the moment the plan reached that gate. The audit below only
+        # guards tier membership, not requirement kinds, so keep this branch.
+        sys.path.insert(0, _ROOT)
+        try:
+            from emstudio.setup.solvers import find_backend
+            if not find_backend("palace").found:
+                return "no Palace — install it from Solver Setup"
+        finally:
+            sys.path.pop(0)
+        return None
+    if kind == "palace_gpu":
+        sys.path.insert(0, _ROOT)
+        try:
+            from emstudio.setup import accel
+            path = accel.find_gpu_palace()
+            if not path:
+                return ("no GPU-linked Palace (the resolved install is "
+                        "CPU-only and no palace-hip/-cuda sibling exists) — "
+                        "build one per docs/PALACE_GPU_BUILD.md")
+            if not accel.accel_report(path)["gpu_usable"]:
+                return ("GPU-linked Palace at {0} but no matching GPU on "
+                        "this machine".format(path))
         finally:
             sys.path.pop(0)
         return None

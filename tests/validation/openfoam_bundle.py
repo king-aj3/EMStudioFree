@@ -27,10 +27,11 @@ has already produced two wrong answers in this project (a fake "+4 % domain
 sensitivity" and a fake "not discretisation" at Ra 1e3), both from studies
 that moved two things at once.
 
-MEASURED (D 20 mm, trefoil at 30 mm pitch, uniform wall flux 400 K/m):
-    1 cable  0.40 m box   Nu 3.9830 @ Ra 5021   CC +6.99 %
-    1 cable  0.20 m box   Nu 3.8621 @ Ra 5179   CC +3.01 %
-    3 cables 0.20 m box   Nu 3.1542 @ Ra 6341   CC -19.72 %
+MEASURED (D 20 mm, trefoil at 30 mm pitch, uniform wall flux 400 K/m;
+re-measured 2026-08-23 on the T1 layered mesh — every rung moved < 0.11 %):
+    1 cable  0.40 m box   Nu 3.9787 @ Ra 5027   CC +6.84 %
+    1 cable  0.20 m box   Nu 3.8651 @ Ra 5174   CC +3.11 %
+    3 cables 0.20 m box   Nu 3.1563 @ Ra 6337   CC -19.66 %
 Confinement costs 3 %; the bundle costs a further 18 %.
 
 ⚠ **Ra is an OUTPUT.** The flux is prescribed and dT is solved, so every
@@ -269,8 +270,8 @@ def mixed_offline_checks():
 
     ⚠ The load-bearing check here is the LAST one — that a uniform bundle
     written through the new per-group machinery is byte-identical to what the
-    single-patch writer produced. The measured ladder (Nu 3.9826 / 3.8621 /
-    3.1542) is this gate's only anchor, and a change that quietly re-meshed it
+    single-patch writer produced. The measured ladder (Nu 3.9787 / 3.8651 /
+    3.1563) is this gate's only anchor, and a change that quietly re-meshed it
     would invalidate every number above while every check below still passed.
     """
     print(" grouping: one group per SIZE, largest first:")
@@ -628,14 +629,19 @@ def live_checks():
         shutil.rmtree(base, ignore_errors=True)
 
 
-#: The MIXED rung, measured at FULL fidelity (cells_x=100, 8000 iterations,
-#: ~50 min) on the native v2512 install, 2026-08-12. Drift 4.1e-5 and 2.6e-4.
+#: The MIXED rung, measured at FULL fidelity (cells_x=100, 8000 iterations)
+#: on the native v2512 install.
+#: ⛳ RE-MEASURED 2026-08-23 on the T1 LAYERED mesh (wall_layers=3). The
+#: stated move from the 2026-08-12 unlayered reference was small at this
+#: fidelity — 20 mm 3.6097 -> 3.6119 (+0.06 %), 10 mm 1.9997 -> 2.0033
+#: (+0.18 %) — because a fine mesh already resolved the wall the layers
+#: resolve better.
 #:
 #: ⚠ This is a SELF-PIN — this project's own measurement, recorded with its
 #: configuration in CHANGELOG and PROJECT_MEMORY — NOT a literature anchor and
 #: NOT a remembered value. It exists so the cheap gate rung is tied to the
 #: expensive measurement instead of merely being internally consistent.
-MIXED_REFERENCE = {0.020: (3.6097, 5541.0), 0.010: (1.9997, 625.1)}
+MIXED_REFERENCE = {0.020: (3.6119, 5537.2), 0.010: (2.0033, 624.0)}
 
 #: The gate rung is CHEAPER than the measurement above and says so. A mixed
 #: case meshes to 52 174 cells against the uniform trefoil's ~15 000 (the
@@ -643,10 +649,16 @@ MIXED_REFERENCE = {0.020: (3.6097, 5541.0), 0.010: (1.9997, 625.1)}
 #: outside the SOLVER tier's minutes-to-fifteen-minutes budget, and this
 #: project has already had a 4376 s rung killed under load.
 #:
-#: MEASURED at this setting: 542 s, Nu 3.6220 / 2.0176 — **+0.34 % and +0.90 %**
-#: against full fidelity. Both coarsening and under-iteration read HIGH here,
-#: and both are sub-1 %, which is where the 3 % band below comes from.
+#: MEASURED at this setting on the LAYERED mesh (2026-08-23): Nu 3.6490 /
+#: 2.0710 — **+1.03 % and +3.38 %** against full fidelity. Coarsening and
+#: under-iteration still read HIGH, and the bias GREW with T1: the layers
+#: occupy a larger share of the 10 mm cable's coarser local mesh, so the
+#: coarse rung feels them hardest exactly where its base resolution is
+#: thinnest. (The unlayered biases were +0.34 % / +0.90 %.) The band below is
+#: the measured worst bias with ~1.5 %-of-reading headroom for run-to-run and
+#: platform variation — derived from the comparison, not chosen.
 MIXED_GATE_CELLS, MIXED_GATE_ITERS = 60, 3000
+MIXED_BAND_PCT = 5.0
 
 
 def live_mixed_checks(base, got):
@@ -755,8 +767,8 @@ def live_mixed_checks(base, got):
         ref_nu, ref_ra = MIXED_REFERENCE[round(grp.d_cable, 12)]
         err = 100.0 * (r.nu_d - ref_nu) / ref_nu
         check("mixed %s: reproduces the FULL-FIDELITY measurement (Nu %.4f at "
-              "cells_x=100 / 8000 it) to within 3 %% at a fifth of the cost"
-              % (tag2, ref_nu), abs(err) < 3.0,
+              "cells_x=100 / 8000 it) to within %.0f %% at a fifth of the cost"
+              % (tag2, ref_nu, MIXED_BAND_PCT), abs(err) < MIXED_BAND_PCT,
               "Nu %.4f vs %.4f (%+.2f %%), Ra %.4g vs %.4g"
               % (r.nu_d, ref_nu, err, r.ra_d, ref_ra))
 
@@ -801,15 +813,15 @@ def live_mixed_checks(base, got):
           % (mf.worst.factor, 1000 * mf.worst.d_cable, mf.spread_pct))
 
     # ⚠ PRINTED, NOT GATED. The recorded full-fidelity comparison is
-    # Nu 3.1542 -> 3.6097 (+14.4 %) at the SAME mesh; this rung is coarser, so
-    # gating the difference here would be a study that moves two things at
-    # once. It is printed because it is the interesting number and a reader
-    # should see it, with the caveat attached.
+    # Nu 3.1563 -> 3.6119 (+14.4 %, T1 layered mesh) at the SAME mesh; this
+    # rung is coarser, so gating the difference here would be a study that
+    # moves two things at once. It is printed because it is the interesting
+    # number and a reader should see it, with the caveat attached.
     if "bundle" in got:
         nu_uniform = got["bundle"][0]
         print("  LADDER (recorded at full fidelity, NOT gated here — this rung "
               "is coarser): 3 x 20 mm Nu %.4f -> the 20 mm cable with two "
-              "10 mm neighbours Nu 3.6097 (+14.4 %%). This rung reads %.4f."
+              "10 mm neighbours Nu 3.6119 (+14.4 %%). This rung reads %.4f."
               % (nu_uniform, r_big.nu_d))
 
     live_load_checks(base)
@@ -824,15 +836,16 @@ def live_load_checks(base):
     unmissable — which the mixed-DIAMETER rung cannot say, because there D and
     the flux both change at once.
 
-    MEASURED at this setting (12 488 cells, 175 s):
+    MEASURED at this setting (re-measured 2026-08-23 on the T1 layered mesh):
 
-        20 mm @ 400 K/m   dT 2.14349   Nu 3.7322 @ Ra 5359   factor 0.9876
-        20 mm @ 100 K/m   dT 0.79277   Nu 2.5228 @ Ra 1982   factor 0.8346
+        20 mm @ 400 K/m   dT 2.09907   Nu 3.8112 @ Ra 5248   factor 1.0134
+        20 mm @ 100 K/m   dT 0.74388   Nu 2.6886 @ Ra 1860   factor 0.9018
 
-    **18.3 % apart for two cables of the SAME SIZE.** The lightly-loaded one is
-    the WORSE cooled: its own driving dT is small and it sits in its
-    neighbour's warm field, so the correlation flatters it most. Quoting "the
-    20 mm factor" for this bundle is wrong by 18 % for one of them.
+    **12.4 % apart for two cables of the SAME SIZE** (the unlayered mesh read
+    18.3 %). The lightly-loaded one is the WORSE cooled: its own driving dT is
+    small and it sits in its neighbour's warm field, so the correlation
+    flatters it most. Quoting "the 20 mm factor" for this bundle is wrong by
+    12 % for one of them.
     """
     tag = "load"
     d = os.path.join(base, tag)

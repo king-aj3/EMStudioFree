@@ -379,8 +379,13 @@ def run_cavity(case_dir, case=None, info=None, timeout=3600):
 
     try:
         values = read_internal_field(os.path.join(case_dir, time_dir, "T"))
+        # ⚠ length must be the CASE's width, not the module constant — since
+        # CavityCase grew `width` (T2), a square non-metre cavity would land
+        # here with len(values) == n*n and a metre-scaled dx, and the Nu would
+        # be silently wrong by width/L. (Non-square cases still fail loudly in
+        # nusselt_from_field's cell-count check.)
         result = nusselt_from_field(values, case.cells, case.t_hot,
-                                    case.t_cold, length=L)
+                                    case.t_cold, length=case.width)
     except (OSError, ValueError) as exc:
         report.update(ok=False, failed_at="read", error=str(exc))
         return report, None

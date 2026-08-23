@@ -252,6 +252,52 @@ def ceed_backend_override(binary_path, gpu_kind):
     return ""
 
 
+def find_gpu_palace():
+    """Path of a Palace binary PROVABLY linked against a GPU runtime, or "".
+
+    Exists so the CPU-vs-GPU agreement gate (and anything else that needs "the
+    GPU build, wherever it lives") can find one on a machine whose everyday
+    resolved Palace is CPU-only — which is the normal arrangement here: the
+    GPU build sits BESIDE the default install (``~/opt/palace-hip`` next to
+    ``~/opt/palace``), because a CPU-only default is the safe one to leave
+    resolved. ``EMSTUDIO_PALACE`` participates through ``find_backend`` itself,
+    so pointing it at a GPU build makes that build the first candidate.
+
+    ⚠ Every candidate is judged by :func:`solver_gpu_backend` — linkage, never
+    names. A directory called ``palace-hip`` containing a CPU build must not
+    pass, and a GPU build under any other name still passes once something
+    (env, prefs, PATH) resolves to it.
+    """
+    from emstudio.setup import solvers as solver_setup
+
+    candidates = []
+    info = solver_setup.find_backend("palace")
+    if info.found:
+        # The resolved default first: a user whose everyday Palace IS a GPU
+        # build needs no side install and no override.
+        candidates.append(info.path)
+        # Conventional sibling installs of the resolved prefix —
+        # <parent>/palace-hip/bin/palace beside <parent>/palace/bin/palace.
+        prefix = os.path.dirname(os.path.dirname(os.path.abspath(info.path)))
+        parent = os.path.dirname(prefix)
+        base = os.path.basename(prefix)
+        for suffix in ("-hip", "-cuda", "-gpu"):
+            candidates.append(os.path.join(parent, base + suffix, "bin", "palace"))
+    # PATH-resolution leaves no prefix to take siblings of, so also try the
+    # conventional home-install locations directly.
+    for name in ("palace-hip", "palace-cuda", "palace-gpu"):
+        candidates.append(os.path.expanduser(
+            os.path.join("~", "opt", name, "bin", "palace")))
+    seen = set()
+    for cand in candidates:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        if os.path.isfile(cand) and solver_gpu_backend(cand):
+            return cand
+    return ""
+
+
 def accel_report(binary_path=None):
     """One dict describing what this machine can actually accelerate.
 

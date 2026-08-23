@@ -7,11 +7,13 @@ correct for an isolated horizontal cylinder in unbounded quiescent air. Real
 cables are bundled and the air is confined. This module solves that case.
 
 MEASURED, on the ladder this module's gate reproduces (D 20 mm, trefoil at
-30 mm pitch, 200 mm enclosure, uniform wall flux):
+30 mm pitch, 200 mm enclosure, uniform wall flux; re-measured 2026-08-23 on
+the T1 LAYERED mesh — the move from the unlayered ladder was under 0.11 % on
+every rung, stated in the CHANGELOG):
 
-    1 cable, 0.40 m box   Nu 3.9830 @ Ra 5021   Churchill-Chu +6.99 %
-    1 cable, 0.20 m box   Nu 3.8621 @ Ra 5179   Churchill-Chu +3.01 %
-    3 cables, 0.20 m box  Nu 3.1542 @ Ra 6341   Churchill-Chu -19.72 %
+    1 cable, 0.40 m box   Nu 3.9787 @ Ra 5027   Churchill-Chu +6.84 %
+    1 cable, 0.20 m box   Nu 3.8651 @ Ra 5174   Churchill-Chu +3.11 %
+    3 cables, 0.20 m box  Nu 3.1563 @ Ra 6337   Churchill-Chu -19.66 %
 
 The single-cable cases sit INSIDE the Churchill-Chu/Morgan envelope, which is
 what validates the pipeline. The bundle sits decisively BELOW it. Confinement
@@ -62,15 +64,18 @@ MEASURED for the mixed case (same three centres, same 0.20 m enclosure, same
 400 K/m — two of the three cables shrunk from 20 mm to 10 mm, and nothing
 else):
 
-    1 x 20 mm   Nu 3.6097 @ Ra 5541   Churchill-Chu  -5.21 %   factor 0.9479
-    2 x 10 mm   Nu 1.9997 @ Ra  625   Churchill-Chu -15.62 %   factor 0.8438
+    1 x 20 mm   Nu 3.6119 @ Ra 5537   Churchill-Chu  -5.14 %   factor 0.9486
+    2 x 10 mm   Nu 2.0033 @ Ra  624   Churchill-Chu -15.44 %   factor 0.8456
 
-**The two sizes' factors are 12.3 % apart**, which is the whole argument for
+(Re-measured 2026-08-23 on the T1 layered mesh; the moves from the unlayered
+measurement were +0.06 % and +0.18 %.)
+
+**The two sizes' factors are 12.2 % apart**, which is the whole argument for
 per-size factors: one number for this bundle is wrong by 12 % for one of them.
 Both still sit BELOW their own correlation, so the bundle error is per size,
 not a property of one diameter. And the 20 mm cable recovers most of the
-bundle penalty when its neighbours shrink — **Nu 3.1542 -> 3.6097 (+14.4 %),
-Churchill-Chu error -19.72 % -> -5.21 %** — because smaller neighbours dump
+bundle penalty when its neighbours shrink — **Nu 3.1563 -> 3.6119 (+14.4 %),
+Churchill-Chu error -19.66 % -> -5.14 %** — because smaller neighbours dump
 less heat into the same air.
 
 MIXED DIAMETERS — ONE PATCH PER SIZE
@@ -254,12 +259,20 @@ class BundleCase:
     #: comparable angular resolution. See the module note; off is a fidelity
     #: choice, not a free saving.
     refine_match_perimeter: bool = True
+    #: Prism layers grown on every cable patch (T1 of the turbulence plan).
+    #: The Nu this case measures is set by the wall temperature gradient, and
+    #: a castellated-only mesh samples that gradient with stair-stepped cells.
+    #: 0 = no layers — byte-identical to the pre-T1 case, kept as the escape
+    #: hatch and the differential control.
+    wall_layers: int = 3
 
     def __post_init__(self):
         if self.box_w <= 0 or self.box_h <= 0:
             raise ValueError("enclosure dimensions must be positive")
         if self.cells_x < 4:
             raise ValueError("need at least 4 background cells across")
+        if self.wall_layers < 0:
+            raise ValueError("wall_layers is a count (0 disables layers)")
         if self.cables is None:
             if not self.centres:
                 raise ValueError("a bundle needs at least one cable")
@@ -494,11 +507,35 @@ def write_bundle(case_dir, case=None):
                                                 g.refine_max)
                      for g in case.groups)
 
+    # T1 of the turbulence plan: prism layers on every cable patch. Spliced
+    # like geom/feats/surfs (patch names must never meet a % conversion), and
+    # wall_layers == 0 reproduces the pre-T1 dict byte-for-byte — that is the
+    # differential control the sha256 uniform-bundle identity depends on.
+    if case.wall_layers > 0:
+        add_layers = "true"
+        layers = ("layers { "
+                  + " ".join("%s { nSurfaceLayers %d; }"
+                             % (g.patch, case.wall_layers)
+                             for g in case.groups)
+                  + " }")
+        expansion = "1.2"
+    else:
+        add_layers = "false"
+        layers = "layers {}"
+        expansion = "1.0"
+
     # ⚠ locationInMesh must be in the FLUID and off any face plane. A point
     # near a corner is outside every cable by construction.
+    # ⚠ Pre-formatted HERE, not via a trailing `%` on the concatenation — the
+    # layers/expansion splice broke the old "the % fills the last literal
+    # group" arrangement (measured: TypeError, the tuple landed on a group
+    # with no conversions). Everything below is now pure concatenation, so a
+    # patch name containing a `%` can still never be read as a conversion.
+    loc = "    locationInMesh (%.10g %.10g %.10g);\n" % (
+        -hw * 0.95, -hh * 0.95, t / 2.0)
     put("system/snappyHexMeshDict",
         _header("dictionary", "snappyHexMeshDict", "system")
-        + "castellatedMesh true;\nsnap true;\naddLayers false;\n\n"
+        + "castellatedMesh true;\nsnap true;\naddLayers " + add_layers + ";\n\n"
           "geometry\n{\n" + geom + "}\n\n"
           "castellatedMeshControls\n{\n    maxLocalCells 2000000;\n"
           "    maxGlobalCells 8000000;\n    minRefinementCells 10;\n"
@@ -506,30 +543,24 @@ def write_bundle(case_dir, case=None):
           "    resolveFeatureAngle 30;\n    allowFreeStandingZoneFaces true;\n"
           "    features ( " + feats + " );\n"
           "    refinementSurfaces { " + surfs + " }\n"
-          "    refinementRegions {}\n    locationInMesh (%.10g %.10g %.10g);\n}\n\n"
+          "    refinementRegions {}\n" + loc + "}\n\n"
           "snapControls\n{\n    nSmoothPatch 3;\n    tolerance 2.0;\n"
           "    nSolveIter 50;\n    nRelaxIter 5;\n    nFeatureSnapIter 10;\n"
           "    implicitFeatureSnap false;\n    explicitFeatureSnap true;\n"
           "    multiRegionFeatureSnap false;\n}\n\n"
-          "addLayersControls\n{\n    relativeSizes true;\n    layers {}\n"
-          "    expansionRatio 1.0;\n    finalLayerThickness 0.3;\n"
+          "addLayersControls\n{\n    relativeSizes true;\n    " + layers + "\n"
+          "    expansionRatio " + expansion + ";\n    finalLayerThickness 0.3;\n"
           "    minThickness 0.1;\n    nGrow 0;\n    featureAngle 60;\n"
           "    nRelaxIter 3;\n    nSmoothSurfaceNormals 1;\n    nSmoothNormals 3;\n"
           "    nSmoothThickness 10;\n    maxFaceThicknessRatio 0.5;\n"
-          "    maxThicknessToMedialRatio 0.3;\n    minMedianAxisAngle 90;\n"
+          "    maxThicknessToMedialRatio 0.3;\n    minMedialAxisAngle 90;\n"
           "    nBufferCellsNoExtrude 0;\n    nLayerIter 50;\n}\n\n"
           "meshQualityControls\n{\n    maxNonOrtho 65;\n    maxBoundarySkewness 20;\n"
           "    maxInternalSkewness 4;\n    maxConcave 80;\n    minVol 1e-13;\n"
           "    minTetQuality 1e-30;\n    minArea -1;\n    minTwist 0.02;\n"
           "    minDeterminant 0.001;\n    minFaceWeight 0.02;\n    minVolRatio 0.01;\n"
           "    minTriangleTwist -1;\n    nSmoothScale 4;\n    errorReduction 0.75;\n}\n\n"
-          "mergeTolerance 1e-6;\n"
-        # ⚠ `%` binds tighter than `+`, so these three fill the LAST literal
-        # group only — the one that starts at `refinementRegions`. The geometry
-        # / features / refinementSurfaces text is spliced in above, not
-        # formatted, precisely so a patch name containing a `%` could never be
-        # read as a conversion.
-        % (-hw * 0.95, -hh * 0.95, t / 2.0))
+          "mergeTolerance 1e-6;\n")
 
     put("constant/transportProperties",
         _header("dictionary", "transportProperties", "constant")

@@ -8,6 +8,108 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 
+## [1.6.0] — 2026-08-23
+
+### Added
+
+* **CPU-vs-GPU agreement is now ENFORCED, not remembered** — the gap that let
+  v1.5.0 publish numbers the product could not produce. New SOLVER gate
+  `palace_gpu_agreement`: both legs run through `run_cavity(solver=<stub>)` on
+  the SAME GPU-linked binary (found via `accel.find_gpu_palace()` — linkage,
+  never names; on the reference box that is the side build at
+  `~/opt/palace-hip`, not the resolved default), the meshes are asserted
+  byte-identical, Palace's own device banner proves which device actually ran
+  each leg (a silent CPU fallback would otherwise let the gate compare CPU
+  against CPU forever), the emitted config is read back (`Backend` only from
+  the measured-safe list, never `/gen`), and every eigenmode must agree to
+  1e-6 relative. Measured margins: `/gpu/hip/shared` agrees to 2.2e-9; the
+  broken `/gpu/hip/gen` forced in as a mutation is 4.0e-2 wrong — three orders
+  outside the window on BOTH sides. Skips honestly (battery `palace_gpu`
+  requirement) when no GPU-linked Palace or no matching GPU exists.
+* **The version is now read back OUT of every built artefact** — new FAST gate
+  `artefact_versions` (Pro-repo only, excluded from the free export). The
+  v1.5.1 Pro zip went to Gumroad carrying 1.5.0 and a person caught it, not a
+  check. The gate opens `dist/EMStudioPro-v*.zip` and reads the
+  `__version__` INSIDE it, opens the AJJ3-Site deploy zip and reads the
+  version badge and gate count INSIDE its `index.html`, compares all of it to
+  `package.xml` and the PUBLIC repo's actual gate count, and enforces ONE zip
+  per artefact directory (a folder of six is how an upload got mis-picked).
+  A pass prints its coverage — a green run that verified 0 artefacts says so.
+* **kOmegaSST natural convection, VALIDATED against a measured experiment**
+  (T2+T3 of `docs/OPENFOAM_TURBULENCE_PLAN.md`). The cavity writer takes
+  `turbulence="kOmegaSST"` (plus `width`/`height`/`cells_y` for non-square
+  cavities) and emits the full RAS plumbing — k/omega/nut with the v2512
+  tree's own wall-function types, `alphatJayatillekeWallFunction`, `wallDist`
+  — behind an opt-in that leaves every laminar case BYTE-IDENTICAL when off.
+  New SOLVER gate `openfoam_ras_cavity`: the Betts & Bokhari tall cavity
+  (Ra 8.6e5) solved through the product's own writer+runner against the
+  digitised measured profiles that ship inside the ESI v2512 tree — worst
+  temperature profile 4.8 % of span, worst velocity profile 8.7 %, converged
+  at iteration 8071. The laminar mutation at the same Ra never converges and
+  lands at 17.2 % / 50.6 % — the measured gap between "laminar-only" and
+  "validated RAS". ⚠ The §8a/§8c dialogs still run laminar (T4 is a release
+  decision, deliberately not taken here).
+* **Prism boundary layers on both snappyHexMesh paths** (T1): `SolidCase` and
+  `BundleCase` grow `wall_layers` (default 3, expansion 1.2) prism layers on
+  the heated patches; `wall_layers=0` reproduces the pre-T1 case byte-for-byte
+  (proven by sha256 over every written file against the previous release's
+  writer). Layer addition measured at 100 % coverage, 3 full layers, 0 illegal
+  faces on the sphere anchor. **The stated anchor moves, unlayered → layered
+  (gate fidelity):** sphere conduction Nu 2.5511 → 2.5548 (+0.15 %); sphere
+  convection 18.3508 → 17.8471 (−2.74 %), taking its Churchill agreement from
+  +4.9 % to **+2.0 %** — toward the correlation, as wall resolution should;
+  the bundle ladder moved < 0.11 % on every rung (3.9787 / 3.8651 / 3.1563,
+  Churchill-Chu bundle error −19.72 % → −19.66 %). The de Vahl Davis cavity
+  (blockMesh, no layers) re-ran green and unchanged as the control. Gate
+  self-pins re-recorded with the move stated in place.
+  **Full-fidelity companions re-measured on the layered mesh:** sphere at
+  cells_bg 32 — conduction 2.5575 → 2.5613 (+0.15 %), convection 18.17 →
+  17.9709, Churchill agreement +4.3 % → **+2.9 %**, 24→32 mesh sensitivity
+  1.0 % → 0.7 % (two independent runs of each rung agreed to four decimals);
+  mixed bundle at cells_x 100 / 8000 it — 20 mm 3.6097 → 3.6119 (+0.06 %),
+  10 mm 1.9997 → 2.0033 (+0.18 %). ⚠ The cheap mixed GATE rung's bias
+  against full fidelity GREW with the layers (+0.34 %/+0.90 % → +1.03 %/
+  +3.38 % — layers occupy the largest share of the mesh exactly where the
+  base resolution is thinnest), so its band is re-derived at 5 % with the
+  measured biases stated beside it; the same-size load rung re-measured at
+  its recorded configuration reads Nu 3.8112 / 2.6886, factors 1.0134 /
+  0.9018, dT ratio 2.82.
+
+### Fixed
+
+* **`run_battery.py --all` died mid-run on `unknown requirement kind: palace`**
+  — the `n_port_live_palace` gate declared a requirement kind the runner never
+  handled (declared in f95129d, handled never), so the SOLVER tier could not
+  complete at all. Both `palace` and the new `palace_gpu` kinds are handled.
+* **snappyHexMesh layer addition aborted on `minMedialAxisAngle`** — both
+  writers' layer scaffolding shipped the misspelled `minMedianAxisAngle`,
+  unread (and therefore unnoticed) for as long as `addLayers false` kept the
+  medial-axis mover away from it. v2512 wants `minMedial…`; the first real
+  layer pass found it in seconds.
+* **`run_cavity` computed Nu with the module's metre constant** rather than
+  the case's own width — harmless while every cavity was the 1 m square, and
+  silently wrong by `width/L` the moment `CavityCase.width` exists. It now
+  uses `case.width` (non-square cases still fail loudly in the cell-count
+  check).
+* `CavityCase` property derivation now tracks the case's OWN `dt` and `width`
+  (it held Ra for a 1 m / 1 K cavity whatever the case said — latent until
+  the tall Betts & Bokhari case set `t_hot - t_cold = 19.6`).
+
+### Docs
+
+* `CAPABILITIES.md`: a single stated turbulence position for all OpenFOAM
+  cases (laminar-only, unvalidated above Ra ≈ 1e8 / Re ≈ 47, where the
+  warnings live, pointer to the plan); §8a row carries the Ra ceiling in its
+  own words; the wind row now says plainly that `run_wind` is ENGINE ONLY
+  with no UI caller and its `report["validity"]` read by nothing.
+* Sweep quick wins folded in: the README `Status:` line is now GATED by
+  `smoke.py` alongside the three source version strings (it had drifted three
+  releases twice); `PLAN.md`'s Phase-4-vs-§6 GPU contradiction resolved (the
+  v1 non-goal lapsed — GPU shipped in v1.5.1); the CAPABILITIES "Roadmap for
+  the gaps" GPU epic marked shipped; and a new §3 section records the three
+  assistant engine pieces (`facts_block`, `_interpret_results`, `intent.py`)
+  that have NO shipped caller, so the matrix no longer omits it.
+
 ## [1.5.1] — 2026-08-22
 
 ### Fixed

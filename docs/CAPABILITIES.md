@@ -20,22 +20,27 @@ rather than one span:
 * **Palace (FEM)** — **validated sub-0.01 % at 39 GHz and 57 GHz**, on **closed**
   structures: waveguide and cavity. This is what meets the "DC to 40 GHz and
   beyond" target.
-* **openEMS (FDTD)** — the highest gated point is a **3.68 GHz** microstrip notch
-  filter; the highest gated **radiating** structure is the **2.435 GHz** patch.
+* **openEMS (FDTD)** — the highest gated **radiating** structure is the
+  **30 GHz** standard-gain horn (v1.5.0: 19.29 dBi vs the vendor's published
+  19.70, −0.41 dB inside the citable ±0.5 dB, with a second λ/40 solve gating
+  the mesh spread to 0.5 dB); highest gated guided point below that is the
+  **3.68 GHz** microstrip notch filter.
 * **NEC2 (MoM)** — wire antennas, gated at 296 MHz.
 
-⚠ **No radiating structure is gated above 2.435 GHz.** Full-wave Maxwell has no
-physics break at mmWave and the only real cost is mesh resolution — but *"no
-reason it should fail"* is not the same as *"checked"*, and this project claims
-only the second. mmWave **antenna** work (28 GHz patches, handset PIFAs, arrays)
-is not something it has earned the right to claim yet. The **quasi-static** engines (Elmer magnetics, FastHenry R/L) are
+⚠ The old ceiling here read *"no radiating structure is gated above
+2.435 GHz"* — TRUE until v1.5.0, removed by `horn_openems`. What is still NOT
+earned: the horn's anchor is the vendor's **analytic** (NRL/Slayton) gain
+curve, not a measurement, and the broad mmWave **antenna** claim (28 GHz
+patches, handset PIFAs, arrays on substrate) rests on one gated Ka-band horn.
+*"One gated point"* is not *"a validated band"*, and this project claims only
+the first. The **quasi-static** engines (Elmer magnetics, FastHenry R/L) are
 **inherently low-frequency by design** and must not be pushed past their
 quasi-static validity — that is the one hard limitation to know.
 
 | Engine | Method | Validated / usable range | Upper-limit cause | Lower-limit cause |
 |---|---|---|---|---|
 | **Palace** | full-wave FEM | **validated to 57 GHz** (cavity TE101 +0.002 % @ 56.9 GHz, +0.003 % @ 39.0 GHz; WR-22 driven 38–42 GHz, |S11| −106 dB) | mesh element size ∝ λ → memory/time (no physics break) | driven/eigenmode are f > 0; true DC statics is a different formulation |
-| **openEMS** | EC-FDTD | broadband in one run; **validated point 2.435 GHz (patch)** — ⚠ higher is *feasible*, not *validated*: the highest GATED openEMS point is 2.435 GHz, so treat mmWave FDTD as unproven here until a gate says otherwise (Palace is the validated route above 6 GHz) | grid cell < ~λ/20 → memory/time | very low f needs long settling (~MHz practical floor) |
+| **openEMS** | EC-FDTD | broadband in one run; **validated radiating points 2.435 GHz (patch) and 30 GHz (standard-gain horn, v1.5.0, −0.41 dB vs the vendor curve + λ/40 mesh-spread gate)** — ⚠ between and above those points is *feasible*, not *validated*; Palace remains the validated route for closed structures above 6 GHz | grid cell < ~λ/20 → memory/time | very low f needs long settling (~MHz practical floor) |
 | **NEC2** | MoM (wire) | validated **100 kHz VLF/LF (monopole over ground)** → 296 MHz (dipole); HF→low-microwave in practice | segments must be < ~λ/10 **and** obey radius/length ratios → sub-mm wires above ~a few GHz are impractical (not a solver break) | none (thin-wire quasi-static kernel valid to low f; ground image via GN card) |
 | **Elmer** | magneto-quasi-static | **DC → ~few MHz** (validated: induction 0.03 %, WPT k <0.5 % @ 100 kHz) | **hard**: eddy-current/A-V formulation assumes the object is electrically small and displacement current is negligible — **not full-wave; do not use for radiating/electrically-large problems** | true DC magnetostatics is a sub-case |
 | **FastHenry** | PEEC (quasi-static R/L) | DC → ~low-GHz for per-unit-length R(f)/L(f) of electrically-small conductors | quasi-static: no radiation/full-wave; valid while the structure ≪ λ | DC (Rdc) is the f→0 limit |
@@ -385,11 +390,23 @@ Matching / Array / RFDF are Pro.
 | **Cable thermal / ampacity (§2 thermal)** | ✅ validated (v0.50.0) | IEC 60287-2-1 radial ladder (worked examples to 1e-9) + Churchill-Chu free convection on the printed AHTT air table (Cengel Ex 9-1 / AHTT Ex 8.4 to the digit, ±25 % of Morgan) + radiation; ρ(T) loss with runaway detection; ampacity vs NEC 310.17 / Multicable / MIL-W-5088L bands (AWG-10 105 °C: 66.6 A vs the 58 A ±25 % row); IEC 60949 adiabatic (J0 143.08/94.48, 630 mm² rows 0.15 %, BS 7671 k ±0.5); NEC 310.15(C)(1) derating exact; transient τ = C/G lump |
 | **Coax RF average power (§2 thermal)** | ✅ validated (v0.50.0) | Exact dissipation identity p′ = (ln10/10)·A·P and the exact ½-dielectric-heat factor (TEM 1/r²); Rs/a-vs-Rs/b split with per-conductor σ; **Times LMR-240 catalog table reproduced within 90-125 % (worst 1.092, 30-5800 MHz)** with the datasheet attenuation split; Belden 8262 / RG-142 one-sided (smooth-conductor loss ⇒ optimistic rating, stated) |
 | **Thermal cross-section + heat-rise view (§2 thermal)** | ✅ validated (v0.50.0) | Exterior 2-D field: exact interior ladder → flux-preserving film δ = k_f/h = D/Nu → laminar plane-plume similarity above (GPS/Liñán, Pr 0.7 pins re-derived in-gate by an independent RK4 shoot incl. the Pr = 2 closed form √5/4); enthalpy closure 0.23 % worst, power-law exponents exact, bitwise mirror symmetry, bounded monotone decay; honestly labeled illustrative outside the film |
-| **SOLVED convection on a SELECTED solid — open air (§8a)** | ✅ validated (unreleased) | Any document solid, tessellated as-is (gravity −z), dissipated power as surface flux, open-air far-wall box; returns surface ΔT + mean h + the field in the 3-D view. Sphere anchors, live at cells_bg 32: conduction Nu_D 2.5575 inside the EXACT sandwich [2.3374, 2.6667] (two-sided, citation-free); free convection Nu_D 18.17 vs Churchill 17.42 (+4.3 %) at the resulting Ra_D 1.33e6. The SOLVER gate self-pins its own cells_bg 24 fidelity (2.5511 / 18.3508, i.e. 0.25 %/1.0 % of mesh sensitivity). ⚠ laminar, constant film-T properties (dialog warns on drift), no enclosure geometry read yet, no radiation |
-| **SOLVED bundle convection — CFD replaces the correlation (§2 thermal)** | ✅ validated (v0.97.0) | Ladder, each rung changing ONE variable, on the native ESI v2512: 1 cable/0.40 m box Nu 3.9826 and 1 cable/0.20 m Nu 3.8621 both INSIDE the Churchill-Chu/Morgan envelope (this is what validates snappyHexMesh + the flux BC + the patch reader), then 3 cables/0.20 m Nu 3.1542 — **Churchill-Chu over-predicts a trefoil's film coefficient by 19.72 %, in the UNSAFE direction** (confinement 3 %, bundling a further 18 %). Feeds `surface_h`/`solve_steady` as a dimensionless `bundle_factor` (default 1.0 = bit-identical to the correlation); a 40 A cable moves 56.55 → 59.75 °C. ⚠ 2-D, laminar, no radiation, one operating point; Ra is an OUTPUT (flux BC), so every comparison is made at the Ra that resulted |
-| **Mixed LOADING within one diameter — one factor per (size, load) (§2 thermal)** | ✅ validated (v0.98.0) | A group is one diameter at one wall flux, because that is what one snappy patch carries; the result is keyed by PATCH, so two same-size cables on different losses get their own factors instead of one silently overwriting the other. Measured (2 × 20 mm, 0.20 m box, 400 vs 100 K/m): **Nu 3.7322 / 2.5228 → factors 0.9876 / 0.8346, 18.3 % apart — a bigger spread than the diameter mix**, and the LIGHTLY loaded cable is the worse cooled (small driving dT, sitting in its neighbour's warm field). ⚠ dT ratio **2.70 for a 4:1 flux ratio** — neither the 1.0 of a shared BC nor the ~3.0 of two uncoupled cables, which is the gate's proof that this is ONE coupled solve. Face counts are an exact equality (928 == 928) since the geometry is identical. Reachable from the UI since v0.99.0 via the bundle table's per-member **Current (A)** column — resistance from the CONDUCTOR Ø, flux over the ENVELOPE Ø, all-or-nothing so a part-filled column falls back rather than inventing a load |
-| **Mixed-diameter bundles — one Nusselt number PER SIZE (§2 thermal)** | ✅ validated (v0.97.0) | Nu_D is built on a diameter, so unlike cables are never averaged: each size is its own STL solid → its own snappy geometry entry → its own **patch**, solved together in one enclosure because the sizes cool each other. Measured (1 × 20 mm + 2 × 10 mm, 0.20 m box, 400 K/m): **Nu 3.6097 / 1.9997 → factors 0.9479 / 0.8438, 12.3 % apart**, both below their OWN Churchill-Chu (−5.21 % / −15.62 %); the 20 mm recovers Nu 3.1542 → 3.6097 (+14.4 %) when its neighbours shrink. Uniform bundles are byte-identical to the single-patch writer (sha256 over all 14 files) so the ladder above still describes what runs; smaller cables get ceil(log2(d_max/d)) extra refinement levels so their Nu is not a mesh artifact. ⚠ Mixed DIAMETERS only — mixed LOADING within one diameter is refused, not merged |
-| **Wind loading on a structure (§2 mechanical)** | ✅ validated (v0.97.0) | `simpleFoam` + the `forces` function object on an open O-grid — the first MECHANICAL axis, feeding loads FreeCAD FEM can consume. Anchored at **Re 20–40 where steady RANS is actually valid** (above Re ~47 a cylinder sheds and a steady solve under-reads drag, so the familiar Cd ~1.2 would be passable only by luck): Cd 2.0646 / 1.5448, \|Cl\|/\|Cd\| ~2e-7 (zero lift by symmetry — exact and citation-free), pressure + viscous == total, viscous SHARE 40.3 → 34.9 %. ⚠ Real antenna loading is Re 1e5–1e6 and needs `pimpleFoam`; `validity_note()` refuses to let that be misread |
+| **SOLVED convection on a SELECTED solid — open air (§8a)** | ✅ validated (unreleased) | Any document solid, tessellated as-is (gravity −z), dissipated power as surface flux, open-air far-wall box; returns surface ΔT + mean h + the field in the 3-D view. Sphere anchors, live at cells_bg 32 (re-measured 2026-08-23 on the T1 layered mesh): conduction Nu_D 2.5613 inside the EXACT sandwich [2.3374, 2.6667] (two-sided, citation-free); free convection Nu_D 17.9709 vs Churchill 17.4656 (**+2.9 %**, was +4.3 % unlayered) at the resulting Ra_D 1.35e6. The SOLVER gate self-pins its own cells_bg 24 fidelity (2.5548 / 17.8471, re-pinned 2026-08-23 on the T1 layered mesh — the layers moved convection −2.7 % and took its Churchill agreement from +4.9 % to +2.0 %). ⚠ laminar, constant film-T properties (dialog warns on drift), no enclosure geometry read yet, no radiation. **Laminar-ONLY: unvalidated above Ra_D ≈ 1e8** — from the product's own air table that is crossed near D ≈ 0.5 m at ΔT = 30 K (Ra_D 1.8e7 at 0.2 m, 2.2e9 at 1 m); the dialog computes Ra and says so |
+| **SOLVED bundle convection — CFD replaces the correlation (§2 thermal)** | ✅ validated (v0.97.0; re-measured 2026-08-23 on the T1 layered mesh, every rung moved < 0.11 %) | Ladder, each rung changing ONE variable, on the native ESI v2512: 1 cable/0.40 m box Nu 3.9787 and 1 cable/0.20 m Nu 3.8651 both INSIDE the Churchill-Chu/Morgan envelope (this is what validates snappyHexMesh + the flux BC + the patch reader), then 3 cables/0.20 m Nu 3.1563 — **Churchill-Chu over-predicts a trefoil's film coefficient by 19.66 %, in the UNSAFE direction** (confinement 3 %, bundling a further 18 %). Feeds `surface_h`/`solve_steady` as a dimensionless `bundle_factor` (default 1.0 = bit-identical to the correlation); a 40 A cable moves 56.55 → 59.75 °C (worked with the pre-T1 factor; the T1 move is < 0.05 K, far under the solver's own ~2 K run-to-run floor). ⚠ 2-D, laminar, no radiation, one operating point; Ra is an OUTPUT (flux BC), so every comparison is made at the Ra that resulted |
+| **Mixed LOADING within one diameter — one factor per (size, load) (§2 thermal)** | ✅ validated (v0.98.0) | A group is one diameter at one wall flux, because that is what one snappy patch carries; the result is keyed by PATCH, so two same-size cables on different losses get their own factors instead of one silently overwriting the other. Measured (2 × 20 mm, 0.20 m box, 400 vs 100 K/m; re-measured 2026-08-23 on the T1 layered mesh at the same recorded configuration, cells_x 50 / 1500 it): **Nu 3.8112 / 2.6886 → factors 1.0134 / 0.9018, 12.4 % apart — as large an effect as the diameter mix**, and the LIGHTLY loaded cable is still the worse cooled (small driving dT, sitting in its neighbour's warm field; the heavily loaded one now reads a hair ABOVE the correlation at this cheap fidelity). ⚠ dT ratio **2.82 for a 4:1 flux ratio** — neither the 1.0 of a shared BC nor the ~3.0 of two uncoupled cables, which is the gate's proof that this is ONE coupled solve. Face counts are an exact equality (928 == 928) since the geometry is identical. Reachable from the UI since v0.99.0 via the bundle table's per-member **Current (A)** column — resistance from the CONDUCTOR Ø, flux over the ENVELOPE Ø, all-or-nothing so a part-filled column falls back rather than inventing a load |
+| **Mixed-diameter bundles — one Nusselt number PER SIZE (§2 thermal)** | ✅ validated (v0.97.0) | Nu_D is built on a diameter, so unlike cables are never averaged: each size is its own STL solid → its own snappy geometry entry → its own **patch**, solved together in one enclosure because the sizes cool each other. Measured (1 × 20 mm + 2 × 10 mm, 0.20 m box, 400 K/m; re-measured 2026-08-23 on the T1 layered mesh at full fidelity — moves +0.06 % / +0.18 %): **Nu 3.6119 / 2.0033 → factors 0.9486 / 0.8456, 12.2 % apart**, both below their OWN Churchill-Chu (−5.14 % / −15.44 %); the 20 mm recovers Nu 3.1563 → 3.6119 (+14.4 %) when its neighbours shrink. Uniform bundles are byte-identical to the single-patch writer (sha256 over all 14 files) so the ladder above still describes what runs; smaller cables get ceil(log2(d_max/d)) extra refinement levels so their Nu is not a mesh artifact. ⚠ Mixed DIAMETERS only — mixed LOADING within one diameter is refused, not merged |
+| **Wind loading on a structure (§2 mechanical)** | ✅ validated (v0.97.0) | `simpleFoam` + the `forces` function object on an open O-grid — the first MECHANICAL axis, feeding loads FreeCAD FEM can consume. Anchored at **Re 20–40 where steady RANS is actually valid** (above Re ~47 a cylinder sheds and a steady solve under-reads drag, so the familiar Cd ~1.2 would be passable only by luck): Cd 2.0646 / 1.5448, \|Cl\|/\|Cd\| ~2e-7 (zero lift by symmetry — exact and citation-free), pressure + viscous == total, viscous SHARE 40.3 → 34.9 %. ⚠ Real antenna loading is Re 1e5–1e6 and needs `pimpleFoam`; `validity_note()` refuses to let that be misread. ⚠⚠ **ENGINE ONLY — no UI caller exists.** `run_wind` is reachable from the API and its two gates and from nowhere in the GUI, and the `report["validity"]` it computes is read by nothing; a capability with no door is a finding, not a feature (the filter/diplexer precedent) |
+
+**Turbulence position (all OpenFOAM cases, stated once).** Every case EMStudio
+writes today is **laminar**: all six builders emit `simulationType laminar`, no
+generated case contains `k`, `epsilon`, `omega` or `nut`, `alphat` is
+`calculated` everywhere, and both snappyHexMesh paths run `addLayers false` — so
+there is no controlled y+ and a wall function would be decoration. Turbulent
+regimes (free convection above Ra ≈ 1e8, wind above Re ≈ 47) are therefore
+**unvalidated**, and the §8a and §8c dialogs compute the number and warn.
+RAS (kOmegaSST) support is scoped, staged and anchored (Betts & Bokhari via the
+v2512 tree's own `buoyantCavity` tutorial) in `docs/OPENFOAM_TURBULENCE_PLAN.md`
+— unbuilt until its validation gate exists, because it moves temperatures the
+product reports.
 
 ## Magnetics / low-frequency (Phase 3 — Elmer FEM, axisymmetric)
 
@@ -515,15 +532,30 @@ silently ran on the CPU would be a setting that changes nothing.
 | Spec / BOM / construction schedule | ✅ |
 | CSV / Touchstone / pattern data export | ✅ |
 
+## §3 AI Assistant — what is wired and what is engine-only
+
+The chat assistant (A1–A6, Pro) shipped in v0.73.0 and is gated by the
+167-check assistant battery. **Three engine pieces have NO shipped caller and
+are recorded here so nobody discovers it the hard way** (the filter/diplexer
+precedent — "engine only" is a finding, not a status): `facts_block` renders a
+document-state block nothing sends to the model; `_interpret_results` cannot
+read a finished solve because solver results are never persisted on the
+analysis object; and `intent.py` (the A5 natural-language intent slice) has no
+shipped caller either. All three work in isolation and reach no user. Wiring
+them is roadmap work, not a bug fix — but a capability matrix that omitted
+them would be selling the assistant on plumbing it does not have.
+
 ## Roadmap for the gaps
 
 1. ~~**Trace-aware meshing** → validated PCB/microstrip S-parameters~~ **DONE v0.16.0**
    (notch-filter template on the toolbar, gate green). Next PCB items: general
    microstrip circuits (bends, couplers, multi-stub filters), Zc renormalization,
    Palace **lumped ports** as a second (FEM) PCB S-parameter route.
-2. **Palace depth**: the GPU path; lumped ports on general BREP (wave ports already
-   do general BREP as of v0.21.0). (Fast frequency sweep, adaptive mesh refinement,
-   and general-BREP driven wave ports all shipped.)
+2. **Palace depth**: lumped ports on general BREP (wave ports already do general
+   BREP as of v0.21.0). ~~The GPU path~~ **SHIPPED v1.5.1** — Device switch,
+   linkage-probed libCEED backend, and the CPU-vs-GPU agreement enforced by
+   `palace_gpu_agreement`. (Fast frequency sweep, adaptive mesh refinement,
+   and general-BREP driven wave ports all shipped earlier.)
 3. **Magnetics depth** (v0.51–0.55: radiation BC, k(T), σ(T)-coupled Joule,
    nonlinear B-H + Static-DC, and the general 3-D WhitneyAV ENGINE with the
    TEAM-7 measured gate all shipped): next — 3-D GUI wiring (FreeCAD-solid
