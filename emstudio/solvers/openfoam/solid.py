@@ -197,6 +197,15 @@ class SolidCase:
     #: layer addition degrades (it collapses layers rather than failing, so
     #: coverage is read from the snappy log by the gate, never assumed).
     wall_layers: int = 3
+    #: "" = laminar — byte-identical to the pre-T4 case. "kOmegaSST" = RAS
+    #: with wall functions (T4 of docs/OPENFOAM_TURBULENCE_PLAN.md; the model
+    #: itself is validated against the measured Betts & Bokhari cavity by
+    #: `openfoam_ras_cavity`, and this case's turbulent regime is gated
+    #: against Churchill's sphere correlation by `openfoam_ras_solid` — the
+    #: correlation-anchor policy is AJ's ruling, 2026-08-23). Any other
+    #: string raises: a model name the writer cannot honour must not pass
+    #: silently — the v1.4.0 defect class.
+    turbulence: str = ""
 
     def __post_init__(self):
         if not self.triangles:
@@ -214,6 +223,11 @@ class SolidCase:
             raise ValueError("need at least 8 background cells across")
         if self.wall_layers < 0:
             raise ValueError("wall_layers is a count (0 disables layers)")
+        if self.turbulence not in ("", "kOmegaSST"):
+            raise ValueError(
+                "unsupported turbulence model %r — this writer knows laminar "
+                "(\"\") and \"kOmegaSST\"; a name it cannot honour must fail "
+                "here, not run laminar and report success" % (self.turbulence,))
         if self.area_m2 <= 0:
             raise ValueError("the triangulation has zero area")
         if self.iterations < 1:
@@ -284,6 +298,33 @@ class SolidCase:
         """dT/dn (K/m) at the surface — the prescribed-gradient BC.
         ⚠ k is the AIR conductivity: the gradient is taken in the fluid."""
         return self.flux_w_m2 / self.k_fluid
+
+    def ra_estimate(self):
+        """PRE-solve estimate of the resulting Ra_D — the regime chooser.
+
+        Ra is an OUTPUT of this flux-BC case (dT is solved), so choosing a
+        turbulence model needs an estimate BEFORE any solve exists. The flux
+        and Churchill's sphere correlation close the loop: q'' = Nu(Ra) k
+        dT / D with Ra ∝ dT, solved by a fixed point (converges in a few
+        steps — Nu^~1/4 damps it). Good to the correlation's own accuracy,
+        which is all a REGIME choice needs; the solved Ra is still what gets
+        reported. Conduction-only cases (gravity 0) estimate 0.
+        """
+        if not self.gravity:
+            return 0.0
+        k, nu_f, alpha, pr = self.air
+        d = 2.0 * self.bounding_radius
+        chch = (1.0 + (0.469 / pr) ** (9.0 / 16.0)) ** (4.0 / 9.0)
+        dt = 10.0                       # any positive start; the map contracts
+        for _ in range(30):
+            ra = self.gravity * self.beta * dt * d ** 3 / (nu_f * alpha)
+            nu_d = 2.0 + 0.589 * ra ** 0.25 / chch
+            dt_new = self.flux_w_m2 * d / (nu_d * k)
+            if abs(dt_new - dt) < 1e-9 * max(dt, 1.0):
+                dt = dt_new
+                break
+            dt = dt_new
+        return self.gravity * self.beta * dt * d ** 3 / (nu_f * alpha)
 
     # --- the sandwich ------------------------------------------------------
     def conduction_nu_bounds(self, r_sphere):
@@ -401,9 +442,16 @@ def write_solid(case_dir, case=None):
           "beta            %.10g;\nTRef            %.10g;\n"
           "Pr              %.10g;\nPrt             0.85;\n"
         % (nu, case.beta, case.t_amb, pr))
-    put("constant/turbulenceProperties",
-        _header("dictionary", "turbulenceProperties", "constant")
-        + "simulationType  laminar;\n")
+    ras = case.turbulence == "kOmegaSST"
+    if ras:
+        put("constant/turbulenceProperties",
+            _header("dictionary", "turbulenceProperties", "constant")
+            + "simulationType  RAS;\n\nRAS\n{\n    RASModel        kOmegaSST;\n"
+              "    turbulence      on;\n    printCoeffs     off;\n}\n")
+    else:
+        put("constant/turbulenceProperties",
+            _header("dictionary", "turbulenceProperties", "constant")
+            + "simulationType  laminar;\n")
     # ⚠ -z: FreeCAD is z-up and the solid is in DOCUMENT orientation.
     put("constant/g", _header("uniformDimensionedVectorField", "g", "constant")
         + "dimensions      [0 1 -2 0 0 0 0];\nvalue           (0 0 -%.10g);\n"
@@ -426,10 +474,43 @@ def write_solid(case_dir, case=None):
         "    %s { type fixedFluxPressure; value uniform 0; }\n"
         "    walls { type fixedFluxPressure; value uniform 0; }\n"
         % case.patch))
-    put("0/alphat", _field_file(
-        "alphat", "[0 2 -1 0 0 0 0]", "0",
-        "    %s { type calculated; value uniform 0; }\n"
-        "    walls { type calculated; value uniform 0; }\n" % case.patch))
+    if ras:
+        # BC types are the v2512 tree's own (hotRoom Boussinesq tutorial),
+        # identical to the cavity writer's T2 — never remembered names.
+        put("0/alphat", _field_file(
+            "alphat", "[0 2 -1 0 0 0 0]", "0",
+            "    %s { type alphatJayatillekeWallFunction; Prt 0.85; "
+            "value uniform 0; }\n"
+            "    walls { type alphatJayatillekeWallFunction; Prt 0.85; "
+            "value uniform 0; }\n" % case.patch))
+        # Seeds only — a steady solve forgets them, but zero k or omega
+        # divides by zero first. The buoyant velocity scale uses a nominal
+        # 1 K because dT is an OUTPUT of this flux-BC case; the floors keep a
+        # tiny geometry from seeding a zero.
+        d_seed = 2.0 * case.bounding_radius
+        u_b = (case.gravity * case.beta * 1.0 * d_seed) ** 0.5 if case.gravity else 0.0
+        k0 = max(1.5 * (0.05 * u_b) ** 2, 1e-8)
+        omega0 = max(k0 ** 0.5 / (0.09 ** 0.25 * 0.07 * max(d_seed, 1e-6)), 1e-6)
+        put("0/k", _field_file(
+            "k", "[0 2 -2 0 0 0 0]", "%.6g" % k0,
+            "    %s { type kqRWallFunction; value uniform %.6g; }\n"
+            "    walls { type kqRWallFunction; value uniform %.6g; }\n"
+            % (case.patch, k0, k0)))
+        put("0/omega", _field_file(
+            "omega", "[0 0 -1 0 0 0 0]", "%.6g" % omega0,
+            "    %s { type omegaWallFunction; value uniform %.6g; }\n"
+            "    walls { type omegaWallFunction; value uniform %.6g; }\n"
+            % (case.patch, omega0, omega0)))
+        put("0/nut", _field_file(
+            "nut", "[0 2 -1 0 0 0 0]", "0",
+            "    %s { type nutkWallFunction; value uniform 0; }\n"
+            "    walls { type nutkWallFunction; value uniform 0; }\n"
+            % case.patch))
+    else:
+        put("0/alphat", _field_file(
+            "alphat", "[0 2 -1 0 0 0 0]", "0",
+            "    %s { type calculated; value uniform 0; }\n"
+            "    walls { type calculated; value uniform 0; }\n" % case.patch))
 
     put("system/controlDict", _header("dictionary", "controlDict", "system")
         + "application     buoyantBoussinesqSimpleFoam;\n"
@@ -440,6 +521,9 @@ def write_solid(case_dir, case=None):
           "timePrecision   6;\nrunTimeModifiable false;\n"
         % (case.iterations, int(case.write_interval) or case.iterations))
 
+    # ⚠ kOmegaSST needs a wall-distance method — v2512 has no default and
+    # aborts on the first omega evaluation without one. RAS-only, so the
+    # laminar files stay byte-identical.
     put("system/fvSchemes", _header("dictionary", "fvSchemes", "system")
         + "ddtSchemes      { default steadyState; }\n"
           "gradSchemes     { default Gauss linear; }\n"
@@ -448,18 +532,31 @@ def write_solid(case_dir, case=None):
           "    div(phi,T)      bounded Gauss limitedLinear 1;\n"
           "    div(phi,k)      bounded Gauss limitedLinear 1;\n"
           "    div(phi,epsilon) bounded Gauss limitedLinear 1;\n"
-          "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
+        + ("    div(phi,omega)  bounded Gauss limitedLinear 1;\n" if ras else "")
+        + "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
           "laplacianSchemes { default Gauss linear corrected; }\n"
           "interpolationSchemes { default linear; }\n"
-          "snGradSchemes   { default corrected; }\n")
-    put("system/fvSolution", _header("dictionary", "fvSolution", "system")
-        + "solvers\n{\n"
-          "    p_rgh { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0.01; }\n"
-          "    \"(U|T)\" { solver PBiCGStab; preconditioner DILU; tolerance 1e-10; relTol 0.1; }\n"
-          "}\n\nSIMPLE\n{\n    nNonOrthogonalCorrectors 2;\n"
-          "    pRefCell        0;\n    pRefValue       0;\n"
-          "    residualControl { p_rgh 1e-5; U 1e-5; T 1e-6; }\n}\n\n"
-          "relaxationFactors\n{\n    fields { p_rgh 0.7; }\n"
-          "    equations { U 0.3; T 0.5; }\n}\n")
+          "snGradSchemes   { default corrected; }\n"
+        + ("wallDist        { method meshWave; }\n" if ras else ""))
+    if ras:
+        put("system/fvSolution", _header("dictionary", "fvSolution", "system")
+            + "solvers\n{\n"
+              "    p_rgh { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0.01; }\n"
+              "    \"(U|T|k|omega)\" { solver PBiCGStab; preconditioner DILU; tolerance 1e-10; relTol 0.1; }\n"
+              "}\n\nSIMPLE\n{\n    nNonOrthogonalCorrectors 2;\n"
+              "    pRefCell        0;\n    pRefValue       0;\n"
+              "    residualControl { p_rgh 1e-5; U 1e-5; T 1e-6; \"(k|omega)\" 1e-5; }\n}\n\n"
+              "relaxationFactors\n{\n    fields { p_rgh 0.7; }\n"
+              "    equations { U 0.3; T 0.5; \"(k|omega)\" 0.5; }\n}\n")
+    else:
+        put("system/fvSolution", _header("dictionary", "fvSolution", "system")
+            + "solvers\n{\n"
+              "    p_rgh { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0.01; }\n"
+              "    \"(U|T)\" { solver PBiCGStab; preconditioner DILU; tolerance 1e-10; relTol 0.1; }\n"
+              "}\n\nSIMPLE\n{\n    nNonOrthogonalCorrectors 2;\n"
+              "    pRefCell        0;\n    pRefValue       0;\n"
+              "    residualControl { p_rgh 1e-5; U 1e-5; T 1e-6; }\n}\n\n"
+              "relaxationFactors\n{\n    fields { p_rgh 0.7; }\n"
+              "    equations { U 0.3; T 0.5; }\n}\n")
 
     return case

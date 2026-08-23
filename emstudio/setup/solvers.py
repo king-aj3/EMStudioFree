@@ -605,14 +605,22 @@ def find_openems_python():
         return env
     info = find_backend("openems")
     if info.found:
-        # <prefix>/bin/openEMS -> <prefix>/venv/{bin/python,Scripts/python.exe}
-        prefix = os.path.dirname(os.path.dirname(info.path))
-        for parts in (("venv", "bin", "python"),
-                      ("venv", "Scripts", "python.exe"),
-                      ("venv", "bin", "python.exe")):
-            cand = os.path.join(prefix, *parts)
-            if os.path.isfile(cand):
-                return cand
+        # TWO prefix candidates per binary (W1 of docs/OPENEMS_WINDOWS_PLAN.md):
+        # the exe's OWN directory first — the FLAT layouts the Windows zip and
+        # the managed install dir produce (C:\opt\openEMS\openEMS.exe ->
+        # C:\opt\openEMS\venv\...) — then the POSIX <prefix>/bin/openEMS shape
+        # (-> <prefix>/venv/...). Only the second was ever probed, so a venv
+        # placed beside a flat Windows exe was INVISIBLE: `prefix` came out
+        # one level too high (C:\opt\venv). Probing the exe dir first is
+        # harmless on POSIX (~/opt/openEMS/bin/venv never exists).
+        for prefix in (os.path.dirname(info.path),
+                       os.path.dirname(os.path.dirname(info.path))):
+            for parts in (("venv", "bin", "python"),
+                          ("venv", "Scripts", "python.exe"),
+                          ("venv", "bin", "python.exe")):
+                cand = os.path.join(prefix, *parts)
+                if os.path.isfile(cand):
+                    return cand
     return None
 
 

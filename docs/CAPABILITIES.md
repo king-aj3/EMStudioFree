@@ -83,7 +83,7 @@ deterministic requirements→family recommender (`emstudio/antenna/element_picke
 carries a printable rationale per rule, the NBS TN-688 boom-class hint for gain
 targets, honest ships-in-E4/E5 flags for unbuilt families, and the Chu
 bandwidth guardrail. Gates: picker scenario tier + template-override tier in
-`element_designer.py`; gui_smoke 38 checks / 48 commands.
+`element_designer.py`; gui_smoke 39 checks / 49 commands. (Check counts throughout this file are STATIC `check(` call sites in the named gate file — the derivable basis — gated by `capability_counts`.)
 
 **Yagi-Uda synthesis (Element Designer E3) — ✅ validated (v0.59.0):**
 `emstudio/antenna/yagi.py` + `templates/yagi.py` + the Yagi dialog family — NBS
@@ -207,7 +207,7 @@ single-stub (open/short) tuner, hairpin (exact L-match), gamma match (flagged
 EMPIRICAL starting point), a rule-based balun type picker, a deterministic
 topology recommender, E-series (E6/E12/E24/E96) standard-value snapping, and a
 topology-correct finite-Q insertion-loss estimator. Engine only — Qt-free, no
-UI (the dialog is S2). Gate `tests/validation/system_matching.py` (77 checks,
+UI (the dialog is S2). Gate `tests/validation/system_matching.py` (76 checks,
 pure python3) reproduces the re-verified Phase-A anchors to the digit
 (`docs/upstream/system-designer-anchors.md`) and cross-checks that the network
 dissipation equals the closed-form insertion loss.
@@ -346,7 +346,7 @@ Matching / Array / RFDF are Pro.
 | Resonance detection | ✅ | derived | dipole 296 MHz |
 | Touchstone (`.sNp`) export | ✅ validated | order follows what was SOLVED; refuses an order it cannot support, naming the missing terms | `touchstone_export` + `n_port_smatrix`: 1/2/3/5-port layouts, row-major wrap, S11 S21 S12 S22 quirk order |
 | **Far-field radiation pattern** | ✅ validated | openEMS NF2FF, NEC2 RP | dipole 2.13 dBi + axial null; patch 6.6 dBi; full sphere 37×72 |
-| **3-D pattern balloon (rotate/zoom/pan)** | ✅ validated (v0.72.0) | mplot3d tab + FreeCAD viewport object; reachable from Results, Element Designer and Array Designer | `pattern_vtu.py`: 46 checks — radius follows the gain law pointwise, phase-centre registration, closed-phi wrap, read back by our own VTU parser; mutation-tested 7/7 |
+| **3-D pattern balloon (rotate/zoom/pan)** | ✅ validated (v0.72.0) | mplot3d tab + FreeCAD viewport object; reachable from Results, Element Designer and Array Designer | `pattern_vtu.py`: 43 checks — radius follows the gain law pointwise, phase-centre registration, closed-phi wrap, read back by our own VTU parser; mutation-tested 7/7 |
 | **3-D currents / field plane in viewport** | ✅ validated (v0.72.0) | FemPostPipeline VTU | `pattern_vtu.py`: polyline cell + m→mm + mA conversion; quad cells, fixed-axis offset, dB self-normalisation |
 | **Pattern per swept frequency + picker** | ✅ validated (v0.90.0–0.91.0), openEMS added 2026-08-22 | NEC2 multi-frequency `FR`+`RP`; **openEMS from one broadband NF2FF recording — no extra solve at all**; **Pattern Frequencies…** dialog with editable band + a recommended step landing on S11 sample points; both pattern tabs and the 3-D export share one selection | `pattern_sweep.py`: 79 checks — N patterns from ONE run (201 in 7.18 s), per-frequency gains pinned, band round-trip, and the far-field sort proven on a DESCENDING file; 11/11 + 5/5 + 3/3 mutations caught |
 | **NEC-2 thin-wire validity check** | ✅ validated (v0.91.0) | `thin_wire_report()` from the GW cards actually written; warning under the result plots when d/a < 8 (Burke & Poggio) | polyline chords freed of the lone-wire 3-seg floor: real 72-chord helix 240→80 segments, d/a 2.63→8.19; dipole frozen deck byte-identical (2.13 dBi) |
@@ -496,29 +496,34 @@ beside it is not a claim, it is a mood.
 | **GPU on macOS** | ❌ **not possible** | Palace declares only `PALACE_WITH_CUDA`/`PALACE_WITH_HIP` and Apple silicon has neither. A limit of the solver, not a gap. Macs use the CPU path |
 | **GPU on Windows** | ⚠ **WSL2 only** | no native Windows Palace exists. NVIDIA's CUDA-under-WSL2 route applies; AMD ROCm under WSL2 is untested here and is not claimed |
 
-### GPU, measured
+### GPU, measured — THROUGH THE PRODUCT'S OWN PATH
 
-Radeon RX 7900 XTX (gfx1100, ROCm 6.4.2) against **16 MPI ranks** of a
-Threadripper 3990X, `cylinder/cavity_pec` at order 3, **353 208 unknowns**,
-5 eigenmodes, solve only:
+⚠ An earlier version of this table quoted 165.1 vs 199.6 s at 353 208
+unknowns ("1.21× faster") — numbers measured through a HAND-EDITED Palace
+config the product could not produce, the exact v1.5.0 sin. Removed
+2026-08-23 and re-measured through EMStudio's own generated run
+(`run_cavity`, order 3, 145 155 unknowns), Radeon RX 7900 XTX (gfx1100,
+ROCm 6.4.2) against **16 MPI ranks** of a Threadripper 3990X:
 
 | | GPU (1 rank) | CPU (16 ranks) |
 |---|---|---|
-| total | **165.1 s** | 199.6 s |
-| preconditioner | **67.4 s** | 158.9 s |
-| peak memory | **2.3 GB** | 36.7 GB |
+| whole product call | 53.3 s | 52.2 s |
+| peak memory (Palace's own log) | **2.3 GB** | 36.6 GB |
 
-**1.21× faster overall, 2.4× on the preconditioner, and 16× less memory** — and
-the eigenfrequencies agree with the CPU to **12 significant figures**.
+**Wall-clock parity at this size and 16× less memory** — the memory headroom
+is what lets bigger problems fit on one card — with the same fundamental to
+every printed digit, and CPU-vs-GPU agreement ENFORCED to 1e-6 per mode by
+`palace_gpu_agreement` (measured margin 2.2e-9).
 
-⚠ **Three caveats, all load-bearing.** With ParaView field output enabled the
-GPU loses overall (292 s vs 208 s) to a 127 s field write that costs the CPU
-9 s — device-to-host transfer, not solver speed. Beating sixteen ranks of a
-64-core CPU is a stronger result than it looks, and a more ordinary CPU widens
-the margin considerably — but the number is only meaningful with the CPU named.
-And Palace's default build is CPU-only: `docs/PALACE_GPU_BUILD.md` is the
-recipe, and `palace_gpu_plan()` tells you on YOUR machine what is missing and
-how to get it, before a 30–60 minute compile rather than during one.
+⚠ **Caveats, all load-bearing.** Field output moves the balance further
+against the GPU (device-to-host transfer on every write — observed in the
+retired hand-config runs and not re-quoted as a number). The comparison is
+only meaningful with the CPU named: sixteen ranks of a 64-core Threadripper
+is a strong opponent, and parity against it still means the GPU carries the
+same solve in a sixteenth of the memory. And Palace's default build is
+CPU-only: `docs/PALACE_GPU_BUILD.md` is the recipe, and `palace_gpu_plan()`
+tells you on YOUR machine what is missing and how to get it, before a
+30–60 minute compile rather than during one.
 
 ⛳ EMStudio refuses `Device = GPU` when the resolved binary is not linked
 against a GPU runtime, with a reason naming the card. A GPU request that
@@ -535,7 +540,7 @@ silently ran on the CPU would be a setting that changes nothing.
 ## §3 AI Assistant — what is wired and what is engine-only
 
 The chat assistant (A1–A6, Pro) shipped in v0.73.0 and is gated by the
-167-check assistant battery. **Three engine pieces have NO shipped caller and
+164-check assistant battery. **Three engine pieces have NO shipped caller and
 are recorded here so nobody discovers it the hard way** (the filter/diplexer
 precedent — "engine only" is a finding, not a status): `facts_block` renders a
 document-state block nothing sends to the model; `_interpret_results` cannot

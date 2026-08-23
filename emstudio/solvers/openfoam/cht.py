@@ -105,8 +105,19 @@ class ChtCase:
     #: Target Rayleigh number. When set with gravity on, mu is DERIVED to hit
     #: it exactly, exactly as the cavity case derives nu and alpha.
     target_ra: float = 0.0
+    #: "" = laminar — byte-identical to the pre-T4 case. "kOmegaSST" = RAS on
+    #: the FLUID region with the v2512 tree's own COMPRESSIBLE wall functions
+    #: (T4 of docs/OPENFOAM_TURBULENCE_PLAN.md; the model is validated against
+    #: the measured Betts & Bokhari cavity by `openfoam_ras_cavity`). Any
+    #: other string raises — the v1.4.0 defect class.
+    turbulence: str = ""
 
     def __post_init__(self):
+        if self.turbulence not in ("", "kOmegaSST"):
+            raise ValueError(
+                "unsupported turbulence model %r — this writer knows laminar "
+                "(\"\") and \"kOmegaSST\"; a name it cannot honour must fail "
+                "here, not run laminar and report success" % (self.turbulence,))
         if self.t_hot <= self.t_cold:
             raise ValueError("the hot face must be hotter than the cold face")
         for name in ("l_solid", "l_fluid", "k_solid", "n_solid", "n_fluid"):
@@ -398,7 +409,10 @@ def write_region_fields(case_dir, case=None):
             # removes exactly `nut alphat epsilon k U p_rgh` — and NOT `p`:
             # heSolidThermo still reads pressure for its equation of state, and
             # deleting it aborts the solve with "cannot find file 0/<solid>/p".
-            for junk in ("U", "p_rgh", "alphat", "nut", "k", "epsilon"):
+            # (`omega` joined the list with T4's RAS option — removing a file
+            # that does not exist is a no-op, so the laminar case is unmoved.)
+            for junk in ("U", "p_rgh", "alphat", "nut", "k", "epsilon",
+                         "omega"):
                 try:
                     os.remove(os.path.join(case_dir, "0", region, junk))
                 except OSError:
@@ -420,11 +434,55 @@ def write_region_fields(case_dir, case=None):
              + "dimensions      [1 -1 -2 0 0 0 0];\n"
                "internalField   uniform 1e5;\n\n"
              + _boundary(_generic("fixedFluxPressure", "1e5")))
-        _put(case_dir, "0/%s/alphat" % region,
-             _header("volScalarField", "alphat", "0")
-             + "dimensions      [1 -1 -1 0 0 0 0];\n"
-               "internalField   uniform 0;\n\n"
-             + _boundary(_generic("calculated", "0")))
+        if case.turbulence == "kOmegaSST":
+            # COMPRESSIBLE wall functions, read from the v2512 tree's own
+            # buoyantCavity tutorial (compressible::alphatWallFunction with
+            # Prt, nutUWallFunction) — the incompressible names the Boussinesq
+            # writers use would abort here. The alphat entry needs the extra
+            # Prt line, which `_generic` cannot emit, so it is written long.
+            alphat_entries = []
+            for p in patches:
+                if ptypes.get(p) == "empty":
+                    alphat_entries.append(
+                        (p, "        type            empty;\n"))
+                else:
+                    alphat_entries.append(
+                        (p, "        type            "
+                            "compressible::alphatWallFunction;\n"
+                            "        Prt             0.85;\n"
+                            "        value           uniform 0;\n"))
+            _put(case_dir, "0/%s/alphat" % region,
+                 _header("volScalarField", "alphat", "0")
+                 + "dimensions      [1 -1 -1 0 0 0 0];\n"
+                   "internalField   uniform 0;\n\n"
+                 + _boundary(alphat_entries))
+            _dt = case.t_hot - case.t_cold
+            _ub = (case.gravity * case.beta * _dt * case.ra_length) ** 0.5 \
+                if case.gravity else 0.0
+            _k0 = max(1.5 * (0.05 * _ub) ** 2, 1e-8)
+            _om0 = max(_k0 ** 0.5 / (0.09 ** 0.25 * 0.07 *
+                                     max(case.ra_length, 1e-6)), 1e-6)
+            _put(case_dir, "0/%s/k" % region,
+                 _header("volScalarField", "k", "0")
+                 + "dimensions      [0 2 -2 0 0 0 0];\n"
+                   "internalField   uniform %.6g;\n\n" % _k0
+                 + _boundary(_generic("kqRWallFunction", "%.6g" % _k0)))
+            _put(case_dir, "0/%s/omega" % region,
+                 _header("volScalarField", "omega", "0")
+                 + "dimensions      [0 0 -1 0 0 0 0];\n"
+                   "internalField   uniform %.6g;\n\n" % _om0
+                 + _boundary(_generic("omegaWallFunction", "%.6g" % _om0)))
+            _put(case_dir, "0/%s/nut" % region,
+                 _header("volScalarField", "nut", "0")
+                 + "dimensions      [0 2 -1 0 0 0 0];\n"
+                   "internalField   uniform 0;\n\n"
+                 + _boundary(_generic("nutUWallFunction", "0")))
+        else:
+            _put(case_dir, "0/%s/alphat" % region,
+                 _header("volScalarField", "alphat", "0")
+                 + "dimensions      [1 -1 -1 0 0 0 0];\n"
+                   "internalField   uniform 0;\n\n"
+                 + _boundary(_generic("calculated", "0")))
     return found
 
 
@@ -558,9 +616,15 @@ def write_cht(case_dir, case=None):
            "    thermodynamics { Hf 0; Cp %.10g; }\n"
            "    transport { mu %.10g; Pr %.10g; }\n%s}\n"
          % (eos, case.cp_fluid, case.mu, case.pr_fluid, eos_block))
-    _put(case_dir, "constant/%s/turbulenceProperties" % FLUID_REGION,
-         _header("dictionary", "turbulenceProperties", "constant")
-         + "simulationType laminar;\n")
+    if case.turbulence == "kOmegaSST":
+        _put(case_dir, "constant/%s/turbulenceProperties" % FLUID_REGION,
+             _header("dictionary", "turbulenceProperties", "constant")
+             + "simulationType RAS;\n\nRAS\n{\n    RASModel        kOmegaSST;\n"
+               "    turbulence      on;\n    printCoeffs     off;\n}\n")
+    else:
+        _put(case_dir, "constant/%s/turbulenceProperties" % FLUID_REGION,
+             _header("dictionary", "turbulenceProperties", "constant")
+             + "simulationType laminar;\n")
 
     # --- initial fields on the WHOLE mesh; splitMeshRegions maps them --------
     # These are only SEEDS: splitMeshRegions maps them, then
@@ -574,14 +638,33 @@ def write_cht(case_dir, case=None):
            "    cold { type fixedValue; value uniform %.10g; }\n"
            "    topBottom { type zeroGradient; }\n%s}\n"
          % (t_mid, case.t_hot, case.t_cold, empty2d))
-    for obj, cls, dims, internal, kind, val in (
+    seed_fields = [
             ("p", "volScalarField", "[1 -1 -2 0 0 0 0]", "1e5", "calculated", "1e5"),
             ("p_rgh", "volScalarField", "[1 -1 -2 0 0 0 0]", "1e5",
              "fixedFluxPressure", "1e5"),
             ("U", "volVectorField", "[0 1 -1 0 0 0 0]", "(0 0 0)",
              "fixedValue", "(0 0 0)"),
             ("alphat", "volScalarField", "[1 -1 -1 0 0 0 0]", "0",
-             "calculated", "0")):
+             "calculated", "0")]
+    if case.turbulence == "kOmegaSST":
+        # Seeds only, on the UN-SPLIT mesh — splitMeshRegions maps them and
+        # write_region_fields then replaces the fluid copies whole. Buoyant
+        # velocity scale from the case's own dT and gap; floors keep a tiny
+        # gap from seeding a zero (which divides before it can be forgotten).
+        _dt = case.t_hot - case.t_cold
+        _ub = (case.gravity * case.beta * _dt * case.ra_length) ** 0.5 \
+            if case.gravity else 0.0
+        _k0 = max(1.5 * (0.05 * _ub) ** 2, 1e-8)
+        _om0 = max(_k0 ** 0.5 / (0.09 ** 0.25 * 0.07 *
+                                 max(case.ra_length, 1e-6)), 1e-6)
+        seed_fields += [
+            ("k", "volScalarField", "[0 2 -2 0 0 0 0]", "%.6g" % _k0,
+             "kqRWallFunction", "%.6g" % _k0),
+            ("omega", "volScalarField", "[0 0 -1 0 0 0 0]", "%.6g" % _om0,
+             "omegaWallFunction", "%.6g" % _om0),
+            ("nut", "volScalarField", "[0 2 -1 0 0 0 0]", "0",
+             "nutUWallFunction", "0")]
+    for obj, cls, dims, internal, kind, val in seed_fields:
         _put(case_dir, "0/%s" % obj, _header(cls, obj, "0")
              + "dimensions      %s;\ninternalField   uniform %s;\n\n"
                "boundaryField\n{\n"
@@ -639,6 +722,10 @@ def write_cht(case_dir, case=None):
              _header("dictionary", "changeDictionaryDict", "system")
              + t_block + extra)
 
+        # ⚠ kOmegaSST needs its div schemes and a wall-distance method on the
+        # FLUID region — v2512 aborts without wallDist. RAS-only additions, so
+        # the laminar dictionaries stay byte-identical.
+        _ras_here = (region == FLUID_REGION and case.turbulence == "kOmegaSST")
         _put(case_dir, "system/%s/fvSchemes" % region,
              _header("dictionary", "fvSchemes", "system")
              + "ddtSchemes      { default steadyState; }\n"
@@ -649,10 +736,13 @@ def write_cht(case_dir, case=None):
                "    div(phi,h)      bounded Gauss upwind;\n"
                "    div(phi,e)      bounded Gauss upwind;\n"
                "    div(phi,Ekp)    bounded Gauss linear;\n"
-               "    div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear;\n}\n"
+             + ("    div(phi,k)      bounded Gauss upwind;\n"
+                "    div(phi,omega)  bounded Gauss upwind;\n" if _ras_here else "")
+             + "    div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear;\n}\n"
                "laplacianSchemes { default Gauss linear corrected; }\n"
                "interpolationSchemes { default linear; }\n"
-               "snGradSchemes   { default corrected; }\n")
+               "snGradSchemes   { default corrected; }\n"
+             + ("wallDist        { method meshWave; }\n" if _ras_here else ""))
 
         if region == SOLID_REGION:
             _put(case_dir, "system/%s/fvSolution" % region,
@@ -685,14 +775,23 @@ def write_cht(case_dir, case=None):
                    "        nCellsInCoarsestLevel 10;\n"
                    "        mergeLevels     1;\n"
                    "        cacheAgglomeration on;\n    }\n"
-                   "    \"(U|h|k|epsilon)\" { solver PBiCGStab; preconditioner DILU; "
-                   "tolerance 1e-9; relTol 0.01; }\n}\n\n"
+                 + ("    \"(U|h|k|omega|epsilon)\" { solver PBiCGStab; "
+                    "preconditioner DILU; tolerance 1e-9; relTol 0.01; }\n}\n\n"
+                    if _ras_here else
+                    "    \"(U|h|k|epsilon)\" { solver PBiCGStab; preconditioner DILU; "
+                    "tolerance 1e-9; relTol 0.01; }\n}\n\n")
+                 +
                    "SIMPLE\n{\n    momentumPredictor yes;\n"
                    "    nNonOrthogonalCorrectors 0;\n    pRefCell 0;\n"
                    "    pRefValue 1e5;\n"
-                   "    residualControl { p_rgh 1e-5; U 1e-5; h 1e-6; }\n}\n\n"
-                   "relaxationFactors { fields { p_rgh 0.7; } "
-                   "equations { U 0.3; h 0.7; } }\n")
+                 + ("    residualControl { p_rgh 1e-5; U 1e-5; h 1e-6; "
+                    "\"(k|omega)\" 1e-5; }\n}\n\n"
+                    "relaxationFactors { fields { p_rgh 0.7; } "
+                    "equations { U 0.3; h 0.7; \"(k|omega)\" 0.5; } }\n"
+                    if _ras_here else
+                    "    residualControl { p_rgh 1e-5; U 1e-5; h 1e-6; }\n}\n\n"
+                    "relaxationFactors { fields { p_rgh 0.7; } "
+                    "equations { U 0.3; h 0.7; } }\n"))
 
     _put(case_dir, "system/fvSchemes",
          _header("dictionary", "fvSchemes", "system")

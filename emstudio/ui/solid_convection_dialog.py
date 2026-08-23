@@ -152,6 +152,13 @@ def build_dialog(triangles, label, doc=None, parent=None):  # pragma: no cover
                              t_film_k=float(self.ambient.value()) + 15.0,
                              iterations=DEFAULT_ITERATIONS,
                              write_interval=DEFAULT_WRITE_INTERVAL)
+            # T4 (AJ's ruling 2026-08-23): above the laminar ceiling the
+            # dialog CHOOSES kOmegaSST rather than shipping a number it has
+            # to disclaim. The estimate closes the flux/Churchill loop
+            # pre-solve; the model used is NAMED in the result text, always.
+            if case.ra_estimate() > 1.0e8:
+                from dataclasses import replace
+                case = replace(case, turbulence="kOmegaSST")
             # The longest solves in the product ask first — see
             # emstudio.solvers.estimate for why the number is measured or
             # absent rather than modelled.
@@ -241,15 +248,25 @@ def build_dialog(triangles, label, doc=None, parent=None):  # pragma: no cover
             note = film_note(res.t_mean, res.t_amb, case.t_film_k)
             if note:
                 text += "<br><br>⚠ " + note
-            # ⚠ The laminar steady model has a ceiling, and nothing else
-            # would say so: above Ra ~1e8 the plume is transitional and a
-            # converged answer is not thereby a right one (§8b honesty).
+            # ⚠ The MODEL THAT RAN is named, always (T4). Above Ra ~1e8 the
+            # dialog chose kOmegaSST before solving; if the pre-solve
+            # estimate missed and a LAMINAR solve landed turbulent anyway,
+            # the old honesty warning still fires.
             ra_d = res.ra_for(2.0 * case.bounding_radius)
-            if ra_d > 1.0e8:
+            if case.turbulence:
+                text += ("<br><br>Solved with the <b>kOmegaSST</b> "
+                         "turbulence model (chosen because the estimated Ra "
+                         "exceeds 1e8; solved Ra %.2g). The model is "
+                         "validated against the measured Betts &amp; "
+                         "Bokhari cavity (gate openfoam_ras_cavity) and "
+                         "this free-convection regime against Churchill's "
+                         "correlation (gate openfoam_ras_solid)." % ra_d)
+            elif ra_d > 1.0e8:
                 text += ("<br><br>⚠ Ra over the solid's size is %.2g — "
                          "beyond the laminar steady regime this case "
-                         "models. Treat the result as UNVALIDATED at this "
-                         "scale (a turbulence rung is ROADMAP §8b)." % ra_d)
+                         "models, and the pre-solve estimate did not "
+                         "predict it, so this ran LAMINAR. Treat the "
+                         "result as UNVALIDATED at this scale." % ra_d)
             for w in res.warnings:
                 text += "<br><br>⚠ " + w
             self.out.setText(text)

@@ -602,11 +602,12 @@ tab's 2-D polar plot; and a run that produced no finite gain values has nothing
 to draw. Overlays are ordinary objects, so old ones from earlier runs stay in
 the tree until you delete them.
 
-One honest limitation on the Array Designer: its Verify builds the array in a
-scratch document that is closed when the run finishes, so there is no array
-geometry left to attach the pattern to. That overlay is centred on the **origin**
-of your active document, not on an antenna. Element Designer patterns and the
-Results-dialog overlays are placed relative to the geometry they came from.
+The Array Designer's "Show pattern in 3-D view" rebuilds the verified array's
+wire geometry into your active document (grouped, so you can delete it as one
+thing) and centres the balloon **on the array itself** — the same constructor
+that built the solved geometry draws the displayed one, so the two cannot
+drift. Element Designer patterns and the Results-dialog overlays are likewise
+placed relative to the geometry they came from.
 
 ## 6e. Tutorial: induction heating & wireless power (Elmer magnetics)
 

@@ -117,8 +117,26 @@ class WindCase:
     #: Strouhal number used ONLY to size the time step and run length before
     #: the solve — the measured value comes out of the lift history. 0.2 is the
     #: flat part of the St(Re) curve across a huge Re range, which is why it is
-    #: safe as a sizing guess and useless as an answer.
+    #: safe as a sizing guess and useless as an answer. The SQUARE cylinder's
+    #: value is ~0.13 — pass st_guess=0.13 with geometry="square".
     st_guess: float = 0.2
+    #: Body cross-section. "circle" (the shipped O-grid, arcs) or "square"
+    #: (§8b turbulence anchor, 2026-08-23 de-risk): SAME 4-block ring with the
+    #: vertex ring rotated 45 deg and the inner arcs DROPPED, giving a square
+    #: of side `d_ref` with flat faces normal to the flow (zero incidence) —
+    #: the corner-fixed-separation geometry the published anchor (Lyn 1995 /
+    #: Tian 2013, Re 21 400) is defined on. Cd reference stays `d_ref`.
+    geometry: str = "circle"
+    #: "" = laminar (byte-identical to the pre-RAS case). "kOmegaSST" = URANS
+    #: forced-convection turbulence — TRANSIENT ONLY: steady RANS on a
+    #: shedding bluff body converges to an artifact (Franke & Rodi 1993), so
+    #: the model is refused on the steady path rather than misused by it.
+    turbulence: str = ""
+    #: Fixed nondimensional time step dt* = dt*U/d_ref (0 = keep the adaptive
+    #: co_max stepping). The RAS anchor uses 0.004 (Tian's step): near-wall
+    #: cells at y+ ~2 make Courant-adaptive stepping grind, and a FIXED step
+    #: with `backward` keeps the Strouhal measurement off the step size.
+    fixed_dt_star: float = 0.0
 
     def __post_init__(self):
         if self.reynolds <= 0:
@@ -129,6 +147,22 @@ class WindCase:
             raise ValueError("the far field must be at least 2 diameters out")
         if self.n_r < 4 or self.n_theta < 4:
             raise ValueError("need at least 4 cells in each direction")
+        if self.geometry not in ("circle", "square"):
+            raise ValueError("geometry is \"circle\" or \"square\", not %r"
+                             % (self.geometry,))
+        if self.turbulence not in ("", "kOmegaSST"):
+            raise ValueError(
+                "unsupported turbulence model %r — this writer knows laminar "
+                "(\"\") and \"kOmegaSST\"; a name it cannot honour must fail "
+                "here, not run laminar and report success" % (self.turbulence,))
+        if self.turbulence and not self.transient:
+            raise ValueError(
+                "kOmegaSST here is TRANSIENT-only: steady RANS on a shedding "
+                "bluff body converges to a non-shedding artifact and badly "
+                "misses the measured flow (Franke & Rodi 1993) — set "
+                "transient=True")
+        if self.fixed_dt_star < 0:
+            raise ValueError("fixed_dt_star is a step size (0 = adaptive)")
 
     @property
     def u_inf(self):
@@ -161,13 +195,16 @@ class WindCase:
 
     @property
     def delta_t(self):
-        """Starting step. The solver then adjusts it to hold `co_max`.
+        """Starting step. The solver then adjusts it to hold `co_max` —
+        unless `fixed_dt_star` is set, in which case this IS the step.
 
         Sized so one shedding period is resolved by ~400 steps even before
         the Courant control takes over — a period resolved by a handful of
         steps yields a Strouhal number set by the time step rather than by
         the flow.
         """
+        if self.fixed_dt_star > 0:
+            return self.fixed_dt_star * self.d_ref / self.u_inf
         return self.shed_period / 400.0
 
     @property
@@ -185,23 +222,52 @@ class WindCase:
         """Is the CHOSEN method defensible at this Reynolds number?
 
         Steady below shedding onset, unsteady above it — and neither above
-        :data:`TURBULENT_RE`, where a laminar solve of any kind stops being
-        the right physics regardless of how the time derivative is treated.
+        :data:`TURBULENT_RE` WITHOUT a turbulence model. With kOmegaSST on
+        the transient path, a SHARP-EDGED (square) section is validated to
+        Re ~1.5e5 — the highest experimental point on the square cylinder's
+        flat Cd curve (Fage & Johansen 1927; anchor gate
+        `openfoam_wind_ras`). A CIRCULAR section stays refused up there:
+        its drag crisis is transition-location physics no single-Re anchor
+        transfers across.
         """
+        if (self.transient and self.turbulence == "kOmegaSST"
+                and self.geometry == "square"):
+            # ⚠⚠ STILL FALSE — the machinery exists but its anchor has NOT
+            # run: both startup attempts SIGFPE'd in the k/omega solve
+            # (2026-08-23, Co 2.4 and Co 0.9 — a startup-stiffness problem,
+            # not step size). Flip to `self.reynolds <= 1.5e5` ONLY in the
+            # same commit that lands a green `openfoam_wind_ras` gate; a
+            # validity claim may not precede its evidence (the v1.5.0 rule).
+            return False
         if self.reynolds >= TURBULENT_RE:
             return False
         return self.transient or self.steady_is_valid
 
     def validity_note(self):
         """The caveat a caller must surface, or empty when there is none."""
+        if (self.transient and self.turbulence == "kOmegaSST"
+                and self.geometry == "square"):
+            return (
+                "kOmegaSST wind machinery is BUILT but its published anchor "
+                "(square cylinder, Re 21 400, Lyn/Tian) has not yet run "
+                "green — treat every number from this path as UNVALIDATED "
+                "until the openfoam_wind_ras gate exists and passes.")
         if self.reynolds >= TURBULENT_RE:
+            if self.turbulence == "kOmegaSST":
+                return (
+                    "kOmegaSST is validated on the SHARP-EDGED square section "
+                    "only (geometry=\"square\", the corner-fixed-separation "
+                    "anchor); a circular section's drag crisis is "
+                    "transition-location physics the anchor does not cover. "
+                    "This number is not a validated wind load.")
             return (
                 "Re %.4g is beyond what a LAMINAR solve can represent, steady "
                 "or not: the boundary layer and wake are turbulent, and no "
                 "time-stepping scheme fixes a missing turbulence model. A "
                 "number from this case is not a wind load. Real antenna "
-                "loading is Re 1e5-1e6 and needs a validated turbulence model."
-                % self.reynolds)
+                "loading is Re 1e5-1e6 and needs a validated turbulence model "
+                "(square sections have one: transient kOmegaSST, gate "
+                "openfoam_wind_ras)." % self.reynolds)
         if self.steady_is_valid or self.transient:
             return ""
         return (
@@ -227,8 +293,14 @@ def _field(obj, dims, internal, boundary):
 def write_wind(case_dir, case=None):
     """Write a complete cross-flow case. Returns the resolved :class:`WindCase`."""
     case = case or WindCase()
-    r_i = case.d_ref / 2.0
-    r_o = r_i * case.radius_ratio
+    square = case.geometry == "square"
+    # SQUARE: inner vertices sit at the CORNERS, radius side/sqrt(2), and the
+    # ring is rotated 45 deg so the flat faces are normal/parallel to the
+    # x-flow — zero incidence, side exactly d_ref. The straight block edges
+    # ARE the body: no inner arcs are written.
+    r_i = case.d_ref / math.sqrt(2.0) if square else case.d_ref / 2.0
+    ang0 = 45.0 if square else 0.0
+    r_o = (case.d_ref / 2.0) * case.radius_ratio
     t = case.thickness
     u = case.u_inf
 
@@ -248,7 +320,7 @@ def write_wind(case_dir, case=None):
     for z in (0.0, t):
         for r in (r_i, r_o):
             for k in range(4):
-                a = math.radians(k * 90.0)
+                a = math.radians(ang0 + k * 90.0)
                 verts += ("    (%.10g %.10g %.10g)\n"
                           % (r * math.cos(a), r * math.sin(a), z))
 
@@ -267,9 +339,13 @@ def write_wind(case_dir, case=None):
     for zi, z in enumerate((0.0, t)):
         off = zi * 8
         for k in range(4):
-            a = math.radians((k + 0.5) * 90.0)
-            for r, lo, hi in ((r_i, i_(k) + off, i_(k + 1) + off),
-                              (r_o, o_(k) + off, o_(k + 1) + off)):
+            a = math.radians(ang0 + (k + 0.5) * 90.0)
+            # The inner boundary is an arc ONLY for the circle; the square's
+            # sides are the straight block edges themselves.
+            pairs = ((r_o, o_(k) + off, o_(k + 1) + off),) if square else \
+                    ((r_i, i_(k) + off, i_(k + 1) + off),
+                     (r_o, o_(k) + off, o_(k + 1) + off))
+            for r, lo, hi in pairs:
                 edges += ("    arc %d %d (%.10g %.10g %.10g)\n"
                           % (lo, hi, r * math.cos(a), r * math.sin(a), z))
     inner = "".join("        (%d %d %d %d)\n"
@@ -293,9 +369,16 @@ def write_wind(case_dir, case=None):
     put("constant/transportProperties",
         _header("dictionary", "transportProperties", "constant")
         + "transportModel  Newtonian;\nnu              %.10g;\n" % case.nu)
-    put("constant/turbulenceProperties",
-        _header("dictionary", "turbulenceProperties", "constant")
-        + "simulationType  laminar;\n")
+    ras = case.turbulence == "kOmegaSST"
+    if ras:
+        put("constant/turbulenceProperties",
+            _header("dictionary", "turbulenceProperties", "constant")
+            + "simulationType  RAS;\n\nRAS\n{\n    RASModel        kOmegaSST;\n"
+              "    turbulence      on;\n    printCoeffs     off;\n}\n")
+    else:
+        put("constant/turbulenceProperties",
+            _header("dictionary", "turbulenceProperties", "constant")
+            + "simulationType  laminar;\n")
 
     # ⚠ freestream handles inflow AND outflow on ONE patch, which is what an
     # external O-grid needs — the same boundary does both depending on where
@@ -310,6 +393,41 @@ def write_wind(case_dir, case=None):
                       "    farfield { type freestreamPressure; "
                       "freestreamValue uniform 0; }\n"
                       "    frontAndBack { type empty; }\n"))
+    if ras:
+        # WALL-FUNCTION wall treatment (the high-Re triple), matching the
+        # published 2-D URANS square-cylinder studies in the anchor table
+        # (Bosch & Rodi 1998, Shimada & Ishihara 2002 — both wall-function
+        # meshes). ⚠ A RESOLVED-wall (y+ ~2, low-Re triple) configuration
+        # was tried first and DIVERGES at the sharp corners: three attempts
+        # 2026-08-23 (Co 2.4, 0.9, and with robust PBiCGStab solvers) all
+        # ended in SIGFPE with the k field churning at initial residual ~0.9
+        # — the corner singularity plus a near-fixed omega ~1/y^2 is not a
+        # configuration the published anchors used either. Mesh the body with
+        # first cells in the LOG LAYER (y+ ~30: mild grading, e.g. 2)
+        # accordingly. Inlet turbulence from the anchor experiment's own
+        # tunnel (I = 2 %, l = 0.07 d — Lyn's rig as characterised by Tian
+        # 2013, whose sensitivity study puts the l-choice at < 0.27 % of Cd).
+        # The freestream patch takes inletOutlet so backflow re-entering the
+        # domain carries the freestream levels rather than whatever left.
+        k_in = 1.5 * (0.02 * u) ** 2
+        om_in = k_in ** 0.5 / (0.09 ** 0.25 * 0.07 * case.d_ref)
+        put("0/k", _field(
+            "k", "[0 2 -2 0 0 0 0]", "%.6g" % k_in,
+            "    cylinder { type kqRWallFunction; value uniform %.6g; }\n"
+            "    farfield { type inletOutlet; inletValue uniform %.6g; "
+            "value uniform %.6g; }\n"
+            "    frontAndBack { type empty; }\n" % (k_in, k_in, k_in)))
+        put("0/omega", _field(
+            "omega", "[0 0 -1 0 0 0 0]", "%.6g" % om_in,
+            "    cylinder { type omegaWallFunction; value uniform %.6g; }\n"
+            "    farfield { type inletOutlet; inletValue uniform %.6g; "
+            "value uniform %.6g; }\n"
+            "    frontAndBack { type empty; }\n" % (om_in, om_in, om_in)))
+        put("0/nut", _field(
+            "nut", "[0 2 -1 0 0 0 0]", "0",
+            "    cylinder { type nutkWallFunction; value uniform 0; }\n"
+            "    farfield { type calculated; value uniform 0; }\n"
+            "    frontAndBack { type empty; }\n"))
 
     # ⚠ `rho rhoInf` because simpleFoam is INCOMPRESSIBLE: its p is kinematic
     # (m^2/s^2), so the function object must be told the density to return
@@ -321,6 +439,15 @@ def write_wind(case_dir, case=None):
         # so sampling it coarsely would alias the very thing being measured.
         # Field writes stay rare — they are for looking at, not for numbers.
         n_writes = 20.0
+        if case.fixed_dt_star > 0:
+            # The anchor's stepping: FIXED dt* with `backward`. Adaptive
+            # Courant stepping grinds against the y+ ~2 wall cells, and the
+            # Strouhal measurement must not be a function of a moving step.
+            stepping = "adjustTimeStep  no;\n"
+        else:
+            stepping = ("adjustTimeStep  yes;\nmaxCo           %.10g;\n"
+                        "maxDeltaT       %.10g;\n"
+                        % (case.co_max, case.delta_t * 20.0))
         put("system/controlDict",
             _header("dictionary", "controlDict", "system")
             + "application     pimpleFoam;\nstartFrom       startTime;\n"
@@ -330,15 +457,13 @@ def write_wind(case_dir, case=None):
               "purgeWrite      2;\nwriteFormat     ascii;\nwritePrecision  10;\n"
               "writeCompression off;\ntimeFormat      general;\ntimePrecision   6;\n"
               "runTimeModifiable false;\n"
-              "adjustTimeStep  yes;\nmaxCo           %.10g;\n"
-              "maxDeltaT       %.10g;\n\n"
+            % (case.end_time, case.delta_t, case.end_time / n_writes)
+            + stepping + "\n"
               "functions\n{\n    forces\n    {\n        type            forces;\n"
               "        libs            (forces);\n        patches         (cylinder);\n"
               "        rho             rhoInf;\n        rhoInf          %.10g;\n"
               "        CofR            (0 0 0);\n        writeControl    timeStep;\n"
-              "        writeInterval   1;\n    }\n}\n"
-            % (case.end_time, case.delta_t, case.end_time / n_writes,
-               case.co_max, case.delta_t * 20.0, case.rho))
+              "        writeInterval   1;\n    }\n}\n" % case.rho)
 
         # `backward` is second order in time. Euler is stable but damps the
         # oscillation this case exists to measure, which shows up as a
@@ -348,20 +473,36 @@ def write_wind(case_dir, case=None):
               "gradSchemes     { default Gauss linear; }\n"
               "divSchemes\n{\n    default none;\n"
               "    div(phi,U)      Gauss linearUpwind grad(U);\n"
-              "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
+            + ("    div(phi,k)      Gauss upwind;\n"
+               "    div(phi,omega)  Gauss upwind;\n" if ras else "")
+            + "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
               "laplacianSchemes { default Gauss linear corrected; }\n"
               "interpolationSchemes { default linear; }\n"
-              "snGradSchemes   { default corrected; }\n")
+              "snGradSchemes   { default corrected; }\n"
+            + ("wallDist        { method meshWave; }\n" if ras else ""))
         # ⚠ No `bounded` on div(phi,U) here: that term exists to help a steady
         # solve converge and is not wanted in a transient one.
         put("system/fvSolution", _header("dictionary", "fvSolution", "system")
             + "solvers\n{\n"
               "    p { solver GAMG; tolerance 1e-8; relTol 0.01; smoother GaussSeidel; }\n"
               "    pFinal { $p; relTol 0; }\n"
-              "    \"(U|UFinal)\" { solver smoothSolver; smoother symGaussSeidel; "
-              "tolerance 1e-9; relTol 0; }\n"
-              "}\n\nPIMPLE\n{\n    nOuterCorrectors 2;\n    nCorrectors 2;\n"
-              "    nNonOrthogonalCorrectors 0;\n}\n")
+            + ("    \"(U|UFinal)\" { solver smoothSolver; smoother "
+               "symGaussSeidel; tolerance 1e-9; relTol 0; }\n"
+               # ⚠ NOT smoothSolver for k/omega: the omegaWallFunction fixes
+               # near-wall omega at ~1e6+ on a resolved wall, and the
+               # symGaussSeidel smoother DIVERGED on that stiff system
+               # (measured 2026-08-23: final residual 3e+257 at 1000
+               # iterations, then SIGFPE). PBiCGStab+DILU holds it.
+               "    \"(k|omega|kFinal|omegaFinal)\" { solver PBiCGStab; "
+               "preconditioner DILU; tolerance 1e-9; relTol 0; }\n"
+               "    Phi { solver GAMG; tolerance 1e-8; relTol 0.01; "
+               "smoother GaussSeidel; }\n" if ras else
+               "    \"(U|UFinal)\" { solver smoothSolver; smoother symGaussSeidel; "
+               "tolerance 1e-9; relTol 0; }\n")
+            + "}\n\nPIMPLE\n{\n    nOuterCorrectors 2;\n    nCorrectors 2;\n"
+              "    nNonOrthogonalCorrectors 0;\n}\n"
+            + ("\npotentialFlow\n{\n    nNonOrthogonalCorrectors 3;\n}\n"
+               if ras else ""))
         return case
 
     put("system/controlDict", _header("dictionary", "controlDict", "system")

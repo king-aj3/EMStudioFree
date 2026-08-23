@@ -27,3 +27,11 @@
 - Validation: `tests/validation/p452.py` replays the official CG-3M P.452-18
   validation examples (mirrored from the upstream MATLAB twin repo
   github.com/eeveetza/p452) through this vendored copy.
+
+## SPDX confirmation
+
+Asked upstream 2026-08-23 — one issue covering all four vendored repos
+(the LICENSE text is byte-identical):
+https://github.com/eeveetza/Py1812/issues/13 — awaiting the author's
+one-line characterisation; record the answer here when it lands and
+re-export the free tree.

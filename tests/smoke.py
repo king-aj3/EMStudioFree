@@ -289,6 +289,29 @@ def _openems_python_resolver():
         assert got == cand, \
             "venv layout {0} not resolved: got {1}".format("/".join(parts), got)
 
+    # (2b) the FLAT Windows layout — exe at <root>/openEMS.exe with the venv
+    # BESIDE it (what the zip install and the managed dir produce). W1 of
+    # docs/OPENEMS_WINDOWS_PLAN.md: before 2026-08-23 the resolver assumed a
+    # bin/ level and probed one directory too high, so this venv was invisible
+    # — and this check could not catch it, because both synthetic trees above
+    # include bin/. Deleting the exe-dir probe turns this red (mutation-proved
+    # at commit time).
+    flat = os.path.join(root, "flat")
+    exe = os.path.join(flat, "openEMS")
+    os.makedirs(flat, exist_ok=True)
+    open(exe, "w").close()
+    os.chmod(exe, 0o755)
+    cand = os.path.join(flat, "venv", "Scripts", "python.exe")
+    os.makedirs(os.path.dirname(cand), exist_ok=True)
+    open(cand, "w").close()
+    os.environ["EMSTUDIO_OPENEMS"] = exe
+    try:
+        got = solvers.find_openems_python()
+    finally:
+        os.environ.pop("EMSTUDIO_OPENEMS", None)
+    assert got == cand, \
+        "FLAT layout venv beside the exe not resolved: got {0}".format(got)
+
     # the env override always wins and needs no install tree at all
     with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as fh:
         fake = fh.name

@@ -26,3 +26,11 @@
   P.1546-6 validation examples (v6.2 set; the profile CSVs + reference results
   mirrored from the same upstream repo, file-verified against the official ITU
   zip during the 2026-07-09 de-risk) through this vendored copy.
+
+## SPDX confirmation
+
+Asked upstream 2026-08-23 — one issue covering all four vendored repos
+(the LICENSE text is byte-identical):
+https://github.com/eeveetza/Py1812/issues/13 — awaiting the author's
+one-line characterisation; record the answer here when it lands and
+re-export the free tree.

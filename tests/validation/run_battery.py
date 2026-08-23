@@ -81,6 +81,7 @@ SOLVER = [
     "openfoam_cht_convection",
     "openfoam_cylinder",
     "openfoam_ras_cavity",
+    "openfoam_ras_solid",
     "openfoam_solid",
     "openfoam_wind",
     "openfoam_wind_transient",
@@ -115,6 +116,20 @@ def _tier_audit():
     missing = sorted(on_disk - tiered)
     stale = sorted(tiered - on_disk)
     dupes = sorted(set(FAST) & set(SOLVER))
+    # The FreeCAD-routing sets are tier-audited too: a FAST name in either
+    # would silently slow CI-mirroring runs, and overlap would make the
+    # routing ambiguous. ⚠ Audited against files ON DISK — the free export
+    # strips Pro-only gates from the tiers but not from these sets, so a
+    # Pro-only name (system_match_nec2, array_nec2) is legitimately absent
+    # in the public repo and must not fail its battery.
+    fc_present = (NEEDS_FREECAD | WANTS_FREECAD) & on_disk
+    if not fc_present <= set(SOLVER):
+        raise SystemExit("run_battery tier audit FAILED: NEEDS_FREECAD/"
+                         "WANTS_FREECAD name(s) not in the SOLVER tier: {0}".format(
+                             sorted(fc_present - set(SOLVER))))
+    if not WANTS_FREECAD.isdisjoint(NEEDS_FREECAD):
+        raise SystemExit("run_battery tier audit FAILED: in both FreeCAD "
+                         "sets: {0}".format(sorted(WANTS_FREECAD & NEEDS_FREECAD)))
     if missing or stale or dupes:
         msgs = []
         if missing:
@@ -171,6 +186,7 @@ SOLVER_REQS = {
     "stl_mesh_openems": "openems_python",
     "openfoam_solid": "openfoam",
     "openfoam_ras_cavity": "openfoam",
+    "openfoam_ras_solid": "openfoam",
 }
 
 
@@ -257,6 +273,28 @@ NEEDS_FREECAD = {
     "msl_notch_openems", "patch_auto_openems", "patch_openems",
     "patch_stl_openems", "two_port_openems", "waveguide_port_openems",
     "n_port_live_palace",
+    # ⚠ These eight SELF-SKIP under python3 with exit 0 — `--all` printed
+    # "ok" for runs that tested NOTHING (the 2026-08-05 defect class, found
+    # again by the 2026-08-23 Gate-B audit). Their whole body needs FreeCAD,
+    # so they belong here: an honest battery skip when freecadcmd is absent
+    # beats a vacuous pass every time.
+    "lpda_nec2", "yagi_nec2", "antenna_from_selection",
+    "curved_wire_nec2", "solenoid3d_elmer", "stl_mesh_openems",
+    "horn_openems",
+}
+
+#: SOLVER gates that RUN under python3 but carry a FreeCAD-only template half
+#: ("Gate B/C") that silently self-skips there — the half no automated runner
+#: had EVER exercised (2026-08-23 audit). Routed through freecadcmd +
+#: run_gate.py when freecadcmd exists so --all exercises the template half;
+#: fall back to python3 (Gate A only, with the gate's own honest "Gate B
+#: skipped" line) when it does not — never skip outright, unlike
+#: NEEDS_FREECAD, because half a gate is better than none.
+WANTS_FREECAD = {
+    "amr_palace", "cavity_palace", "circwaveguide_palace", "coax_palace",
+    "cylcavity_palace", "fastsweep_palace", "waveguide_palace",
+    "induction_elmer", "wpt_elmer",
+    "wire_from_solid",          # partial FreeCAD tiers
 }
 
 #: Per-gate SOLVER timeouts where the default is structurally too small.
@@ -270,6 +308,8 @@ SLOW_GATES_TIMEOUT_S = {
     "openfoam_solid": 7200.0,
     "openfoam_bundle": 5400.0,
     "openfoam_cht_convection": 5400.0,
+    # One ~3 h RAS solve (measured 2026-08-23) — the turbulent-regime anchor.
+    "openfoam_ras_solid": 14400.0,
 }
 
 
@@ -285,10 +325,13 @@ def _run_gate(name, timeout_s):
     # element_designer passed from PowerShell and failed from Git Bash, at the
     # SAME commit. A gate must report on the code, not on the terminal.
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    if name in NEEDS_FREECAD:
-        # Availability was already checked in main() (a missing freecadcmd is
-        # an honest SKIP there, per the SOLVER_REQS philosophy).
-        import shutil
+    import shutil
+    if name in NEEDS_FREECAD or (name in WANTS_FREECAD
+                                 and shutil.which("freecadcmd")):
+        # NEEDS_FREECAD availability was already checked in main() (a missing
+        # freecadcmd is an honest SKIP there, per the SOLVER_REQS
+        # philosophy); WANTS_FREECAD upgrades to freecadcmd only when it is
+        # actually present.
         argv = [shutil.which("freecadcmd"),
                 os.path.join(_ROOT, "tests", "run_gate.py"), path]
     else:

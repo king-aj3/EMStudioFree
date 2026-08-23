@@ -21,3 +21,11 @@
 - Validation: `tests/validation/p1812.py` replays the official ITU-R
   P.1812-6 validation examples through this vendored copy (final Lb/E and the
   per-equation delta-Bullington intermediates).
+
+## SPDX confirmation
+
+Asked upstream 2026-08-23 — one issue covering all four vendored repos
+(the LICENSE text is byte-identical):
+https://github.com/eeveetza/Py1812/issues/13 — awaiting the author's
+one-line characterisation; record the answer here when it lands and
+re-export the free tree.

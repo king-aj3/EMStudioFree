@@ -8,6 +8,65 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 
+## [1.7.0] — 2026-08-23
+
+### Added
+
+* **T4 of the turbulence plan is COMPLETE: the thermal dialogs choose
+  kOmegaSST above Ra 1e8 and NAME the model in every result** (AJ's rulings
+  2026-08-23: correlation anchor + opt-in-by-Ra). Both writers take
+  `turbulence="kOmegaSST"` — the CHT writer with the v2512 tree's own
+  COMPRESSIBLE wall functions — byte-identical laminar cases when off
+  (sha256-proven). §8a chooses on `SolidCase.ra_estimate()`, a
+  flux/Churchill fixed point, because Ra is an OUTPUT of the flux BC; §8c on
+  its nominal Ra. Below 1e8 nothing changes.
+* **`openfoam_ras_solid` (SOLVER): the turbulent-regime anchor.** A
+  kOmegaSST sphere at resulting Ra 2.08e9 through the product's own
+  writer+runner lands at Nu 107.65 vs Churchill 99.03 (**+8.7 %**) and
+  SETTLES (drift 3.4e-4); the laminar mutation reads −10.9 % and NEVER
+  settles (6.1e-3) — both deltas fit the correlation's ±15 % scatter, so
+  the settle requirement is the stated discriminator. The gate also ties
+  itself to the dialog's switch and reads the written case back to prove
+  RAS ran. Proved end to end twice; the two runs agreed to every printed
+  digit.
+* **`capability_counts` (FAST, Pro-only)**: every check-count
+  CAPABILITIES.md quotes, re-derived on ONE stated basis (static `check(`
+  sites). Two counts were stale the same day they were written.
+* **`--all` now exercises the FreeCAD halves**: `WANTS_FREECAD` routes 11
+  Gate-B/C gates through freecadcmd (python3 Gate-A fallback), and 8
+  whole-gate self-skippers moved into `NEEDS_FREECAD` — they had printed
+  vacuous "ok"s under python3 for as long as the tier existed.
+* **Wind turbulence machinery** (square-cylinder geometry on the rotated
+  O-ring, transient kOmegaSST, wall-function configuration, fixed-dt*
+  stepping) — **BUILT BUT REFUSED**: its Re-21 400 anchor solve diverges at
+  startup (six recorded attempts, `docs/WIND_TURBULENCE_ANCHOR.md`), and
+  `method_is_valid` keeps refusing the path until a green gate exists. A
+  validity claim may not precede its evidence.
+
+### Fixed
+
+* **The Array Designer pattern overlay now sits ON the array.** "Show in
+  3-D view" rebuilds the verified wires into the document (grouped, via the
+  SAME constructor the solve used, so display cannot drift from solved) and
+  centres the balloon on the array's own frame; the extent is
+  max(aperture, element length) so a short fat array cannot hide the
+  balloon inside its own dipoles. The origin-centred behaviour and its
+  three disclosure texts are gone.
+* `find_openems_python` now probes the exe's OWN directory for the venv
+  (the flat Windows-zip layout) as well as the POSIX `<prefix>/bin` shape —
+  W1 of `docs/OPENEMS_WINDOWS_PLAN.md`, smoke-gated with the flat tree.
+
+### Docs / decisions recorded
+
+* "Pro Cloud" formally **NOT PLANNED** (TIER_SPLIT, BUSINESS_MODEL banner,
+  PLAN, PRO_IMPLEMENTATION); §8 expiry (perpetual — it is what is sold) and
+  refunds (Gumroad's own window; live pages verified to promise nothing)
+  RECORDED as verified truth. The OpenCFD report was ALREADY POSTED
+  2026-08-08 as openfoam/core/openfoam#3593 — two sweeps were fooled by a
+  stale DRAFT heading, now fixed. eeveetza SPDX ask filed (Py1812#13) and
+  recorded in all four PROVENANCE files. Roadmap triage proposal for AJ's
+  mark-up in `docs/ROADMAP_TRIAGE_PROPOSAL.md`.
+
 ## [1.6.0] — 2026-08-23
 
 ### Added

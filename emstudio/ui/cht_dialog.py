@@ -68,6 +68,13 @@ def make_case(t_hot, t_cold, l_solid_m, k_solid, l_fluid_m, height_m,
                    n_y=n_y if buoyant else 1,
                    n_fluid=n_fluid,
                    iterations=iterations)
+    # T4 (AJ's ruling 2026-08-23): above Ra 1e8 the dialog CHOOSES kOmegaSST
+    # rather than shipping a disclaimed laminar number. The 1e7-1e8 band
+    # keeps the existing laminar-with-warning behaviour; validity_note names
+    # whichever model runs.
+    if case.buoyant and case.rayleigh > 1.0e8:
+        from dataclasses import replace
+        case = replace(case, turbulence="kOmegaSST")
     if case.buoyant and case.beta * (case.t_hot - case.t_ref) >= 0.9:
         raise ValueError(
             "hot face %.0f K is beyond what the Boussinesq air model can "
@@ -119,7 +126,16 @@ def regime_note(case, ra=None):
         return ""
     r = case.rayleigh if ra is None else ra
     notes = []
-    if r > RA_WARN:
+    if getattr(case, "turbulence", ""):
+        # T4: the model that runs is NAMED, never implied. No UNVALIDATED
+        # framing here — kOmegaSST is validated against the measured Betts &
+        # Bokhari cavity (gate openfoam_ras_cavity), which is this exact
+        # differentially-heated-gap physics.
+        notes.append(
+            "Ra %.3g — solved with the kOmegaSST turbulence model (chosen "
+            "automatically above Ra 1e8; validated against the measured "
+            "Betts & Bokhari cavity, gate openfoam_ras_cavity)" % r)
+    elif r > RA_WARN:
         notes.append(
             "Ra %.3g is beyond the laminar steady regime this case models "
             "(validated at Ra ~%.2g; the vertical-cavity correlations are "
