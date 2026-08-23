@@ -97,9 +97,14 @@ def offline_checks():
     check("Re 20 and 40 are below the shedding onset — steady is valid",
           W.WindCase(reynolds=20.0).steady_is_valid
           and W.WindCase(reynolds=40.0).steady_is_valid)
+    # ⚠ This used to grep the note for the literal "UNSTEADY" and broke when
+    # 435834f reworded it (better: the real gap is the missing TURBULENCE
+    # MODEL, not unsteadiness) — invisible until the first complete --all run
+    # (2026-08-23), because this gate sits in the SOLVER tier the broken
+    # runner never finished. Assert the load-bearing content, not a word.
     check("Re 1e5 — real antenna loading — is NOT, and says why",
           not W.WindCase(reynolds=1e5).steady_is_valid
-          and "UNSTEADY" in W.WindCase(reynolds=1e5).validity_note())
+          and "turbulence model" in W.WindCase(reynolds=1e5).validity_note())
     check("...and a valid case carries no caveat to ignore",
           W.WindCase(reynolds=20.0).validity_note() == "")
 

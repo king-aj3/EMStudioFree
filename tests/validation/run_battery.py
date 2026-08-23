@@ -245,8 +245,37 @@ def _requirement_missing(req):
     raise SystemExit("unknown requirement kind: {0}".format(req))
 
 
+#: SOLVER gates whose MAIN path does `import FreeCAD` — under the python3
+#: battery every one of them dies in 0.2 s with ModuleNotFoundError, which is
+#: what the FIRST complete `--all` run (2026-08-23) found: the runner had been
+#: crashing at n_port_live_palace's requirement since f95129d, and that crash
+#: was MASKING ten gates the python3 runner can never execute. They are routed
+#: through freecadcmd + tests/run_gate.py (the shim that keeps their print()
+#: output and exit codes alive), and SKIP honestly when freecadcmd is absent.
+NEEDS_FREECAD = {
+    "dipole_nec2", "isolation_nec2", "monopole_nec2",
+    "msl_notch_openems", "patch_auto_openems", "patch_openems",
+    "patch_stl_openems", "two_port_openems", "waveguide_port_openems",
+    "n_port_live_palace",
+}
+
+#: Per-gate SOLVER timeouts where the default is structurally too small.
+#: Measured 2026-08-23 on the reference box, unloaded: openfoam_solid ~75 min
+#: (two solves, 12000 + 8000 iterations), openfoam_bundle ~40 min (five
+#: rungs), openfoam_cht_convection ~35 min. The first complete `--all` killed
+#: all three at the 1800 s default while they also fought each other for
+#: cores. A timeout below a gate's honest unloaded runtime is not a timeout,
+#: it is a scheduled failure.
+SLOW_GATES_TIMEOUT_S = {
+    "openfoam_solid": 7200.0,
+    "openfoam_bundle": 5400.0,
+    "openfoam_cht_convection": 5400.0,
+}
+
+
 def _run_gate(name, timeout_s):
     path = os.path.join(_HERE, name + ".py")
+    timeout_s = SLOW_GATES_TIMEOUT_S.get(name, timeout_s)
     t0 = time.time()
     # Force UTF-8 on the child's stdout. Without it a gate's exit code depends
     # on WHICH SHELL launched the battery: gates print arrows and "±", and on
@@ -256,8 +285,16 @@ def _run_gate(name, timeout_s):
     # element_designer passed from PowerShell and failed from Git Bash, at the
     # SAME commit. A gate must report on the code, not on the terminal.
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    if name in NEEDS_FREECAD:
+        # Availability was already checked in main() (a missing freecadcmd is
+        # an honest SKIP there, per the SOLVER_REQS philosophy).
+        import shutil
+        argv = [shutil.which("freecadcmd"),
+                os.path.join(_ROOT, "tests", "run_gate.py"), path]
+    else:
+        argv = [sys.executable, path]
     try:
-        proc = subprocess.run([sys.executable, path], cwd=_ROOT,
+        proc = subprocess.run(argv, cwd=_ROOT,
                               capture_output=True, text=True, env=env,
                               encoding="utf-8", errors="replace",
                               timeout=timeout_s)
@@ -296,6 +333,11 @@ def main(argv=None):
     t_start = time.time()
     for name, req, timeout_s in plan:
         reason = _requirement_missing(req)
+        if reason is None and name in NEEDS_FREECAD:
+            import shutil
+            if not shutil.which("freecadcmd"):
+                reason = ("gate imports FreeCAD and no freecadcmd is on "
+                          "PATH — run on a machine with FreeCAD installed")
         if reason:
             skips.append(name)
             print("  skip  {0:<24s} — {1}".format(name, reason))

@@ -81,6 +81,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   — the `n_port_live_palace` gate declared a requirement kind the runner never
   handled (declared in f95129d, handled never), so the SOLVER tier could not
   complete at all. Both `palace` and the new `palace_gpu` kinds are handled.
+  **And the first complete `--all` run that fix enabled found three more
+  things that crash had been masking:** (1) TEN SOLVER gates `import FreeCAD`
+  and the python3 runner can never execute them — they died in 0.2 s with
+  ModuleNotFoundError on every `--all` that ever got that far; they are now
+  routed through `freecadcmd` + `tests/run_gate.py` (`NEEDS_FREECAD`), with
+  an honest SKIP when no freecadcmd is on PATH. (2) Three CFD gates have
+  outgrown the 1800 s solver timeout (`openfoam_solid` ~75 min unloaded) —
+  per-gate `SLOW_GATES_TIMEOUT_S` now carries their measured runtimes,
+  because a timeout below a gate's honest runtime is a scheduled failure.
+  (3) `openfoam_wind` was a REAL red: commit 435834f reworded the Re-1e5
+  validity note (correctly — the gap is the missing turbulence model, not
+  unsteadiness) and the gate still grepped for the old literal "UNSTEADY";
+  it now asserts the load-bearing content instead of a word.
 * **snappyHexMesh layer addition aborted on `minMedialAxisAngle`** — both
   writers' layer scaffolding shipped the misspelled `minMedianAxisAngle`,
   unread (and therefore unnoticed) for as long as `addLayers false` kept the
