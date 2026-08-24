@@ -148,65 +148,96 @@ def advice_for(n_cables, enclosed, factor=1.0, provenance="", converged=None,
     n_groups = int(groups if groups is not None else sizes)
     try:
         from emstudio.assistant import thermal_advice
-        return thermal_advice.convection_advice(
-            n_cables=n_cables, enclosed=enclosed, bundle_factor=factor,
-            provenance=provenance, converged=converged,
-            nec_adjustment_applied=nec_adjustment_applied, sizes=sizes,
-            groups=n_groups)
     except ImportError:
-        # ⚠⚠ AUDIT 2026-08-24 (except-ImportError sweep): CONFIRMED
-        # litz-class site — audit and adversarial verifier agree. This
-        # fallback is the FREE tier's PRODUCTION advice path (every
-        # Convection Designer open and every CFD solve on a free install);
-        # the Pro half is the only one dev trees ever run, and NO gate
-        # executes either half. Two parity breaks are already real:
-        # (1) nec_adjustment_applied is accepted and forwarded above but
-        #     IGNORED here, so Pro rule 4's warning (which also requires
-        #     factor != 1.0) never fires on free;
-        # (2) thermal_advice.check_factor's plausible-band check (0.30-1.30)
-        #     has no counterpart here — and the genuinely silent region is
-        #     the LOW side (factor ~0.2, NaN); the high side already warns
-        #     through the solver channel (bundle_convection warns > 1.0).
-        # The specced fix + a litz_noscipy-style comparison gate (meta_path
-        # blocker on emstudio.assistant; compare fired warning CONDITIONS by
-        # rule against thermal_advice in the parent; matrix must include 0.2
-        # and NaN, not 1.6) are AWAITING AJ'S GO — they change free-tier
-        # user-facing advice. Companion Pro-side defect from the same audit:
-        # check_factor's AdviceProblem escapes _poll uncaught at the CFD
-        # call site on Pro — needs its own handler. Until fixed, this
-        # docstring's same-warnings parity claim is aspiration, not fact.
-        notes = []
-        if abs(factor - 1.0) < 1e-12 and (n_cables > 1 or enclosed):
-            notes.append(
-                "This ampacity uses Churchill-Chu, which assumes one cable in "
-                "unbounded still air. This design is a bundle and/or confined, "
-                "so the rating is optimistic. Solve the convection to replace "
-                "the assumption with a measured factor.")
-        if sizes > 1:
-            notes.append(
-                "This bundle mixes %d cable sizes, so it has %d factors and "
-                "not one — Nu_D is built on a diameter. Apply each size's own "
-                "factor to that size; a single number for the whole bundle "
-                "either under-rates the sizes that cool well or over-rates "
-                "the one that does not." % (sizes, sizes))
-        # ⚠ The free tier must carry this too, and it is the note most easily
-        # lost: a bundle of ONE diameter has sizes == 1, so the note above
-        # never fires, and the design looks uniform while its cables have
-        # different factors.
-        if n_groups > sizes:
-            notes.append(
-                "Some cables here are the same SIZE but carry different "
-                "losses, so this bundle has %d factors across %d diameter%s. "
-                "Cables of one size stop being thermally interchangeable once "
-                "their currents differ. Rate each by its own size AND loss."
-                % (n_groups, sizes, "" if sizes == 1 else "s"))
-        if abs(factor - 1.0) > 1e-12 and not provenance:
-            notes.append("This factor carries no provenance and cannot be "
-                         "re-checked.")
-        if abs(factor - 1.0) > 1e-12 and converged is False:
-            notes.append("This factor came from a solve that did not "
-                         "converge; it is provisional.")
-        return notes
+        thermal_advice = None
+    if thermal_advice is not None:
+        # ⚠ AdviceProblem becomes a NOTE here, never an exception: advice_for
+        # is called from _poll mid-solve (and from the dialog open), and
+        # check_factor's raise used to escape both call sites uncaught — the
+        # companion defect the 2026-08-24 audit filed. An implausible factor
+        # is exactly when the user most needs the advice to REACH them.
+        try:
+            return thermal_advice.convection_advice(
+                n_cables=n_cables, enclosed=enclosed, bundle_factor=factor,
+                provenance=provenance, converged=converged,
+                nec_adjustment_applied=nec_adjustment_applied, sizes=sizes,
+                groups=n_groups)
+        except thermal_advice.AdviceProblem as exc:
+            return [str(exc)]
+    # ⚠⚠ The FREE tier's PRODUCTION advice path — every Convection Designer
+    # open and every CFD solve on a free install runs THIS half, while dev
+    # trees only ever run the Pro half above. The 2026-08-24 audit CONFIRMED
+    # it litz-class (two real parity breaks vs Pro, zero gate coverage on
+    # either half) and it was FIXED the same day: rule 4 (NEC double-count)
+    # and the plausible-band check are mirrored below, and the
+    # `convection_advice_parity` gate (FAST, Pro-only) now compares the
+    # fired warning CONDITIONS of this fallback, run in a child interpreter
+    # whose emstudio.assistant import is BLOCKED, against the real
+    # thermal_advice rule by rule — so the docstring's same-warnings claim
+    # is enforced, not aspirational.
+    # The plausible-band check, mirrored from Pro's check_factor and
+    # SHORT-CIRCUITING exactly as check_factor does (it is Pro's first
+    # statement, so an implausible factor yields ONLY the band note on
+    # both tiers). A NOTE, not a raise — see the AdviceProblem comment
+    # above. ⚠ The bounds duplicate Pro's PLAUSIBLE_FACTOR (0.30, 1.30)
+    # BY VALUE, unavoidably — this tree cannot import the Pro constant,
+    # and the parity gate reds if the two drift apart.
+    try:
+        _f = float(factor)
+    except (TypeError, ValueError):
+        _f = float("nan")
+    if not math.isfinite(_f) or _f <= 0 or not (0.30 <= _f <= 1.30):
+        return [
+            "The bundle factor %r is outside the plausible band "
+            "[0.30, 1.30], or is not a finite number. Below 0.30 implies "
+            "confinement more severe than a sealed box; above 1.30 "
+            "implies the bundle cools BETTER than a lone cable, which "
+            "needs forced flow. Check what produced it before sizing "
+            "anything on it." % (factor,)]
+    notes = []
+    if abs(factor - 1.0) < 1e-12 and (n_cables > 1 or enclosed):
+        notes.append(
+            "This ampacity uses Churchill-Chu, which assumes one cable in "
+            "unbounded still air. This design is a bundle and/or confined, "
+            "so the rating is optimistic. Solve the convection to replace "
+            "the assumption with a measured factor.")
+    if sizes > 1:
+        notes.append(
+            "This bundle mixes %d cable sizes, so it has %d factors and "
+            "not one — Nu_D is built on a diameter. Apply each size's own "
+            "factor to that size; a single number for the whole bundle "
+            "either under-rates the sizes that cool well or over-rates "
+            "the one that does not." % (sizes, sizes))
+    # ⚠ The free tier must carry this too, and it is the note most easily
+    # lost: a bundle of ONE diameter has sizes == 1, so the note above
+    # never fires, and the design looks uniform while its cables have
+    # different factors.
+    if n_groups > sizes:
+        notes.append(
+            "Some cables here are the same SIZE but carry different "
+            "losses, so this bundle has %d factors across %d diameter%s. "
+            "Cables of one size stop being thermally interchangeable once "
+            "their currents differ. Rate each by its own size AND loss."
+            % (n_groups, sizes, "" if sizes == 1 else "s"))
+    if abs(factor - 1.0) > 1e-12 and not provenance:
+        notes.append("This factor carries no provenance and cannot be "
+                     "re-checked.")
+    # Rule 4's mirror — the parity break the 2026-08-24 audit confirmed: this
+    # argument was accepted and forwarded to Pro but IGNORED here, so the
+    # double-derating warning never reached a free user. Same guard as Pro:
+    # a BARE factor (1.0) plus the NEC table is single-derating and must not
+    # fire (the verifier's precision).
+    if abs(factor - 1.0) > 1e-12 and nec_adjustment_applied:
+        notes.append("Both a solved bundle factor and the NEC 310.15(C)(1) "
+                     "adjustment are applied. They correct the SAME effect — "
+                     "one measured for this geometry, one tabulated by "
+                     "conductor count — so using both derates twice. Pick "
+                     "one: the solved factor if the geometry is real, the "
+                     "NEC table if the install must be code-compliant.")
+    if abs(factor - 1.0) > 1e-12 and converged is False:
+        notes.append("This factor came from a solve that did not "
+                     "converge; it is provisional.")
+    return notes
 
 
 def summarise(result):

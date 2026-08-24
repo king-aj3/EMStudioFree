@@ -9,6 +9,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > of 1.0.0 once already.
 
 ### Fixed
+* **The free tier's convection advice now matches Pro's, rule for rule — and
+  a gate holds them together.** `advice_for`'s fallback is the free tier's
+  PRODUCTION advice path, and the 2026-08-24 audit confirmed it litz-class:
+  `nec_adjustment_applied` was accepted and forwarded but ignored, so the
+  NEC double-derating warning (Pro rule 4) never reached a free user; and
+  `check_factor`'s plausible-band check had no counterpart, so a factor of
+  0.2 — or NaN — sized ampacities in silence. Both are mirrored now: rule 4
+  with the same bare-factor guard, and the band check as a SHORT-CIRCUITING
+  note in `check_factor`'s position. On the Pro side, `AdviceProblem` is
+  converted to a note instead of escaping `_poll` mid-solve uncaught (the
+  audit's companion defect). The new `convection_advice_parity` gate (FAST,
+  Pro-only) runs the fallback in a child interpreter whose
+  `emstudio.assistant` import is BLOCKED and compares fired warning
+  CONDITIONS, rule by rule, against the real `thermal_advice` in the parent
+  — never strings, since the tiers word the same warning differently on
+  purpose. 6/6 mutations caught, including the child blocker being disabled
+  (gate vacuity) and the mirrored band bounds drifting from Pro's
+  `PLAUSIBLE_FACTOR`.
 * **The mixed-bundle coupling check can now actually reject the uncoupled
   hypothesis its own label names.** Its bound was `1.2 < ratio < 3.8` while
   the label claims the ratio is "neither 1 nor the ~3.0 of two UNCOUPLED
@@ -30,9 +48,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   litz-class**: it is the free tier's production advice path, no gate
   executes either half, and two parity breaks vs Pro's `thermal_advice`
   are real (`nec_adjustment_applied` ignored; no plausible-band check).
-  The fix and its comparison gate are specced and await AJ's go, since
-  they change free-tier user-facing advice; the site carries the full
-  finding in place.
+  The fix and its comparison gate landed the same day on AJ's go — see
+  the Fixed entry above.
 
 * **A RAS-square wind case on the wrong domain no longer claims validity.**
   `radius_ratio 20` is part of the benchmark definition — the r40 control
