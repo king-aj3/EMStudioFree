@@ -353,16 +353,16 @@ class LicenceDialog(QtWidgets.QDialog):
         try:
             licence = _import_pro()
         except ImportError:
-            # AUDIT 2026-08-24: KNOWN GAP, found by the sweep and NOT yet
-            # fixed (the fix changes behaviour — awaiting AJ's go): this
-            # silent return leaves Remove ENABLED and the status line stale
-            # when Pro vanishes mid-session (Add-on Manager uninstall in
-            # another window, AV quarantine, manual delete) — genuinely
-            # reachable because _import_pro() purges sys.modules and
-            # re-imports from disk on every call. Specced fix: _say("Pro is
-            # no longer importable — cannot remove the activation from
-            # here.") then self._refresh_status(), which re-probes, shows
-            # "not installed" and disables the button.
+            # Pro vanished mid-session (Add-on Manager uninstall in another
+            # window, AV quarantine, manual delete) — genuinely reachable
+            # because _import_pro() purges sys.modules and re-imports from
+            # disk on every call. Until 2026-08-24 this returned SILENTLY,
+            # leaving Remove enabled and the status line stale; now the
+            # refresh re-probes, shows "not installed" and disables the
+            # button (fix applied on AJ's go, per the audit spec).
+            self._say("Pro is no longer importable — cannot remove the "
+                      "activation from here.")
+            self._refresh_status()
             return
         if licence.deactivate():
             self._say("Activation removed. The module is still installed at "

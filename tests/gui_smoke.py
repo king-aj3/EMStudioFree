@@ -982,7 +982,42 @@ def _vswr_offscale_is_visible():
     assert ax.get_lines()[0].get_marker() not in ("", "None"), \
         "single-point sweep drawn with no marker — invisible"
     dlg.close()
-    return "off-scale min {0:.0f} on a log axis; matched case unchanged".format(v_min)
+
+    # (d) the Pro teaser LABEL actually appears — the 2026-08-24 audit found
+    # results_dialog's pro_installed probe executed-but-unasserted: only
+    # pro_teaser's direct legal.pro_hint_applies() calls carried the policy,
+    # so a `pro_installed = True` mutant in the DIALOG would have passed
+    # every gate while no customer ever saw the hint. Assert on the WIDGET,
+    # tier-aware: with Pro absent (every current gui_smoke run) the badly
+    # matched sweep must show the teaser and the matched one must not; with
+    # Pro importable, nobody sees it on either.
+    from emstudio import legal
+    try:
+        import emstudio_pro                                     # noqa: F401
+        pro_here = True
+    except ImportError:
+        pro_here = False
+
+    def teaser_labels(result):
+        d = SweepResultsDialog(result)
+        found = [w for w in d.findChildren(QtWidgets.QLabel)
+                 if w.text() == legal.PRO_TEASER_MATCHING]
+        d.close()
+        return found
+
+    if pro_here:
+        assert not teaser_labels(bad), \
+            "Pro is importable here, yet the buy-Pro teaser rendered"
+        tier = "pro tier: teaser suppressed"
+    else:
+        assert teaser_labels(bad), \
+            "free tier + VSWR ~400: the Pro teaser label never rendered " \
+            "(the executed-but-unasserted pro_installed probe)"
+        assert not teaser_labels(good), \
+            "a matched antenna must not be shown the matching teaser"
+        tier = "free tier: teaser shown on the mismatch only"
+    return ("off-scale min {0:.0f} on a log axis; matched case unchanged; "
+            "{1}".format(v_min, tier))
 
 
 def _pattern_frequencies_dialog():
