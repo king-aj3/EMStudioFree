@@ -2243,6 +2243,18 @@ class CableDesignerDialog(QtWidgets.QDialog):
         from emstudio.wire import thermal as th
 
         self.fig_th.clear()
+        # AUDIT 2026-08-24 (except-ImportError sweep after litz _proximity_h):
+        # matplotlib.colormaps exists >= 3.6, so the except runs ONLY under a
+        # pre-3.6 matplotlib — never FreeCAD's bundled 0.21/1.0/1.1 pythons
+        # (all ship >= 3.7; measured 3.10.5/3.10.8 locally), only a FreeCAD
+        # riding an old SYSTEM mpl (e.g. Ubuntu 22.04's 3.5.1, 20.04's 3.1).
+        # Both branches resolve the SAME registered "inferno" map (identical
+        # LUT across versions); cmap only colours this figure, no computed
+        # number flows from it, so this fork cannot change an answer.
+        # cm.get_cmap is gone in mpl >= 3.9, but >= 3.6 always takes the try
+        # and get_cmap exists through 3.8, so every mpl version has exactly
+        # one working branch. No gate executes the except (test mpl is always
+        # >= 3.6) — safe: a pure API shim, not a formula.
         try:                                   # matplotlib >= 3.6
             from matplotlib import colormaps
             cmap = colormaps["inferno"]

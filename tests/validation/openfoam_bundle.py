@@ -901,10 +901,23 @@ def live_load_checks(base):
     # cables genuinely heating each other in one enclosure looks like, and
     # what proves this is ONE coupled solve rather than two independent ones.
     ratio = rh.dt / rc.dt
+    # ⚠ The upper bound was 3.8 until 2026-08-24 — a bound that CANNOT reject
+    # the ~3.0 uncoupled hypothesis this very check's label claims to exclude.
+    # A check whose bound admits the failure mode it names is the
+    # gate-that-cannot-fail shape, dressed as physics. The bound is now
+    # DERIVED, not chosen: it must sit below 3.0 (the uncoupled limit) and
+    # above the measured coupled value with mesh-change headroom — measured
+    # 2.70 unlayered and 2.8218 layered, so the largest observed mesh-driven
+    # move is +4.5 %; 2.95 gives the same 4.5 % over the layered figure while
+    # rejecting uncoupled by 1.7 %. A drift past 2.95 SHOULD fail: it means
+    # the thermal coupling this check exists to prove is nearly gone.
+    # ⚠ First live run of the tightened bound is owed on the next home-box
+    # `--all` (SOLVER tier; no OpenFOAM on the work box that measured this).
     check("load: the temperature ratio is neither 1 (a shared BC) nor the "
           "~3.0 of two UNCOUPLED cables at a 4:1 flux ratio — they are heating "
-          "each other, in one solve", 1.2 < ratio < 3.8,
-          "dT ratio %.4f for a flux ratio of %.4g"
+          "each other, in one solve", 1.2 < ratio < 2.95,
+          "dT ratio %.4f for a flux ratio of %.4g (uncoupled limit 3.0, "
+          "layered measurement 2.8218)"
           % (ratio, hot.gradient / cool.gradient))
     check("load: hottest() names the high-flux group — ampacity binds on "
           "temperature", res.hottest()[0] == hot.patch)

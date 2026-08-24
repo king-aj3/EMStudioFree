@@ -965,6 +965,19 @@ class SweepResultsDialog(QtWidgets.QDialog):
             vswr_min = float(result.vswr().min())
         except Exception:                                       # noqa: BLE001
             return
+        # AUDITED 2026-08-24 (except-ImportError sweep, litz-class). Presence
+        # probe, not a computation: present == owned, absent == free tier,
+        # and this boolean feeds ONLY legal.pro_hint_applies — no number
+        # changes on either branch. The except branch is the NORMAL path
+        # (every free install; every gui_smoke run, which constructs this
+        # dialog without pro/ on sys.path), and the policy is FAST-gated for
+        # BOTH values in tests/validation/pro_teaser.py. Worst case: a Pro
+        # overlay broken enough to raise ImportError from its own __init__
+        # is treated as free tier and sees the one-line teaser — cosmetic.
+        # NOTE: this False assignment is executed-but-unasserted — no test
+        # asserts the teaser QLabel actually appears; only pro_teaser's
+        # direct legal.pro_hint_applies calls carry the policy, so a
+        # pro_installed = True mutant here would pass every gate.
         try:                            # present == owned; absent == free tier
             import emstudio_pro                                 # noqa: F401
             pro_installed = True

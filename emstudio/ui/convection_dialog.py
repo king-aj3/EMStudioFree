@@ -154,6 +154,27 @@ def advice_for(n_cables, enclosed, factor=1.0, provenance="", converged=None,
             nec_adjustment_applied=nec_adjustment_applied, sizes=sizes,
             groups=n_groups)
     except ImportError:
+        # ⚠⚠ AUDIT 2026-08-24 (except-ImportError sweep): CONFIRMED
+        # litz-class site — audit and adversarial verifier agree. This
+        # fallback is the FREE tier's PRODUCTION advice path (every
+        # Convection Designer open and every CFD solve on a free install);
+        # the Pro half is the only one dev trees ever run, and NO gate
+        # executes either half. Two parity breaks are already real:
+        # (1) nec_adjustment_applied is accepted and forwarded above but
+        #     IGNORED here, so Pro rule 4's warning (which also requires
+        #     factor != 1.0) never fires on free;
+        # (2) thermal_advice.check_factor's plausible-band check (0.30-1.30)
+        #     has no counterpart here — and the genuinely silent region is
+        #     the LOW side (factor ~0.2, NaN); the high side already warns
+        #     through the solver channel (bundle_convection warns > 1.0).
+        # The specced fix + a litz_noscipy-style comparison gate (meta_path
+        # blocker on emstudio.assistant; compare fired warning CONDITIONS by
+        # rule against thermal_advice in the parent; matrix must include 0.2
+        # and NaN, not 1.6) are AWAITING AJ'S GO — they change free-tier
+        # user-facing advice. Companion Pro-side defect from the same audit:
+        # check_factor's AdviceProblem escapes _poll uncaught at the CFD
+        # call site on Pro — needs its own handler. Until fixed, this
+        # docstring's same-warnings parity claim is aspiration, not fact.
         notes = []
         if abs(factor - 1.0) < 1e-12 and (n_cables > 1 or enclosed):
             notes.append(

@@ -9,6 +9,31 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > of 1.0.0 once already.
 
 ### Fixed
+* **The mixed-bundle coupling check can now actually reject the uncoupled
+  hypothesis its own label names.** Its bound was `1.2 < ratio < 3.8` while
+  the label claims the ratio is "neither 1 nor the ~3.0 of two UNCOUPLED
+  cables" — a bound that admits the named failure mode. Now `< 2.95`,
+  derived: below the 3.0 uncoupled limit, with +4.5 % headroom over the
+  layered measurement (2.8218) equal to the largest observed mesh-driven
+  move. First live run owed on the next home-box `--all`.
+
+### Audited
+* **Every `except ImportError` in the product (11 sites) is now audited for
+  the litz class** — a fallback branch no gate ever runs — by a 7-agent
+  sweep with adversarial verification, two sites re-verified by hand after
+  a verifier outage. Ten are safe and now carry AUDITED comments recording
+  what the fallback does, when it runs in the field, and why no wrong
+  answer can hide there; corrections adopted along the way: matplotlib's
+  `colormaps` boundary is 3.6 (not 3.5), and `filter_dialog`'s dead
+  `QtCore` import is dropped from both branches. **The eleventh —
+  `convection_dialog.advice_for`'s free-tier fallback — is CONFIRMED
+  litz-class**: it is the free tier's production advice path, no gate
+  executes either half, and two parity breaks vs Pro's `thermal_advice`
+  are real (`nec_adjustment_applied` ignored; no plausible-band check).
+  The fix and its comparison gate are specced and await AJ's go, since
+  they change free-tier user-facing advice; the site carries the full
+  finding in place.
+
 * **A RAS-square wind case on the wrong domain no longer claims validity.**
   `radius_ratio 20` is part of the benchmark definition — the r40 control
   COMPLETED cleanly and still read **Cd 1.847**, below the published 1.95

@@ -45,6 +45,20 @@ try:
     from scipy.special import airy as _scipy_airy, wofz as _scipy_wofz
     HAVE_SCIPY = True
 except ImportError:                                   # pragma: no cover
+    # AUDITED 2026-08-24 (except-ImportError sweep after the litz _proximity_h
+    # find). NOT the litz class: this branch computes nothing. It only sets
+    # HAVE_SCIPY = False; the sole consumer is _require_scipy(), which raises
+    # a labelled RuntimeError as the FIRST statement of lfmf() — the only
+    # public entry (field_strength_dbuv_m routes through it at its lfmf()
+    # call) — and the coverage/multistation dialogs surface that error to the
+    # user. There is no scipy-free math anywhere in this module, so no wrong
+    # answer is possible. The branch DOES run in the field: macOS FreeCAD
+    # 0.21.2 (bundled numpy unimportable, so scipy too) and distro FreeCADs
+    # without python3-scipy. INVARIANT the safety rests on: _scipy_airy /
+    # _scipy_wofz are touched only inside functions reached via lfmf(); any
+    # NEW public entry must call _require_scipy() first, and no module-level
+    # code may touch scipy names — break either and a scipy-less box gets
+    # NameError instead of the honest RuntimeError.
     HAVE_SCIPY = False
 
 # Constants — EXACTLY the upstream LFMF.h values. Note epsilon_0 differs from

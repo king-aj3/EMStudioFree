@@ -209,6 +209,18 @@ class LicenceDialog(QtWidgets.QDialog):
         try:
             licence = _import_pro()
         except ImportError:
+            # AUDITED 2026-08-24 (except-ImportError sweep after the litz
+            # _proximity_h find). This branch is the NORMAL path, not a
+            # numeric fallback: on every free install emstudio_pro is absent,
+            # _import_pro() raises, and the dialog opens in install-only
+            # mode. It computes nothing — it sets a visible status line and
+            # disables Remove, so the user is told. Residual imprecision: a
+            # corrupt/partial Pro install also lands here as "not installed",
+            # acceptable because reinstalling the zip fixes that state too,
+            # and the pro import chain is stdlib-only so no third-party dep
+            # can fake this. No gate executes this branch (nothing in tests/
+            # imports licence_dialog); safe because no answer is computed
+            # here for a wrong one to hide in.
             self.status.setText(
                 "<b>Status:</b> Pro is not installed. "
                 "Install the zip below to add it.")
@@ -251,6 +263,15 @@ class LicenceDialog(QtWidgets.QDialog):
         try:
             licence = _import_pro()
         except ImportError as exc:
+            # AUDITED 2026-08-24 (except-ImportError sweep). Runs when Install
+            # is clicked with no zip chosen and Pro absent (zip_path is
+            # optional by design), or — rarely — when install_zip() succeeded
+            # but extraction was partial. Aborts the action and shows the
+            # REAL exception text via _say (log pane + FreeCAD console);
+            # nothing is computed, so no wrong answer can hide here. The
+            # "Choose the zip file above first" wording is stale advice in
+            # the partial-extraction case, but exc is printed with it. No
+            # gate executes this branch.
             self._say("Pro is not installed yet ({0}). Choose the zip file "
                       "above first.".format(exc))
             return
@@ -300,6 +321,14 @@ class LicenceDialog(QtWidgets.QDialog):
         try:
             licence = _import_pro()
         except ImportError as exc:
+            # AUDITED 2026-08-24 (except-ImportError sweep). The most-clicked
+            # miss in the dialog: 'Start free trial' pressed before installing
+            # the $0 zip. Aborts with the real exception text via _say (log +
+            # console) and points at the store; nothing is computed, no trial
+            # state is touched, so no wrong answer can hide here. The
+            # hasattr(licence, 'start_trial') guard below handles the
+            # old-module case separately and just as honestly. No gate
+            # executes this branch.
             self._say("Pro is not installed yet ({0}). Choose the trial zip "
                       "above first — the $0 download at the store.".format(exc))
             return
@@ -324,6 +353,16 @@ class LicenceDialog(QtWidgets.QDialog):
         try:
             licence = _import_pro()
         except ImportError:
+            # AUDIT 2026-08-24: KNOWN GAP, found by the sweep and NOT yet
+            # fixed (the fix changes behaviour — awaiting AJ's go): this
+            # silent return leaves Remove ENABLED and the status line stale
+            # when Pro vanishes mid-session (Add-on Manager uninstall in
+            # another window, AV quarantine, manual delete) — genuinely
+            # reachable because _import_pro() purges sys.modules and
+            # re-imports from disk on every call. Specced fix: _say("Pro is
+            # no longer importable — cannot remove the activation from
+            # here.") then self._refresh_status(), which re-probes, shows
+            # "not installed" and disables the button.
             return
         if licence.deactivate():
             self._say("Activation removed. The module is still installed at "
