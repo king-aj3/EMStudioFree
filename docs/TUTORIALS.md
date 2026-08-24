@@ -741,9 +741,12 @@ the moment a function object runs. No version floor would catch that — only
 running it does. The dialog reports the failure and says what to install
 instead.
 
-⛳ **On Windows, Elmer, gmsh, NEC2 and OpenFOAM have guided install buttons.**
-The single step that needs Administrator is explained rather than automated —
-EMStudio will not silently ask your machine for privileges.
+⛳ **On Windows, Elmer, gmsh, NEC2, OpenFOAM and — since v1.8.0 — openEMS
+have guided install buttons.** The single step that needs Administrator is
+explained rather than automated — EMStudio will not silently ask your machine
+for privileges. The openEMS button also builds the Python environment its
+pipeline needs from the zip's own wheels, and needs a system Python 3.13/3.14
+— it says so before downloading anything, not after.
 
 ⚠ **What is still NOT gated**, said plainly: nothing asserts "the install
 worked", because that depends on your machine. What IS gated is the readout —
@@ -1088,6 +1091,12 @@ the temperature rise — and therefore the Rayleigh number — is whatever the
 solve produces. Comparing against a correlation at "the same Ra" means reading
 Ra back out of the result, not dialling it in.
 
+⛳ **Above an estimated Ra of 1e8 the dialog switches to kOmegaSST and names
+the model in the results** (since v1.7.0; validated on its own turbulent
+anchor, a sphere at resulting Ra 2.1e9 — gate `openfoam_ras_solid`). Below
+it — this tutorial included — the case is byte-identical to the laminar
+writer, so nothing here changes.
+
 **Prove it** — `tests/validation/openfoam_solid.py` (SOLVER tier, long), and
 `tests/validation/solid_setup.py` (FAST) for the arithmetic, the refusals, the
 written case and the gravity direction.
@@ -1152,6 +1161,11 @@ not fail**. That withdrawal is recorded in the study file itself.
 
 ⚠ **Do not cite MacGregor & Emery at A = 4, Pr = 0.7** as a reference for this
 case — it does not apply here, and the project has recorded that trap.
+
+⛳ **Above Ra 1e8 the gap switches to kOmegaSST and the results name the
+model** (since v1.7.0; the turbulent path is validated against the measured
+Betts & Bokhari tall-cavity experiment — gate `openfoam_ras_cavity`). This
+tutorial's Ra ≈ 1e6 stays on the laminar path, byte-identical to before.
 
 **Prove it** — `tests/validation/openfoam_cht_convection.py` (SOLVER tier),
 which asserts the window above on a live coupled solve;
