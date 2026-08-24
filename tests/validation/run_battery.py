@@ -74,6 +74,8 @@ FAST = {
     "tutorials_doc": None,
     "declared_ports": None,
     "solver_versions": None,
+    # The customer's own artefacts, read (C14). Skips honestly on any box
+    # without the split install — the path IS the prerequisite.
 }
 
 SOLVER = [
@@ -221,6 +223,16 @@ def _requirement_missing(req):
                     info.describe(), _of.status_note() or "probe unhappy"))
         finally:
             sys.path.pop(0)
+        return None
+    if kind == "path":
+        # Generic filesystem prerequisite (first user: installed_copy, which
+        # reads the Add-on-Manager install — a directory only boxes with the
+        # split install have). Declared HERE in the same commit as its first
+        # user, because f95129d proved a kind can be declared without being
+        # handled and the tier audit will not notice.
+        import os as _os
+        if not _os.path.isdir(_os.path.expanduser(arg)):
+            return "no {0} on this box".format(arg)
         return None
     if kind == "palace":
         # ⚠ This kind was DECLARED (n_port_live_palace, f95129d) before it was

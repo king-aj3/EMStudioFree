@@ -8,6 +8,56 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 
+### Added
+
+* **The wind engine has its door: Analysis ▸ Solve Wind Loading… (§8b)** —
+  built on AJ's order 2026-08-24, the day after its forced-convection
+  anchor went green, honouring the triage's anchor-first ordering. The
+  dialog chooses the solve method from the physics (the T4 pattern):
+  steady below shedding onset, transient laminar to Re 200, and the
+  validated kOmegaSST square-section benchmark configuration to
+  Re 1.5×10⁵ — with the choice and its honest runtime shown BEFORE the
+  button. Configurations no anchor covers are REFUSED with the engine's
+  own validity note, dead before the button: a circular mast in real wind
+  gets the drag-crisis explanation, never a number. Reports Cd (+St, lift
+  amplitude, measured cycles on the transient rungs), drag per metre and
+  the total over the member length. `run_wind` grew the same cancel
+  contract as the thermal chains, so closing the dialog actually stops a
+  multi-hour URANS solve. gui_smoke drives all four regime outcomes and
+  both refusals (engine-worded, mutation-proven).
+* **The installed copies finally have a reader (C14)**: the new
+  `installed_copy` FAST gate reads the Add-on-Manager install and the Pro
+  overlay against the sibling repos' release-tag ladders — one release
+  behind is a warning said out loud (index-bot + human-click lag), two or
+  more is a failure. **It fired on its first run: both copies were at
+  1.3.0, SIX releases stale** — the 2026-08-21 incident shape, recurred and
+  grown exactly as PROJECT_MEMORY predicted; both are refreshed and the
+  activation survived (it lives outside the Mod dir by design). The deep
+  half, `tools/check_installed.py --run-smoke`, runs the installed tree's
+  OWN smoke under the bare 1.1.1 AppImage — the customer configuration —
+  and it runs clean. New generic `path:` battery requirement kind, declared
+  and handled in the same commit (the f95129d rule).
+* **The release ritual's mechanical half is a tool (C13)**:
+  `tools/release.py` bumps the five gated version surfaces, asserts the
+  CHANGELOG section exists (prose stays authorial), rebuilds and
+  READS BACK all three artefacts, updates the site page's release-coupled
+  digits from the derived gate count, and orchestrates the verification
+  matrix — refusing loudly at the first surface that disagrees. It
+  structurally cannot commit, tag, push, or touch a storefront (smoke
+  greps its source for those verbs), and it ends by printing the manual
+  remainder so "the tool ran clean" can never read as "the release is
+  done".
+* **The roadmap triage was ACCEPTED as written** (all 40 rows, AJ
+  2026-08-24): bucket A is the queue for the next releases, bucket B stays
+  deferred behind named triggers, and bucket C's seven items are FORMALLY
+  NOT PLANNED with their closure lines placed in the docs that promised
+  them (conformal lattices, valley-span layouts, the §1
+  mechanical/environmental taxonomy — wind/survival fields may ride a
+  future §1 schema session now that §8b shipped — hand/head loading,
+  mmWave arrays on substrate, the parked "Pro is available" forum reply,
+  and the Payhip/Lemon-Squeezy placeholder blocks; B20 split: feeder
+  tuning-coil sizing stays alive, insulator sizing and sag/tension join C).
+
 ### Fixed
 * **The free tier's convection advice now matches Pro's, rule for rule — and
   a gate holds them together.** `advice_for`'s fallback is the free tier's

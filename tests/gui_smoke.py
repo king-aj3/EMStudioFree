@@ -2920,6 +2920,75 @@ def _run_solver_openfoam_dispatch():
         FreeCAD.closeDocument(doc.Name)
 
 
+def _wind_loading_dialog():
+    """The Wind Loading dialog (§8b): the method is chosen from the physics,
+    the refusals happen BEFORE the button, and the prose names the regime.
+
+    Drives the real widgets through all four regime outcomes — no solve is
+    run (the plan/refusal logic is entirely pre-solve). The refusal texts
+    must be the ENGINE's own validity notes, so the assertions quote
+    engine phrases, not dialog phrases: a dialog that invented its own
+    physics prose would pass a dialog-worded assertion while drifting from
+    `method_is_valid`.
+    """
+    from PySide import QtGui as QtWidgets  # noqa: N813,F401
+
+    from emstudio.ui import wind_dialog
+
+    dlg = wind_dialog.build_dialog()
+    try:
+        def drive(geometry, d_mm, u_ms):
+            # valueChanged/currentIndexChanged fire synchronously, so the
+            # plan re-derives before this returns; processEvents just lets
+            # any queued paints drain.
+            dlg.section_combo.setCurrentIndex(
+                0 if geometry == "square" else 1)
+            dlg.width_spin.setValue(d_mm)
+            dlg.speed.setValue(u_ms)
+            QtWidgets.QApplication.processEvents()
+            return dlg.plan.text()
+
+        # (a) the anchor regime: square @ Re 21,400 — RAS, runnable, and
+        # the plan must be honest about the hours it costs.
+        text = drive("square", 20.0, 16.05)
+        assert dlg.solve_btn.isEnabled(), "anchor regime not runnable"
+        assert "kOmegaSST" in text and "HOURS" in text, text[:120]
+
+        # (b) laminar shedding: Re 100 (15 mm at the 0.1 m/s spinbox floor)
+        # — runnable, named. The floor is why these low-Re probes shrink d
+        # instead of U: the widget clamps, and a clamped input silently
+        # testing the wrong regime is exactly what this check exists to
+        # catch in the product.
+        text = drive("circle", 15.0, 0.1)
+        assert dlg.solve_btn.isEnabled(), "laminar transient not runnable"
+        assert "transient laminar" in text, text[:120]
+
+        # (c) below shedding onset (5 mm @ 0.1 m/s -> Re 33): steady.
+        text = drive("circle", 5.0, 0.1)
+        assert dlg.solve_btn.isEnabled(), "steady regime not runnable"
+        assert "steady simpleFoam" in text, text[:120]
+
+        # (d) the refusal that matters most: a REAL circular mast in real
+        # wind. The Solve button must be dead and the engine's drag-crisis
+        # note on display — not a warning a user can click through.
+        text = drive("circle", 200.0, 16.0)
+        assert not dlg.solve_btn.isEnabled(), \
+            "a circular mast above the shedding regime was runnable"
+        assert "SHARP-EDGED square section" in text, text[:160]
+
+        # (e) square beyond the validated window refuses with the window
+        # named (the engine's own note again).
+        text = drive("square", 500.0, 16.0)
+        assert not dlg.solve_btn.isEnabled(), \
+            "square beyond Re 1.5e5 was runnable"
+        assert "beyond the square-section" in text, text[:160]
+    finally:
+        dlg.close()
+        dlg.deleteLater()
+    return ("all four regimes chosen from the physics; both refusals dead "
+            "before the button, engine-worded")
+
+
 def _solid_convection_selection():
     """Solid Convection tessellates the SELECTION, in metres (§8a).
 
@@ -3263,6 +3332,8 @@ def main():
           _run_solver_openfoam_dispatch)
     check("Solid Convection command tessellates the selection in metres (§8a)",
           _solid_convection_selection)
+    check("Wind Loading dialog chooses the method from the physics and "
+          "refuses before the button (§8b)", _wind_loading_dialog)
     check("Solver Setup dialog + Windows guided-install buttons",
           _solver_setup_dialog)
     _log("----------------------------")

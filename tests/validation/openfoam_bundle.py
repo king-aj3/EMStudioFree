@@ -911,8 +911,11 @@ def live_load_checks(base):
     # move is +4.5 %; 2.95 gives the same 4.5 % over the layered figure while
     # rejecting uncoupled by 1.7 %. A drift past 2.95 SHOULD fail: it means
     # the thermal coupling this check exists to prove is nearly gone.
-    # ⚠ First live run of the tightened bound is owed on the next home-box
-    # `--all` (SOLVER tier; no OpenFOAM on the work box that measured this).
+    # ✅ First live run of the tightened bound: 2026-08-24, home box, GREEN —
+    # measured ratio 2.8218, IDENTICAL to the layered figure the bound was
+    # derived from (1.7 % under the new 2.95 ceiling, uncoupled 3.0 rejected).
+    # The band re-measure half of that audit item remains for the next
+    # `--all` campaign.
     check("load: the temperature ratio is neither 1 (a shared BC) nor the "
           "~3.0 of two UNCOUPLED cables at a 4:1 flux ratio — they are heating "
           "each other, in one solve", 1.2 < ratio < 2.95,

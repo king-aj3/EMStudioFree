@@ -803,18 +803,24 @@ def run_solid(case_dir, case, info=None, timeout=7200, cancel=None):
     return report, result
 
 
-def run_wind(case_dir, case=None, info=None, timeout=3600):
+def run_wind(case_dir, case=None, info=None, timeout=3600, cancel=None):
     """Write, run and read a cross-flow case. Returns (report, WindForces|None).
 
     ⚠ The forces come from the SOLVER LOG, not from ``postProcessing``:
     measured on v2512 this function object reports to the log and writes no
     files under this configuration. The report therefore carries the log tail
     that produced the numbers, so a reader can check them by eye.
+
+    ``cancel``: same contract as ``run_solid``/``run_cht`` (a
+    ``threading.Event``) — grown 2026-08-24 with the wind DIALOG, because a
+    caller with a Close button must be able to actually stop a multi-hour
+    URANS solve (the 08-17 lesson: an uncancellable CFD freezes FreeCAD).
     """
     case = write_wind(case_dir, case or WindCase())
     steps = WIND_TRANSIENT_STEPS if case.transient else WIND_STEPS
     app = steps[-1]
-    report = run_chain(case_dir, info=info, steps=steps, timeout=timeout)
+    report = run_chain(case_dir, info=info, steps=steps, timeout=timeout,
+                       cancel=cancel)
     report["case"] = {"reynolds": case.reynolds, "d_ref": case.d_ref,
                       "u_inf": case.u_inf, "q_ref": case.q_ref,
                       "radius_ratio": case.radius_ratio,

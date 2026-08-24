@@ -30,6 +30,7 @@ CMD_CONVECTION = "EMStudio_Convection"
 CMD_CONVECTION_FIELD = "EMStudio_ConvectionField"
 CMD_SOLID_CONVECTION = "EMStudio_SolidConvection"
 CMD_CHT = "EMStudio_ChtConvection"
+CMD_WIND = "EMStudio_WindLoading"
 CMD_SOLVER_PALACE = "EMStudio_SolverPalace"
 CMD_PATTERN_FREQS = "EMStudio_PatternFrequencies"
 CMD_RUN = "EMStudio_RunSolver"
@@ -82,6 +83,7 @@ ALL_COMMANDS = [
     CMD_CONVECTION_FIELD,
     CMD_SOLID_CONVECTION,
     CMD_CHT,
+    CMD_WIND,
     CMD_SOLVER_PALACE,
     CMD_PATTERN_FREQS,
     CMD_RUN,
@@ -133,7 +135,7 @@ COMMAND_GROUPS = [
         CMD_ANALYSIS, CMD_MATERIAL, CMD_PORT, CMD_WAVE_PORTS, CMD_COIL, "Separator",
         CMD_SOLVER_NEC2, CMD_SOLVER_OPENEMS, CMD_SOLVER_ELMER, CMD_SOLVER_PALACE,
         CMD_SOLVER_OPENFOAM, CMD_CONVECTION, CMD_CONVECTION_FIELD,
-        CMD_SOLID_CONVECTION, CMD_CHT,
+        CMD_SOLID_CONVECTION, CMD_CHT, CMD_WIND,
         "Separator", CMD_PATTERN_FREQS, CMD_RUN, CMD_SHOW_RESULTS, CMD_SWEEP_GAP,
     ]),
     ("Templates", [
@@ -758,6 +760,43 @@ class _ConvectionField:
         except Exception:                       # noqa: BLE001 — cosmetic
             pass
         return obj
+
+
+class _WindLoading:
+    """Cross-flow wind drag on a mast/member section — ROADMAP §8b.
+
+    The door the wind engine waited a year for, built the day AFTER its
+    forced-convection anchor went green (AJ's order, 2026-08-24 — the
+    triage's B6 insisted on that order). Parametric like the CHT dialog:
+    the section is typed, not selected, because the case is a 2-D
+    cross-flow benchmark geometry, not a tessellation of the document. The
+    method is CHOSEN from the physics and named; configurations no anchor
+    covers are refused before the button, not disclaimed after.
+    """
+
+    def GetResources(self):
+        return {
+            "Pixmap": icon_path("emstudio_analysis.svg"),
+            "MenuText": "Solve Wind Loading (cross-flow drag)...",
+            "ToolTip": "Steady-wind drag on a square or circular member: "
+                       "type the section width, wind speed and length, and "
+                       "OpenFOAM solves the cross-flow — steady below "
+                       "shedding, transient laminar to Re 200, and "
+                       "kOmegaSST URANS on the validated square-section "
+                       "anchor (Lyn/Tian, Re 21,400) to Re 1.5e5. Circular "
+                       "masts above the shedding regime are refused — "
+                       "their drag crisis has no single-Re anchor",
+        }
+
+    def IsActive(self):
+        # Parametric — no document or selection required; the result is
+        # numbers, not document objects.
+        return True
+
+    def Activated(self):
+        from emstudio.ui import wind_dialog
+        dlg = wind_dialog.build_dialog(parent=FreeCADGui.getMainWindow())
+        dlg.exec()
 
 
 class _SolidConvection:
@@ -2059,6 +2098,7 @@ def register():
     FreeCADGui.addCommand(CMD_CONVECTION_FIELD, _ConvectionField())
     FreeCADGui.addCommand(CMD_SOLID_CONVECTION, _SolidConvection())
     FreeCADGui.addCommand(CMD_CHT, _ChtConvection())
+    FreeCADGui.addCommand(CMD_WIND, _WindLoading())
     FreeCADGui.addCommand(CMD_SOLVER_PALACE, _AddSolverPalace())
     FreeCADGui.addCommand(CMD_PATTERN_FREQS, _PatternFrequencies())
     FreeCADGui.addCommand(CMD_RUN, _RunSolver())

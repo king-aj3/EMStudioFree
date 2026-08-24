@@ -464,6 +464,26 @@ names it when your case leaves the remaining envelope: aspect outside
 conductive to carry a measurable share of the drop. ⚠ The buoyant solve can take tens of minutes; Cancel
 is real, and closing the dialog mid-solve cancels.
 
+**Wind loading — cross-flow drag on a mast or member section (§8b).**
+**Analysis ▸ Solve Wind Loading…** takes a square or circular section width,
+a wind speed and a member length, and solves the 2-D cross-flow in OpenFOAM.
+You never pick the method: the dialog chooses it from the Reynolds number —
+steady below the shedding onset (validated Re 20–40), transient laminar to
+Re 200 (validated at Re 100/150 against Williamson's correlation and the
+published Cd band), and above that the **kOmegaSST URANS square-section
+configuration validated against the Lyn (1995) experiment / Tian (2013)
+study at Re 21,400** (gate `openfoam_wind_ras`; Cd 2.14 vs the measured
+2.1), carried to Re 1.5×10⁵ on the square's flat measured drag plateau. The
+choice, and its runtime, are shown BEFORE you press Solve — the turbulent
+rung is the validated benchmark configuration and takes **hours** (~3 h
+serial on the reference box); Cancel is real. ⚠ **A circular mast above the
+shedding regime refuses to run**: the circular cylinder's drag crisis is
+transition-location physics no single-Re anchor covers, and the dialog
+shows the engine's own explanation instead of a number. Results: Cd (plus
+Strouhal, lift amplitude and measured cycles on the transient rungs), drag
+in newtons per metre, and the total over your member length. 2-D
+cross-flow only — end effects and gusting are not modelled.
+
 Ask for a result by size *and* load — `factor_for(d, gradient=...)` in the API.
 Asking by size alone is refused when that size has two answers, rather than
 being given one of them.

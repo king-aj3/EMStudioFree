@@ -430,6 +430,77 @@ def _openems_win_pipeline_pieces():
         "the pin is what makes silent replacement fail loudly")
 
 
+def _release_tool_contract():
+    """tools/release.py: green on a healthy tree, refuses a wrong version,
+    and structurally CANNOT commit, tag, push or touch a storefront.
+
+    The behavioral pair runs the real tool in --check mode: against the
+    version package.xml carries it must agree end to end (artefact
+    read-backs included); against a version nothing carries it must refuse
+    non-zero. The structural half greps the tool's SOURCE for the verbs it
+    promises never to run — a later edit that adds `git push` to the
+    "mechanical half" would turn a verification tool into an outward
+    actor, and that is a boundary decision (recorded in the tool's own
+    docstring), not a feature request.
+    """
+    import re as _re
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    # The tool is a plain-python CLI, and the check runs under THREE hosts
+    # (python3, freecadcmd, the 1.1.1 AppImage). sys.executable is FreeCAD
+    # itself under freecadcmd, and the AppImage's bundled python cannot run
+    # scripts outside its mount — both produce garbage that reads like a
+    # refusal. The SYSTEM python is the tool's real runtime; prefer it
+    # unconditionally and fall back to sys.executable only when the box has
+    # no python on PATH at all.
+    py = (_shutil.which("python3") or _shutil.which("python")
+          or (sys.executable
+              if "python" in os.path.basename(sys.executable) else None))
+    assert py, "no python interpreter found for the release-tool subprocess"
+    # ...and the AppImage host EXPORTS PYTHONHOME/PYTHONPATH/LD_LIBRARY_PATH
+    # pointing into its own mount, which kills any system python it spawns
+    # before main() (empty output, nonzero exit — indistinguishable from a
+    # refusal). Scrub the interpreter-poisoning variables for the child.
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH")}
+
+    src_path = os.path.join(_ROOT, "tools", "release.py")
+    if not os.path.isfile(src_path):
+        # The free export DENIES the release tool on purpose (it orchestrates
+        # the PRIVATE repo's ritual — Pro zip, site page, sibling clones), so
+        # in the public tree this check's subject is absent BY MANIFEST, not
+        # by accident. That is the one legitimate self-skip shape: the skip
+        # asserts the reason is deliberate rather than returning quietly.
+        print("       (free tree: tools/release.py is manifest-denied — "
+              "the ritual is the private repo's)")
+        return
+    src = open(src_path, encoding="utf-8").read()
+    for verb in ("git commit", "git push", "git tag", "gumroad",
+                 "cloudflare"):
+        calls = [m for m in _re.finditer(_re.escape(verb), src, _re.I)
+                 if _re.search(r"run\(|subprocess", src[max(0, m.start()-80):m.start()])]
+        assert not calls, (
+            "release.py appears to EXECUTE %r — the tool's contract is "
+            "verify-and-refuse, never outward" % verb)
+
+    with open(os.path.join(_ROOT, "package.xml"), encoding="utf-8") as fh:
+        current = _re.search(r"<version>([0-9.]+)</version>", fh.read()).group(1)
+    ok = _subprocess.run([py, src_path, "--check",
+                          "--version", current],
+                         capture_output=True, text=True, timeout=300,
+                         cwd=_ROOT, env=env)
+    assert ok.returncode == 0, (
+        "release --check refused the CURRENT version %s:\n%s"
+        % (current, ok.stdout[-400:]))
+    bad = _subprocess.run([py, src_path, "--check",
+                           "--version", "9.9.9"],
+                          capture_output=True, text=True, timeout=300,
+                          cwd=_ROOT, env=env)
+    assert bad.returncode != 0, "release --check accepted a version no surface carries"
+    assert "9.9.9" in bad.stdout, "the refusal does not name the version"
+
+
 def _installer_build_plans():
     """Guided-build recipes are well-formed and never touch sudo."""
     from emstudio.setup import solvers
@@ -2008,6 +2079,8 @@ def main():
           _win_guided_install_contract)
     check("openEMS native-Windows pipeline pieces (.pth, deck DLL guard, "
           "wheel-python probe)", _openems_win_pipeline_pieces)
+    check("release tool verifies, refuses, and cannot act outward",
+          _release_tool_contract)
     check("NEC2 parser reads both nec2c and nec2++ output",
           _nec_parser_reads_both_dialects)
     check("nec2 argv uses basenames (macOS temp paths overflow nec2c)",
