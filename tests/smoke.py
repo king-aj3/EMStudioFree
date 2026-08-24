@@ -343,6 +343,93 @@ def _openems_gates_skip_without_openems():
         assert "return 0" in head, name + " does not return 0 on the skip path"
 
 
+def _openems_win_pipeline_pieces():
+    """The native-Windows openEMS pieces: DLL healing + the wheel-python probe.
+
+    All three were born from MEASURED failures on the Windows VM
+    (2026-08-24): the upstream wheels bundle no DLLs, Python >= 3.8 ignores
+    PATH for extension-module deps, and the zip's wheels are cp313/cp314 only
+    while FreeCAD bundles 3.11. Each piece is checked as behaviour or exact
+    content, not as "the table has an entry".
+    """
+    import subprocess as _subprocess
+    import tempfile as _tempfile
+
+    from emstudio.setup import solvers
+
+    # 1. The .pth line the installer writes must be the executable form
+    # (site.py runs lines starting with "import ") and must heal the DLL
+    # closure of the exact install root it was written for.
+    line = solvers._openems_pth_line(r"C:\fake\openEMS")
+    assert line.startswith("import os; "), (
+        "not the executable .pth form — site.py would treat it as a path: %r"
+        % line)
+    assert "add_dll_directory" in line and r"C:\fake\openEMS" in line, line
+    assert "\n" not in line, ".pth executable lines must be single lines"
+
+    # 2. Every generated deck carries the nt-guarded DLL wiring BEFORE the
+    # CSXCAD import — hand venvs never see the installer's .pth. Source-level
+    # check, same pattern as the gate-skip contract above.
+    wsrc = open(os.path.join(_ROOT, "emstudio", "solvers", "openems",
+                             "writer.py"), encoding="utf-8").read()
+    guard = wsrc.find("add_dll_directory")
+    imp = wsrc.find('w("from CSXCAD import ContinuousStructure")')
+    assert 0 < guard < imp, (
+        "the deck's DLL guard is missing or emitted after the CSXCAD import "
+        "— a fresh venv on Windows dies 'DLL load failed' (measured)")
+
+    # 3. The wheel-python probe matches on the printed X.Y, not on hope: a
+    # fake `py` launcher proves the match and the reject. POSIX-runnable —
+    # subprocess + PATH behave the same, which is the point of probing
+    # through a subprocess instead of the registry.
+    tmp = _tempfile.mkdtemp(prefix="emstudio_pyprobe_")
+    made = []
+    try:
+        if os.name == "nt":
+            fake = os.path.join(tmp, "py.bat")
+            body = "@echo 3.13\r\n@echo C:\\fake\\py313\\python.exe\r\n"
+        else:
+            fake = os.path.join(tmp, "py")
+            body = "#!/bin/sh\necho 3.13\necho /fake/py313/python\n"
+        with open(fake, "w") as fh:
+            fh.write(body)
+        os.chmod(fake, 0o755)
+        made.append(fake)
+        real_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = tmp
+        try:
+            got = solvers._find_wheel_python(("3.13", "3.14"))
+            assert got is not None and got[1] == "3.13", (
+                "probe missed a matching fake launcher: %r" % (got,))
+            assert got[0].endswith("python.exe") or got[0].endswith("python"), got
+            got = solvers._find_wheel_python(("3.99",))
+            assert got is None, (
+                "probe accepted a non-matching python: %r" % (got,))
+        finally:
+            os.environ["PATH"] = real_path
+    finally:
+        for p in made:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        try:
+            os.rmdir(tmp)
+        except OSError:
+            pass
+
+    # 4. A plan that promises a python completion must say what it needs —
+    # the structural half _win_guided_install_contract cannot know py_env
+    # semantics.
+    plan = solvers.WIN_INSTALL_PLANS.get("openems")
+    assert plan and plan.get("py_env"), "openems plan lost its py_env"
+    env = plan["py_env"]
+    assert env.get("wheels_dir") and env.get("py_tags"), env
+    assert plan.get("sha256", ""), (
+        "the openems zip is a GitHub release asset (mutable in place) — "
+        "the pin is what makes silent replacement fail loudly")
+
+
 def _installer_build_plans():
     """Guided-build recipes are well-formed and never touch sudo."""
     from emstudio.setup import solvers
@@ -1919,6 +2006,8 @@ def main():
           _version_probe_rejects_help_text)
     check("guided Windows install: plans + install/probe pipeline",
           _win_guided_install_contract)
+    check("openEMS native-Windows pipeline pieces (.pth, deck DLL guard, "
+          "wheel-python probe)", _openems_win_pipeline_pieces)
     check("NEC2 parser reads both nec2c and nec2++ output",
           _nec_parser_reads_both_dialects)
     check("nec2 argv uses basenames (macOS temp paths overflow nec2c)",

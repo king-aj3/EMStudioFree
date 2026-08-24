@@ -84,6 +84,7 @@ SOLVER = [
     "openfoam_ras_solid",
     "openfoam_solid",
     "openfoam_wind",
+    "openfoam_wind_ras",
     "openfoam_wind_transient",
     "bh_elmer", "cavity_palace", "circwaveguide_palace",
     "coax_palace", "coil_inductance_elmer", "curved_wire_nec2",
@@ -187,6 +188,7 @@ SOLVER_REQS = {
     "openfoam_solid": "openfoam",
     "openfoam_ras_cavity": "openfoam",
     "openfoam_ras_solid": "openfoam",
+    "openfoam_wind_ras": "openfoam",
 }
 
 
@@ -310,6 +312,9 @@ SLOW_GATES_TIMEOUT_S = {
     "openfoam_cht_convection": 5400.0,
     # One ~3 h RAS solve (measured 2026-08-23) — the turbulent-regime anchor.
     "openfoam_ras_solid": 14400.0,
+    # One ~3 h serial URANS shedding solve (38.5k steps, 19.2k cells; the
+    # 4-rank dev run measured 2026-08-24 — serial budgeted at ~3x that).
+    "openfoam_wind_ras": 21600.0,
 }
 
 

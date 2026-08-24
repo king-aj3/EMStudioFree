@@ -424,13 +424,18 @@ a far-wall box at ambient sized generously around it — when your document
 contains no enclosure, open air is the assumption. You get the surface
 temperature rise, the mean film coefficient h, and a *Show field in 3-D
 view* button for the solved temperature field. Scope, stated in the dialog
-too: **laminar, convection only — no radiation** (a high-emissivity surface
-sheds a comparable power radiatively, so the solved rise is an
-over-estimate), constant-property air at a film temperature (the dialog
-warns when the solved film strays), and no enclosure geometry read yet.
-The path is anchored on a sphere: an exact two-sided conduction sandwich
-(Nu 2.5575 inside [2.3374, 2.6667]) and the Churchill free-convection
-correlation (+4.3 % at Ra_D 1.33e6).
+too: **convection only — no radiation** (a high-emissivity surface sheds a
+comparable power radiatively, so the solved rise is an over-estimate),
+constant-property air at a film temperature (the dialog warns when the
+solved film strays), and no enclosure geometry read yet. **The turbulence
+model is chosen for you and NAMED in the results** (since v1.7.0): laminar
+below an estimated Ra of 1e8 — where the case is byte-identical to the
+pre-turbulence writer — and kOmegaSST above it, validated on its own
+turbulent anchor (a sphere at resulting Ra 2.1e9, Nu within 8.7 % of the
+Churchill correlation, with the laminar mutation demonstrably unable to
+settle there). The laminar path is anchored on a sphere: an exact two-sided
+conduction sandwich (Nu 2.5575 inside [2.3374, 2.6667]) and the Churchill
+free-convection correlation (+2.9 % at Ra_D 1.33e6 on the layered mesh).
 
 **Conjugate heat transfer — the interface temperature comes out of the
 solve.** Analysis ▸ *Solve Conjugate Heat Transfer (slab + air gap)…*
@@ -450,10 +455,13 @@ Boussinesq air model cannot represent at all), plus *Show gap field in 3-D
 view*. Anchored live: the gate's 40×60 mesh reads Nu 6.853 at Ra 8.49e5,
 aspect 4; a three-grid refinement study puts the **mesh-independent value
 at about 6.5**, between the two in-range correlations (Berkovsky-Polevikov
-6.64, ElSherbiny-class at A = 5 6.41). The dialog names it when your
-case leaves that envelope: Ra beyond laminar, aspect outside 2–10, film
-temperature far off the property table, or a solid layer too conductive to
-carry a measurable share of the drop. ⚠ The buoyant solve can take tens of minutes; Cancel
+6.64, ElSherbiny-class at A = 5 6.41). **Above Ra 1e8 the gap switches to
+kOmegaSST and the results name the model** (since v1.7.0; the turbulent
+path is validated against the measured Betts & Bokhari tall-cavity
+experiment — worst temperature profile 4.8 % of span). The dialog still
+names it when your case leaves the remaining envelope: aspect outside
+2–10, film temperature far off the property table, or a solid layer too
+conductive to carry a measurable share of the drop. ⚠ The buoyant solve can take tens of minutes; Cancel
 is real, and closing the dialog mid-solve cancels.
 
 Ask for a result by size *and* load — `factor_for(d, gradient=...)` in the API.
@@ -1407,7 +1415,7 @@ Simulation backends on native Windows:
 |---|---|
 | **NEC2** | ✅ **one-click** — Solver Setup → **Install…**. Downloads nec2++ 2.3.4 (~1.5 MB, per-user, no admin rights), built from unmodified upstream source and published by the EMStudio project because no NEC engine has an official Windows build. Verified byte-identical to the Linux build on the shipped dipole deck. |
 | **Elmer, Gmsh** | ✅ **one-click** — Solver Setup → **Install…** downloads the official upstream builds (~160 MB and ~37 MB, per-user, no admin). Manual installers at elmerfem.org / gmsh.info still work. |
-| openEMS | ⚠️ prebuilt zips exist, but EMStudio's Python-driven pipeline isn't wired for them yet |
+| openEMS | ✅ **one-click** — Solver Setup → **Install…** downloads the official upstream build (~50 MB, per-user, no admin) and builds the Python environment the run pipeline needs from the zip's own wheels. Needs a system Python 3.13/3.14 from python.org (the wheels cannot run on FreeCAD's bundled interpreter — the button says so up front instead of failing after the download). Verified live: the patch gate reproduces its published −29 dB S11 reference at 2.435 GHz on native Windows. |
 | FastHenry | ⚠️ build from source — Solver Setup's **Build…** button automates the whole compile when a MinGW toolchain is present (FastFieldSolvers' own Windows bundle cannot be driven: its FastHenry2 is a GUI/Automation application with command-line arguments removed in 2004). The licensing is resolved in writing — the M.I.T. material's 2003 re-release permits redistribution and FastFieldSolvers state their modifications are LGPL — so a one-click Install of an EMStudio-built CLI binary is prepared and ships once M.I.T.'s licensing office confirms the 2003 re-release. |
 | Palace | ❌ no upstream Windows support — WSL2 only |
 
@@ -1418,10 +1426,11 @@ interception?) — retrying through Windows curl/schannel"*, that is expected on
 managed corporate network and is handled automatically; verification is never
 disabled.
 
-**For openEMS and Palace, the route is still WSL2.** Install Ubuntu under WSL2,
-install FreeCAD and EMStudio inside it, and every Linux recipe in this manual
-applies unchanged — including all six solvers. Detect Solvers is platform-aware
-and shows Windows-specific guidance when run on native Windows.
+**For Palace, the route is still WSL2** (no upstream Windows support exists).
+Install Ubuntu under WSL2, install FreeCAD and EMStudio inside it, and every
+Linux recipe in this manual applies unchanged — including all six solvers.
+WSL2 also remains a supported alternative for openEMS. Detect Solvers is
+platform-aware and shows Windows-specific guidance when run on native Windows.
 
 ## 8. Troubleshooting
 

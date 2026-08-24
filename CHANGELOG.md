@@ -8,6 +8,75 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 
+## [1.8.0] — 2026-08-24
+
+### Added
+
+* **Turbulent wind loading is VALIDATED: transient kOmegaSST on the
+  sharp-edged square section, to Re 1.5×10⁵.** The `openfoam_wind_ras`
+  SOLVER gate solves the published anchor — the square cylinder at
+  **Re 21,400** (Lyn 1995 LDV experiment; Tian 2013, the same case in
+  OpenFOAM 2-D URANS SST) — through the product's own writer + runner, and
+  every tolerance is the published spread, not this box's numbers: St in
+  [0.125, 0.150] (asymmetric over the known 2-D URANS high bias), Cd in
+  [1.95, 2.25] (experiments + DNS + every published URANS), shedding proven
+  by lift amplitude. `method_is_valid` now accepts square-section kOmegaSST
+  to **Re 1.5e5** — the top of the flat measured Cd plateau (Fage & Johansen
+  1927) — in the SAME commit as the green gate (the v1.5.0 rule: a validity
+  claim may not precede its evidence). Circular sections above Re 200 still
+  refuse: the drag crisis is transition-location physics no single-Re anchor
+  transfers across, and the validity note says so.
+* **openEMS on native Windows: one-click guided install, and the pipeline is
+  PROVEN, not promised.** Solver Setup's Install button downloads the
+  official upstream MSVC build (sha256-pinned; the only build whose bundled
+  wheels — cp313/cp314 — match any obtainable python), builds the venv the
+  python-driven pipeline needs from the zip's own wheels + numpy + h5py,
+  heals the measured DLL-closure failure (the wheels bundle no DLLs and
+  Python ≥3.8 ignores PATH for extension-module deps — a `.pth`
+  `add_dll_directory` line, proven with PATH stripped to C:\Windows), and
+  refuses BEFORE the download when no wheel-compatible python exists rather
+  than leaving a "found" solver that cannot run. Verified end to end on
+  native Windows through the unmodified runner first: `patch_openems`
+  −28.34 dB at 2.4350 GHz and `msl_notch_openems` 3.6623 GHz — equal to the
+  stored cross-platform reference to the digit.
+
+### Fixed
+
+* **The wind RAS anchor's six recorded startup crashes were never the
+  turbulence model.** Measured with `FOAM_SIGFPE=false` + 10-step field
+  dumps: (1) the dev harness's **potentialFoam init** has no Dirichlet
+  anchor under freestream BCs and hands pimpleFoam a STAGNANT interior
+  against a 16 m/s boundary (max|U| 0.41 m/s at t=0; the product chain never
+  ran potentialFoam — only the dev harness did); (2) at radius_ratio 10 the
+  outlet sits 4.5 diameters downstream and the fully-developed vortex street
+  reaches it at ~1.3× freestream carrying k two orders above ambient — the
+  freestream patch's inletOutlet switching then diverges after ~17 healthy
+  cycles. The anchor case pins **radius_ratio 20** as part of the benchmark
+  definition — lateral ±10 d reproduces Tian's own 5 % tunnel blockage
+  (the published Cd values live at ~5–7 % confinement: a 2.5 %-blockage
+  domain completed with St 0.1330 and Cl on the published values but Cd
+  legitimately a few % under the band, exactly as the de-risk doc
+  predicted), and outlet 10 d is far enough for the street to decay before
+  the boundary. Full forensics: `docs/WIND_TURBULENCE_ANCHOR.md` ADDENDUM 2.
+* **The openEMS determinate progress bar never matched a single live line.**
+  The step pattern required whitespace after "Timestep"; the real console
+  prints `Timestep:` with a colon (captured live on v0.37.0-rc1) — precisely
+  the silent nothing-reported failure the pattern's own comment predicted.
+  Fixed (`Timestep:?`), and the deck's NrTS total line now flushes so the
+  bar learns its total before the FDTD output floods the pipe.
+* Every generated openEMS deck now carries an nt-guarded
+  `os.add_dll_directory` before the CSXCAD import, so a hand-built venv
+  following the documented venv-beside-binary convention works without the
+  installer's `.pth` (negative-controlled live: `.pth` deleted, gate green).
+
+### Docs
+
+* CAPABILITIES' "turbulence position" paragraph REWRITTEN — it still said
+  "every case EMStudio writes today is laminar", which v1.6.0 falsified and
+  two releases shipped past; it now states per-writer facts. USER_MANUAL and
+  README Windows tables: openEMS moves from "not wired" to one-click (with
+  the honest system-python requirement stated up front).
+
 ## [1.7.0] — 2026-08-23
 
 ### Added

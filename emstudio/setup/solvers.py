@@ -1175,9 +1175,28 @@ MACOS_HINTS = {
 # Windows install guidance per backend (native installers where they exist,
 # honest WSL pointers where they don't).
 WINDOWS_HINTS = {
-    "openems": "Prebuilt Windows zip: https://www.openems.de/ (unzip to C:\\opt\\openEMS). "
-               "Python-driven runs are not wired up on native Windows yet — use WSL2 "
-               "for the full pipeline.",
+    # NATIVE WINDOWS WORKS as of 2026-08-24 — proven live on the Windows VM
+    # through the unmodified runner before the button existed: patch gate
+    # -28.34 dB @ 2.4350 GHz, msl notch 3.6623 GHz == the stored reference.
+    # The one measured trap is DLL closure: the upstream wheels do NOT bundle
+    # their DLLs, and Python >= 3.8 does not consult PATH for the dependent
+    # DLLs of extension modules, so a bare `pip install <wheel>` venv dies
+    # "DLL load failed while importing CSXCAD". Two fixes ship: the guided
+    # install writes a .pth that add_dll_directory()s the install root, and
+    # every generated deck carries an nt-guarded add_dll_directory for hand
+    # venvs that follow the venv-beside-binary convention.
+    "openems": "One-click guided install available — the Install button "
+               "downloads the official openEMS Windows build (~50 MB, "
+               "per-user, no admin rights) and builds the Python environment "
+               "the run pipeline needs from the zip's own wheels. Requires a "
+               "system Python 3.13 or 3.14 (python.org) — the wheels cannot "
+               "run on FreeCAD's bundled interpreter, and the button says so "
+               "up front instead of failing after the download. Manual "
+               "alternative: unzip to C:\\opt\\openEMS, create a venv AT "
+               "C:\\opt\\openEMS\\venv with Python 3.13/3.14, and pip install "
+               "the python\\*.whl files plus numpy and h5py — EMStudio "
+               "detects that venv beside the binary automatically. WSL2 "
+               "remains a supported alternative.",
     # VERIFIED on Windows 2026-08-03 (MinGW-w64 GCC 15.2.0 + CMake 4.4.2): the
     # nec2++ output is BYTE-IDENTICAL to the Linux build's on the shipped dipole
     # deck, so Windows finally has a native NEC engine instead of "use WSL2".
@@ -1280,9 +1299,12 @@ WINDOWS_HINTS = {
 # behind a form". Its download.htm does, but dwnld02.htm serves the bundle
 # installer directly — probed, 200 + octet-stream + 27 MB, no login. FastHenry
 # stays out of the guided installs on the LICENCE question alone, not on
-# availability; openEMS zips exist but
-# the python-driven run pipeline is not wired on native Windows, so installing
-# one would produce a "found" solver that cannot run — worse than honesty).
+# availability. ⚠ CORRECTED AGAIN 2026-08-24: this block excluded openEMS
+# because "the python-driven run pipeline is not wired on native Windows, so
+# installing one would produce a 'found' solver that cannot run — worse than
+# honesty". The pipeline was wired and PROVEN that night — see the openems
+# plan below — and the same worse-than-honesty rule is why its install
+# refuses up front when no wheel-compatible python exists).
 
 def win_install_root():
     """Per-user root for guided Windows installs (%LOCALAPPDATA%/EMStudio/solvers)."""
@@ -1377,6 +1399,46 @@ WIN_INSTALL_PLANS = {
         "estimate": "1-3 min (a ~37 MB download; no compile)",
         "url": "https://gmsh.info/bin/Windows/gmsh-stable-Windows64.zip",
         "proof": "gmsh.exe",
+    },
+    # openEMS joined the guided installs 2026-08-24, ending the "python-driven
+    # runs are not wired on native Windows" era: the whole pipeline was proven
+    # live on the Windows VM first (patch gate -28.34 dB @ 2.4350 GHz, msl
+    # notch 3.6623 GHz == the stored reference), through the UNMODIFIED
+    # runner, before this entry existed.
+    #
+    # The pin points at upstream's v0.37.0-rc1 MSVC build, and the choice is
+    # forced, not preference: it is the ONLY upstream zip whose bundled wheels
+    # (cp313/cp314) can be hosted by any python a user can currently obtain —
+    # the "Latest" v0.0.36 (2023) ships cp310-only wheels, and the nightly
+    # names float. A GitHub release asset is mutable in place, so the pin
+    # makes silent replacement fail loudly (nec2's rule; upstream rather than
+    # self-hosted, hence no source-offer duty — thliebig distributes, we
+    # point).
+    #
+    # `py_env` is what makes the install honest: the binary alone is a
+    # "found" solver that cannot run (the pipeline drives the PYTHON module,
+    # not the exe). The completion builds <target>\venv from a system Python
+    # matching the wheel tags, installs the zip's own wheels + numpy + h5py,
+    # writes the DLL-path .pth (the wheels do NOT bundle their DLLs and
+    # Python >= 3.8 ignores PATH for extension-module deps — measured, see
+    # WINDOWS_HINTS), and proves the import before declaring success. The
+    # matching-python probe runs BEFORE the download so a box with only
+    # FreeCAD's bundled 3.11 gets told what to install instead of a broken
+    # tree.
+    "openems": {
+        "estimate": "3-10 min (a ~50 MB download + a local Python venv; "
+                    "no compile)",
+        "url": "https://github.com/thliebig/openEMS-Project/releases/"
+               "download/v0.37.0-rc1/openEMS_x64_v0.37.0-rc1_msvc.zip",
+        "proof": "openEMS.exe",
+        # Hashed from the live asset 2026-08-24 (50,137,868 bytes; contents
+        # verified: exe + DLLs + python/ wheels cp313+cp314 + Tutorials).
+        "sha256": "7ed0e3a271b4d1d0446cafcdaf1cb2a8e77fbf05f970e37faf620364f6556a4c",
+        "py_env": {
+            "wheels_dir": "python",
+            "py_tags": ("3.13", "3.14"),
+            "pip_extra": ("numpy", "h5py"),
+        },
     },
     # The one SELF-HOSTED entry, and the only one that needs justifying: every
     # other plan points at the publisher's own distribution point, because the
@@ -1674,6 +1736,114 @@ def _download_archive(url, dest, say):
     say("  downloaded via curl ({0} MB)".format(os.path.getsize(dest) >> 20))
 
 
+def _find_wheel_python(tags):
+    """A system python whose X.Y matches one of ``tags``, or None.
+
+    Probes the py launcher per tag first (the deterministic route), then a
+    bare ``python`` (PATH may hold one the launcher does not list). Returns
+    (exe_path, tag). The probe prints version and executable on separate
+    lines because a path with spaces would shred a split-on-whitespace.
+    """
+    probe = ("-c", "import sys;"
+                   "print('%d.%d' % sys.version_info[:2]);"
+                   "print(sys.executable)")
+    candidates = [("py", "-" + t) for t in tags] + [("python",)]
+    for cmd in candidates:
+        try:
+            job = subprocess.run(
+                cmd + probe, capture_output=True, text=True, timeout=30,
+                creationflags=procutil.CREATE_NO_WINDOW)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        lines = (job.stdout or "").strip().splitlines()
+        if job.returncode == 0 and len(lines) >= 2 and lines[0] in tags:
+            return lines[1].strip(), lines[0]
+    return None
+
+
+def _complete_openems_py_env(target, env, say):
+    """Build the venv the openEMS python pipeline needs, from the zip's wheels.
+
+    The binary alone is a "found" solver that cannot run — EMStudio drives
+    openEMS through its python module, and the upstream zip ships that module
+    as cp-tagged WHEELS with no interpreter and no bundled DLLs (both
+    measured 2026-08-24). Steps, each of which raises rather than leaving a
+    half-state detection would trust:
+
+    1. venv at <target>/venv — exactly where ``find_openems_python`` probes.
+    2. pip install the zip's own wheels for the matched tag + numpy + h5py.
+    3. write a .pth that ``os.add_dll_directory``s the install root: the
+       wheels' extension modules import DLLs that live beside openEMS.exe,
+       and Python >= 3.8 will not find them via PATH. The .pth heals every
+       entry into the venv (REPL and tutorials included), not just decks —
+       decks additionally carry their own nt-guarded add_dll_directory for
+       hand venvs that never ran this installer.
+    4. prove ``import CSXCAD, openEMS`` in that venv before reporting success.
+    """
+    from emstudio.solvers.base import SolverError
+
+    found = _find_wheel_python(env["py_tags"])
+    if found is None:
+        raise SolverError(
+            "no system Python matching the bundled wheels (need one of: {0}). "
+            "Install Python {1} from https://www.python.org/downloads/ and "
+            "retry — FreeCAD's own interpreter cannot host these wheels."
+            .format(", ".join(env["py_tags"]), env["py_tags"][0]))
+    py, tag = found
+    cp = "cp" + tag.replace(".", "")
+    wheel_dir = os.path.join(target, env["wheels_dir"])
+    wheels = sorted(
+        os.path.join(wheel_dir, n) for n in os.listdir(wheel_dir)
+        if n.endswith(".whl") and ("-%s-" % cp) in n)
+    if not wheels:
+        raise SolverError(
+            "the archive's {0}/ folder holds no {1} wheels — upstream layout "
+            "changed; report this".format(env["wheels_dir"], cp))
+
+    venv_dir = os.path.join(target, "venv")
+    say("building the python environment (venv, Python {0})...".format(tag))
+    steps = (
+        ([py, "-m", "venv", "--clear", venv_dir], "venv creation"),
+        ([os.path.join(venv_dir, "Scripts", "python.exe"), "-m", "pip",
+          "install", "--quiet"] + wheels + list(env.get("pip_extra", ())),
+         "wheel install"),
+    )
+    for cmd, what in steps:
+        job = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=1800,
+                             creationflags=procutil.CREATE_NO_WINDOW)
+        if job.returncode != 0:
+            raise SolverError("{0} failed (exit {1}): {2}".format(
+                what, job.returncode, (job.stderr or "").strip()[:300]))
+
+    pth = os.path.join(venv_dir, "Lib", "site-packages", "openems_dlls.pth")
+    with open(pth, "w", encoding="ascii") as fh:
+        fh.write(_openems_pth_line(target) + "\n")
+
+    say("verifying the python modules import...")
+    job = subprocess.run(
+        [os.path.join(venv_dir, "Scripts", "python.exe"), "-c",
+         "import CSXCAD, openEMS"],
+        capture_output=True, text=True, timeout=120,
+        creationflags=procutil.CREATE_NO_WINDOW)
+    if job.returncode != 0:
+        raise SolverError(
+            "the installed python modules do not import: {0}".format(
+                (job.stderr or "").strip()[:300]))
+    say("python environment ready (venv beside the binary)")
+
+
+def _openems_pth_line(target):
+    """The one executable .pth line that heals the wheels' DLL closure.
+
+    A .pth line starting with ``import`` is executed by site.py at interpreter
+    start — the classic mechanism, used here because it fixes EVERY entry into
+    the venv, not just our decks. Kept as its own function so the smoke test
+    can check the exact content without running an installer.
+    """
+    return "import os; os.add_dll_directory(r'{0}')".format(target)
+
+
 def run_win_install(key, line_callback=None, _plan=None):
     """Download + extract a backend's official Windows build. Returns SolverInfo.
 
@@ -1697,6 +1867,19 @@ def run_win_install(key, line_callback=None, _plan=None):
     if plan is None:
         raise SolverError(
             "no guided Windows install for '{0}' on this platform".format(key))
+
+    # Plans with a python completion refuse BEFORE the download when no
+    # wheel-compatible interpreter exists: failing after 50 MB would leave a
+    # binary that detection reports "found" while the pipeline cannot run —
+    # the exact worse-than-honesty state that kept openEMS out of this table
+    # until 2026-08-24.
+    if plan.get("py_env") and _find_wheel_python(
+            plan["py_env"]["py_tags"]) is None:
+        raise SolverError(
+            "openEMS's bundled python wheels need a system Python matching "
+            "one of: {0}. Install one from "
+            "https://www.python.org/downloads/ and retry — nothing was "
+            "downloaded.".format(", ".join(plan["py_env"]["py_tags"])))
 
     root = win_install_root()
     target = os.path.join(root, key)
@@ -1765,6 +1948,9 @@ def run_win_install(key, line_callback=None, _plan=None):
             say("completing the tree with MinGW runtime DLLs "
                 "(the upstream zip ships none)...")
             _install_msys2_dlls(bin_dir, plan["runtime_pkgs"], need, say)
+
+    if plan.get("py_env"):
+        _complete_openems_py_env(target, plan["py_env"], say)
 
     info = find_backend(key)
     if not info.found:

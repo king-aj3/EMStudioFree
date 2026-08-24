@@ -133,18 +133,20 @@ def run(analysis, solver, workdir=None, line_callback=None, full_smatrix=False):
     # openEMS run (NrTS=..., ...)"), so the runner never duplicates the
     # writer's `max(1000, int(solver.MaxTimesteps))` and the two cannot drift.
     #
-    # UNVERIFIED AGAINST A LIVE RUN: openEMS is not installed on the box this
-    # was written on, so the step pattern is matched loosely against openEMS's
-    # documented progress line ("... Timestep   600 || Speed: ..."). That is
-    # deliberately a no-risk bet — if the wording does not match, nothing is
-    # reported and the dialog behaves exactly as it does today. Confirm on a
-    # machine with openEMS and tighten it there.
+    # VERIFIED AGAINST A LIVE RUN 2026-08-24 (openEMS v0.37.0-rc1, native
+    # Windows console capture):
+    #     [@        4s] Timestep:          585 || Speed:    6.2 MC/s ...
+    # The real line has a COLON after "Timestep", which the original
+    # documentation-derived pattern (r"Timestep\s+(\d+)") could never match —
+    # exactly the silent no-report failure the old comment predicted, on every
+    # platform, for as long as this bar has existed. `:?` accepts both the
+    # measured line and the colon-less wording the docs show.
     #
     # FDTD gets 0..90 %; the far-field / near-field post-processing the deck
     # does afterwards is the last 10 %.
     cb = progress.StreamProgress(
         line_callback,
-        step_pattern=r"Timestep\s+(\d+)",
+        step_pattern=r"Timestep:?\s+(\d+)",
         total_pattern=r"NrTS\s*=\s*(\d+)",
         note="Running FDTD", base=0.0, span=0.90)
     job = SolverJob([python, deck], cwd=workdir,

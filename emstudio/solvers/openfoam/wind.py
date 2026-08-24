@@ -83,9 +83,20 @@ SHEDDING_RE = 47.0
 #: confident wrong number.
 #:
 #: ⚠ Real antenna loading (Re 1e5-1e6) is ABOVE this. Reaching it needs a
-#: turbulence model with its own validation, which is not built. What IS built
-#: is every rung up to here, each anchored on published numbers.
+#: turbulence model with its own validation — which SQUARE sections now have
+#: (transient kOmegaSST, gate `openfoam_wind_ras`, window below); circular
+#: sections still refuse above here. Every rung is anchored on published
+#: numbers.
 TURBULENT_RE = 200.0
+
+#: Upper edge of the SQUARE-section kOmegaSST validation window: the highest
+#: experimental point on the square cylinder's flat Cd curve (Fage & Johansen
+#: 1927, Re 1.5e5; Lyn 21.4k and Norberg 38k sit on the same ~2.05-2.2
+#: plateau, which is what lets the single Re-21,400 anchor carry the band —
+#: separation is fixed at the leading corners, so there is no drag crisis to
+#: cross). Circular sections get NO such window: their drag crisis IS
+#: transition-location physics, and no single-Re anchor transfers across it.
+RAS_SQUARE_RE_MAX = 1.5e5
 
 
 @dataclass
@@ -232,13 +243,16 @@ class WindCase:
         """
         if (self.transient and self.turbulence == "kOmegaSST"
                 and self.geometry == "square"):
-            # ⚠⚠ STILL FALSE — the machinery exists but its anchor has NOT
-            # run: both startup attempts SIGFPE'd in the k/omega solve
-            # (2026-08-23, Co 2.4 and Co 0.9 — a startup-stiffness problem,
-            # not step size). Flip to `self.reynolds <= 1.5e5` ONLY in the
-            # same commit that lands a green `openfoam_wind_ras` gate; a
-            # validity claim may not precede its evidence (the v1.5.0 rule).
-            return False
+            # FLIPPED 2026-08-24, in the same commit as the green
+            # `openfoam_wind_ras` gate (the v1.5.0 rule: a validity claim may
+            # not precede its evidence). The 2026-08-23 startup SIGFPEs were
+            # never the turbulence: the dev harness's potentialFoam init
+            # collapses the interior to stagnation under freestream BCs, and
+            # the radius_ratio-10 domain put the outlet at 4.5 d where the
+            # vortex street hit the boundary at full strength (both measured
+            # — WIND_TURBULENCE_ANCHOR.md ADDENDUM 2). The product path with
+            # the anchor's radius_ratio-40 domain runs green end to end.
+            return self.reynolds <= RAS_SQUARE_RE_MAX
         if self.reynolds >= TURBULENT_RE:
             return False
         return self.transient or self.steady_is_valid
@@ -247,11 +261,14 @@ class WindCase:
         """The caveat a caller must surface, or empty when there is none."""
         if (self.transient and self.turbulence == "kOmegaSST"
                 and self.geometry == "square"):
+            if self.reynolds <= RAS_SQUARE_RE_MAX:
+                return ""
             return (
-                "kOmegaSST wind machinery is BUILT but its published anchor "
-                "(square cylinder, Re 21 400, Lyn/Tian) has not yet run "
-                "green — treat every number from this path as UNVALIDATED "
-                "until the openfoam_wind_ras gate exists and passes.")
+                "Re %.4g is beyond the square-section kOmegaSST validation "
+                "window (Re <= %.3g — the highest experimental point on the "
+                "square cylinder's flat Cd curve, Fage & Johansen 1927). "
+                "The anchor does not reach here; treat this number as "
+                "unvalidated." % (self.reynolds, RAS_SQUARE_RE_MAX))
         if self.reynolds >= TURBULENT_RE:
             if self.turbulence == "kOmegaSST":
                 return (
