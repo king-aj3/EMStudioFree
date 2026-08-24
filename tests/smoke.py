@@ -491,8 +491,8 @@ def _release_tool_contract():
                          capture_output=True, text=True, timeout=300,
                          cwd=_ROOT, env=env)
     assert ok.returncode == 0, (
-        "release --check refused the CURRENT version %s:\n%s"
-        % (current, ok.stdout[-400:]))
+        "release --check refused the CURRENT version %s:\nstdout: %s\n"
+        "stderr: %s" % (current, ok.stdout[-300:], ok.stderr[-300:]))
     bad = _subprocess.run([py, src_path, "--check",
                            "--version", "9.9.9"],
                           capture_output=True, text=True, timeout=300,
