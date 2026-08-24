@@ -91,7 +91,15 @@ def run(analysis, solver, workdir=None, line_callback=None):
     progress.report(line_callback, 0.90, "Radiation pattern")
     result.farfields = []
     try:
-        f_ff, _ = result.min_s11()
+        # ⚠ NOT min_s11(): on a FLAT band a bare argmin is mesh noise and the
+        # reported frequency moves with the grid (the openEMS horn measured
+        # 28.45 GHz at one mesh, 39.55 at another). pattern_frequency() is
+        # the shared guard — argmin on a resonant sweep, the band CENTRE with
+        # a surfaced note on a flat one. NEC2 lacked this until 2026-08-24;
+        # the openEMS writer's own comment had named the gap out loud.
+        f_ff, flat_note = result.pattern_frequency()
+        if flat_note:
+            progress.report(line_callback, 0.90, flat_note)
         # How many patterns the user asked for. 0 = one at the best match,
         # which is what every document produced before this existed.
         n_pat = int(getattr(solver, "PatternFrequencies", 0) or 0)

@@ -844,9 +844,107 @@ def gate_live():
         FreeCAD.closeDocument(doc.Name)
 
 
+def gate_flat_band():
+    """The flat-band guard on pattern-frequency selection, BOTH backends.
+
+    openEMS has carried the guard in its generated deck since v1.5.0 (the
+    Ka-band horn picked 28.45 GHz at one mesh and 39.55 at another). NEC2 had
+    a bare ``min_s11()`` argmin until 2026-08-24 — and the openEMS writer's
+    own comment named that gap out loud. The shared rule now lives in
+    ``SweepResult.pattern_frequency()`` with ONE constant in
+    ``emstudio.post.sparams``; these checks pin the rule and the unification.
+
+    ⚠ Named coverage hole: the NEC2 runner's CALL SITE (nec2/runner.py) is
+    exercised live only by the SOLVER tier, and on a resonant dipole both the
+    guarded and unguarded choices agree — so a revert to ``min_s11()`` there
+    is caught by none of these checks. The method and the constant are what
+    is pinned here; the call site is prose-reviewed.
+    """
+    print(" flat-band pattern-frequency guard:")
+    import numpy as np
+
+    from emstudio.post import sparams
+    from emstudio.post.sparams import SweepResult
+
+    f = np.linspace(1e9, 2e9, 41)
+    z0 = 50.0
+
+    # a real resonance: |S11| dips tens of dB at 1.4 GHz
+    dip = 10.0 ** (-(2.0 + 28.0 * np.exp(-((f - 1.4e9) / 6e7) ** 2)) / 20.0)
+    res = SweepResult(f, z0 * (1 + dip) / (1 - dip), z0=z0)
+    f_res, note = res.pattern_frequency()
+    check("resonant sweep: argmin wins", abs(f_res - 1.4e9) < 30e6,
+          "picked %.4g Hz" % f_res)
+    check("  ...silently", note == "")
+    check("  ...and agrees with min_s11", f_res == res.min_s11()[0])
+
+    # a FLAT band: 0.4 dB of mesh ripple around -18 dB, minimum parked at
+    # the band EDGE, where argmin would report it
+    rng = np.random.RandomState(7)
+    db = -18.0 + 0.2 * rng.standard_normal(f.size)
+    db[0] = -18.6                       # the noise minimum, at the edge
+    mag = 10.0 ** (db / 20.0)
+    flat = SweepResult(f, z0 * (1 + mag) / (1 - mag), z0=z0)
+    f_flat, note = flat.pattern_frequency()
+    check("flat band: the CENTRE wins, not the edge minimum",
+          abs(f_flat - 1.5e9) < 30e6,
+          "picked %.4g Hz; bare argmin would say %.4g"
+          % (f_flat, flat.min_s11()[0]))
+    check("  ...and says so out loud",
+          "no resonance" in note and "%.4g" % f_flat in note, note[:70])
+    check("  ...deterministically (mesh-independence is the point)",
+          flat.pattern_frequency()[0] == f_flat)
+
+    # the span boundary: just ABOVE the threshold argmin must win again
+    db2 = np.full(f.size, -10.0)
+    db2[10] = -10.0 - (sparams.FLAT_S11_SPAN_DB + 0.1)
+    mag2 = 10.0 ** (db2 / 20.0)
+    edge = SweepResult(f, z0 * (1 + mag2) / (1 - mag2), z0=z0)
+    check("span just above the threshold: argmin again",
+          edge.pattern_frequency() == (float(f[10]),
+                                       edge.pattern_frequency()[1])
+          and edge.pattern_frequency()[1] == "",
+          "picked %.4g Hz" % edge.pattern_frequency()[0])
+
+    # ONE constant, ONE rule: the openEMS deck writer must bake the SAME
+    # threshold sparams applies, or the two backends drift apart again.
+    # Under freecadcmd the LIVE identity is checked; under plain python3 the
+    # writer cannot even import (its module chain reaches `import FreeCAD`),
+    # so the same property is pinned STRUCTURALLY: an ImportFrom of sparams'
+    # name and no local re-assignment — AST, not source text, so a comment
+    # cannot defeat it (the solve_confirm_coverage precedent).
+    try:
+        from emstudio.solvers.openems import writer as ow
+    except ModuleNotFoundError:
+        import ast
+        src = open(os.path.join(_ROOT, "emstudio", "solvers", "openems",
+                                "writer.py"), encoding="utf-8").read()
+        tree = ast.parse(src)
+        imported = any(isinstance(n, ast.ImportFrom)
+                       and n.module == "emstudio.post.sparams"
+                       and any(a.name == "FLAT_S11_SPAN_DB" for a in n.names)
+                       for n in ast.walk(tree))
+        assigned = any(isinstance(n, ast.Assign)
+                       and any(isinstance(t, ast.Name)
+                               and t.id == "FLAT_S11_SPAN_DB"
+                               for t in n.targets)
+                       for n in ast.walk(tree))
+        check("openEMS writer takes sparams' constant (AST route, python3)",
+              imported and not assigned,
+              "imported=%s locally-reassigned=%s - a second hand-kept copy "
+              "of the threshold is the drift this exists for"
+              % (imported, assigned))
+    else:
+        check("openEMS writer bakes sparams' own constant",
+              ow.FLAT_S11_SPAN_DB is sparams.FLAT_S11_SPAN_DB,
+              "two hand-kept copies of a threshold is the drift this exists "
+              "for")
+
+
 def main():
     print("EMStudio per-frequency radiation-pattern gate")
     gate_parser()
+    gate_flat_band()
     gate_writer()
     gate_wiring()
     gate_currents_blocks()

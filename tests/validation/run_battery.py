@@ -47,7 +47,7 @@ FAST = {
     "horn": None,
     "lfmf": None,
     "lib_present_platforms": None,
-    "litz_noscipy": None,
+    "litz_noscipy": "pymod:scipy",
     "material_loss": None,
     "palace_radiation": None,
     "openfoam_runner_cancel": None,
@@ -249,6 +249,18 @@ def _requirement_missing(req):
                         "this machine".format(path))
         finally:
             sys.path.pop(0)
+        return None
+    if kind == "pymod":
+        # A FAST gate whose comparison NEEDS a python module (litz_noscipy
+        # compares the SciPy-less fallback against the exact SciPy kernel).
+        # Declared here so the battery reports an honest "skip" where the
+        # gate used to print a vacuous pass from its own skip branch — the
+        # same shape as the eight FreeCAD self-skippers below. Standalone,
+        # the gate itself now FAILS loudly instead.
+        import importlib.util
+        if importlib.util.find_spec(arg) is None:
+            return ("python module {0!r} not importable in this interpreter "
+                    "- the gate compares against it and cannot run".format(arg))
         return None
     if kind == "itu_maps":
         sys.path.insert(0, _ROOT)

@@ -895,7 +895,9 @@ def live_load_checks(base):
 
     # ⚠ The best check in this rung. A SHARED BC would give a dT ratio of 1;
     # two UNCOUPLED cables would give ~4^0.8 = 3.0 (dT ~ flux^4/5 through the
-    # Ra^1/4 correlation). Measured 2.70 — strictly between, which is what two
+    # Ra^1/4 correlation). Measured 2.8218 on the layered mesh (this comment
+    # said 2.70 — the pre-prism-layer figure — until 2026-08-24; the docstring
+    # above already pinned the current value) — strictly between, which is what two
     # cables genuinely heating each other in one enclosure looks like, and
     # what proves this is ONE coupled solve rather than two independent ones.
     ratio = rh.dt / rc.dt

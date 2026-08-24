@@ -104,6 +104,7 @@ def check(label, ok, detail=""):
 
 def main():
     from emstudio.solvers.openfoam import WindCase, run_wind
+    from emstudio.solvers.openfoam.wind import RAS_SQUARE_RADIUS_RATIO
 
     print("EMStudio turbulent wind gate (LIVE kOmegaSST SOLVE, ~3 h serial)")
 
@@ -120,7 +121,11 @@ def main():
 
     case = WindCase(reynolds=21400.0, geometry="square", transient=True,
                     turbulence="kOmegaSST", st_guess=0.13,
-                    fixed_dt_star=0.004, grading=4.0, radius_ratio=20.0,
+                    # the writer's own benchmark-domain constant, so this gate
+                    # and method_is_valid cannot drift apart; the FAST pin in
+                    # wind_transient holds the LITERAL 20 against both.
+                    fixed_dt_star=0.004, grading=4.0,
+                    radius_ratio=RAS_SQUARE_RADIUS_RATIO,
                     n_r=160, cycles=20.0)
     print("  Re %g | U %.5g m/s | dt* 0.004 -> dt %.3g s | end %.4g s "
           "(~%d steps, %d cells)"

@@ -8,6 +8,52 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 
+### Fixed
+* **A RAS-square wind case on the wrong domain no longer claims validity.**
+  `radius_ratio 20` is part of the benchmark definition — the r40 control
+  COMPLETED cleanly and still read **Cd 1.847**, below the published 1.95
+  floor, because the literature band carries the experiments' own confinement
+  — but nothing enforced it: a square kOmegaSST case built on the DEFAULT
+  domain (40) reported `method_is_valid=True` and the runner stamped it into
+  the report as though it were the validated configuration. The validity
+  check now requires `RAS_SQUARE_RADIUS_RATIO` (a writer constant the
+  `openfoam_wind_ras` gate consumes, so the two cannot drift), the
+  validity note names the domain, and a FAST pin in `wind_transient` holds
+  the literal 20 — and pins the laminar default at 40, which is what the
+  CIRCLE anchors validated at, so it cannot be "helpfully" aligned either.
+  A `wind.py` comment claiming the anchor ran on r40 is corrected. 3/3
+  mutations caught.
+* **NEC2 now applies the flat-band pattern-frequency guard openEMS has had
+  since v1.5.0.** Its runner took a bare `argmin |S11|` — on a matched
+  device that is mesh noise, and the reported frequency moves with the grid
+  (the Ka-band horn measured 28.45 GHz at one mesh, 39.55 at another). The
+  rule now lives ONCE, in `SweepResult.pattern_frequency()` with the
+  constant in `emstudio.post.sparams`; the openEMS deck writer imports that
+  same constant, and `pattern_sweep` pins both the rule and the
+  unification (88 checks, up from 79; live identity under freecadcmd, AST
+  under python3 — a comment cannot defeat it). 2/2 mutations caught.
+* **The `potentialFlow` dict and `Phi` solver entry are gone from the RAS
+  wind `fvSolution`.** They existed only to support a potentialFoam init
+  the product never runs, and that init is MEASURED HARMFUL under these
+  freestream BCs (no Dirichlet pressure anchor → stagnant interior, max|U|
+  0.41 m/s against the writer's uniform 16.05 — root cause #1 of the six
+  2026-08-23 startup SIGFPEs). The emission site now carries the warning
+  the trap deserved; WIND_TURBULENCE_ANCHOR.md records the decision taken.
+* **`solver_versions` no longer dies on a stock Windows console.** Its
+  advisory line opened with U+26A0, which cp1252 cannot encode — so run
+  standalone the gate crashed BEFORE printing the advisory text, the drift
+  list and the PASS banner: the exact safety net that branch exists to
+  provide. The battery had masked it by forcing utf-8 for child gates.
+  Printed output is now ASCII-safe. Reproduced and mutation-proved on a
+  real cp1252 console.
+* **`litz_noscipy` can no longer pass vacuously on a SciPy-less box.** Its
+  own skip branch returned 0 — the same self-skip shape already catalogued
+  and fixed for eight other gates, on the very gate that exists to catch a
+  check passing on both branches of a scipy fork. The battery now declares
+  the dependency (new FAST requirement kind `pymod:`) and reports an honest
+  skip; standalone the gate fails loudly. Verified in a genuinely
+  SciPy-less interpreter, both directions.
+
 ## [1.8.0] — 2026-08-24
 
 ### Added

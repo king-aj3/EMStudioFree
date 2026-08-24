@@ -96,7 +96,14 @@ class OpenEMSModelError(ValueError):
 #: and notch gates are tens of dB — while the Ka-band horn, which is matched
 #: right across 26.5-40 GHz, has essentially none and picked 28.45 GHz at one
 #: mesh and 39.55 GHz at another. The branch fires on exactly the second kind.
-FLAT_S11_SPAN_DB = 3.0
+#:
+#: ⛳ The VALUE lives in emstudio.post.sparams since 2026-08-24 — ONE constant,
+#: ONE rule — because NEC2 now applies the same guard through
+#: SweepResult.pattern_frequency() and two hand-kept copies of a threshold is
+#: exactly the drift this project keeps cataloguing. The local name is kept so
+#: every existing reference (and the generated-deck format strings below)
+#: stays put.
+from emstudio.post.sparams import FLAT_S11_SPAN_DB  # noqa: E402
 
 
 def _pattern_indices(solver, f1_hz, f2_hz, npts):
@@ -1204,10 +1211,13 @@ def write_deck(analysis, solver, workdir, excite_port=None):
         # the DEFAULT one is written under both names: the picker reads the
         # numbered files, everything else keeps reading the plain one.
         # ⛳ THE DEFAULT IS THE MIDDLE OF THE BAND THE USER ASKED FOR, not the
-        # first entry. NEC2 picks the entry nearest argmin|S11|, which is
-        # exactly the choice that has no meaning on a flat band — and the horn
-        # template asks for three patterns around 30 GHz precisely so the
-        # reported one IS 30 GHz. First-of-list would report 29.5.
+        # first entry. NEC2 used to pick the entry nearest a bare
+        # argmin|S11| — exactly the choice that has no meaning on a flat
+        # band; since 2026-08-24 it shares this guard through
+        # SweepResult.pattern_frequency(), so both backends land mid-band on
+        # a matched device. The horn template asks for three patterns around
+        # 30 GHz precisely so the reported one IS 30 GHz. First-of-list
+        # would report 29.5.
         w("if len(ff_idx) > 1:")
         w("    import shutil as _sh")
         w("    _default_k = len(ff_idx) // 2")

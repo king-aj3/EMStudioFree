@@ -32,8 +32,11 @@ MEASURED HERE (v2512, O-grid 80x30, 40 diameters, 40 cycles, half discarded):
 ⚠ **ABOVE Re ~190 THE REAL WAKE GOES THREE-DIMENSIONAL** (mode A/B). A 2-D
 laminar solve above that is modelling an idealisation, not the flow, so
 `TURBULENT_RE` refuses it. Real antenna loading is Re 1e5-1e6 and needs a
-validated turbulence model, which is NOT built — this gate pins the rung that
-exists and the refusal above it.
+validated turbulence model — which IS now built for SQUARE sections
+(kOmegaSST URANS vs the measured Lyn experiment, `openfoam_wind_ras`,
+Re <= 1.5e5; circles stay refused; this docstring said "NOT built" until
+2026-08-24, one release after it shipped). This gate pins the laminar rung
+and the refusal above it.
 
 FAST tier: the SOLVE is a SOLVER-tier gate (`openfoam_wind`); everything here
 is the case setup, the guard rails and the history arithmetic, which is where
@@ -79,7 +82,8 @@ def check(name, ok, detail=""):
 
 def main():
     from emstudio.solvers.openfoam.parser import force_history_from_log
-    from emstudio.solvers.openfoam.wind import (SHEDDING_RE, TURBULENT_RE,
+    from emstudio.solvers.openfoam.wind import (RAS_SQUARE_RADIUS_RATIO,
+                                                SHEDDING_RE, TURBULENT_RE,
                                                 WindCase, write_wind)
 
     print("EMStudio unsteady wind gate")
@@ -136,6 +140,37 @@ def main():
           "turbulen" in hi_note.lower() and "not a wind load" in hi_note,
           hi_note[:70])
     check("the two guard rails are ordered", SHEDDING_RE < TURBULENT_RE)
+
+    # --- the RAS-square benchmark domain is part of the definition ----------
+    # Ruling 2026-08-23: radius_ratio 20 is part of the BENCHMARK, not a
+    # knob — the r40 control COMPLETED cleanly and still read Cd 1.847,
+    # below the published 1.95 floor. Until 2026-08-24 nothing enforced
+    # this: a RAS square case built on the DEFAULT domain (40) reported
+    # method_is_valid=True and the runner stamped it into the report as
+    # though it were the validated configuration.
+    print(" RAS-square domain pin:")
+    ras_ok = WindCase(reynolds=21400.0, geometry="square", transient=True,
+                      turbulence="kOmegaSST",
+                      radius_ratio=RAS_SQUARE_RADIUS_RATIO)
+    check("RAS square on the anchor domain is valid", ras_ok.method_is_valid)
+    check("  ...and says nothing", ras_ok.validity_note() == "")
+    ras_wide = WindCase(reynolds=21400.0, geometry="square", transient=True,
+                        turbulence="kOmegaSST")  # DEFAULT radius_ratio
+    check("RAS square on any OTHER domain is refused",
+          not ras_wide.method_is_valid,
+          "the r40 scout completed and still read Cd 1.847 vs the 1.95 floor")
+    wide_note = ras_wide.validity_note()
+    check("  ...and names the domain",
+          "radius_ratio" in wide_note and "unvalidated" in wide_note,
+          wide_note[:70])
+    check("the anchor-domain constant IS the benchmark's 20",
+          RAS_SQUARE_RADIUS_RATIO == 20.0,
+          "+-10 d = Tian's 5% blockage; the SOLVER gate consumes this "
+          "constant, so this literal is what pins BOTH to the benchmark")
+    check("the laminar default stays the laminar-validated 40",
+          WindCase().radius_ratio == 40.0,
+          "the circle anchors (Re 20/100/150) ran at the DEFAULT domain; "
+          "'helpfully' aligning it to the square benchmark un-validates them")
 
     # --- time-step and run-length sizing -----------------------------------
     print(" transient sizing:")

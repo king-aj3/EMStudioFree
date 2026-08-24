@@ -213,7 +213,15 @@ def main():
                 "ok  " if ok else "....", key, detail))
 
     if not reference:
-        print("  ....  ⚠ LIVE CROSS-CHECK IS ADVISORY ON THIS BOX — "
+        # (!) not the warning-sign glyph: U+26A0 is outside cp1252, and on a
+        # default Windows console this print DIED with UnicodeEncodeError
+        # BEFORE the advisory text, the drift list and the PASS banner — the
+        # exact safety net this branch exists to provide never printed. The
+        # battery masked it by forcing PYTHONIOENCODING=utf-8 for child
+        # gates; run STANDALONE the gate was a hard red on any stock
+        # PowerShell/cmd console (reproduced on the work box, 2026-08-24).
+        # Printed OUTPUT here stays ASCII-safe; docstrings can keep glyphs.
+        print("  ....  (!) LIVE CROSS-CHECK IS ADVISORY ON THIS BOX — "
               "EMSTUDIO_VERSION_REFERENCE is not set, so the %d drift(s) above "
               "did NOT fail the gate. Set it on the reference machine, and "
               "before a release, or nothing enforces the table."

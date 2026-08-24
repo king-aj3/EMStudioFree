@@ -42,6 +42,19 @@ MAX_PAIRS_PER_LINE = 4
 #: width of a "%.9e" frequency plus its separating space.
 _CONT_INDENT = " " * 16
 
+#: Below this |S11| span across a sweep the band is FLAT: there is no
+#: resonance, argmin is picking mesh noise, and the "best match" frequency
+#: moves with the grid — the Ka-band horn picked 28.45 GHz at one mesh and
+#: 39.55 GHz at another, same horn. Resonant sweeps (patch, dipole, notch)
+#: have tens of dB of range and never trip this. ⚠ ONE constant, ONE rule:
+#: the openEMS deck writer bakes THIS value into every generated run
+#: (solvers/openems/writer.py imports it), and
+#: :meth:`SweepResult.pattern_frequency` applies the same rule for NEC2 and
+#: any other backend that picks from a parsed sweep. Until 2026-08-24 NEC2
+#: had no guard at all — a bare argmin — while openEMS had carried this one
+#: since v1.5.0; the openEMS writer's own comment named the gap.
+FLAT_S11_SPAN_DB = 3.0
+
 
 class SweepResult:
     """One-port frequency sweep: Zin(f) and S11(f) vs a reference impedance."""
@@ -92,10 +105,40 @@ class SweepResult:
         return (1.0 + mag) / (1.0 - mag)
 
     def min_s11(self):
-        """(frequency, S11_dB) at the best match point."""
+        """(frequency, S11_dB) at the best match point.
+
+        ⚠ Raw argmin, deliberately — it answers "where is the deepest dip",
+        which on a FLAT band is grid noise. Callers choosing a PATTERN
+        frequency must use :meth:`pattern_frequency`, which guards that case.
+        """
         db = self.s11_db()
         i = int(np.argmin(db))
         return float(self.freq[i]), float(db[i])
+
+    def pattern_frequency(self):
+        """(frequency, note) to take the radiation pattern at.
+
+        argmin |S11| on a resonant sweep — the choice every document has
+        always got. On a FLAT band (span < :data:`FLAT_S11_SPAN_DB`) the
+        minimum is mesh noise and moves with the grid, so the bin nearest the
+        CENTRE of the swept band is returned instead, with a non-empty note
+        the caller must surface — deterministic and mesh-independent, and the
+        same rule the openEMS generated deck has applied since v1.5.0. NEC2
+        used a bare ``min_s11()`` until 2026-08-24 and would report a
+        different "best match" frequency per mesh on a matched device.
+        """
+        db = self.s11_db()
+        span = float(db.max() - db.min())
+        if len(self.freq) > 1 and span < FLAT_S11_SPAN_DB:
+            f0 = 0.5 * (float(self.freq[0]) + float(self.freq[-1]))
+            i = int(np.argmin(np.abs(np.asarray(self.freq, dtype=float) - f0)))
+            return float(self.freq[i]), (
+                "S11 varies by only %.2f dB across the band — there is no "
+                "resonance to pick, so the pattern is taken at the sweep "
+                "centre %.4g Hz. Set PatternFrequencies to choose your own."
+                % (span, float(self.freq[i])))
+        i = int(np.argmin(db))
+        return float(self.freq[i]), ""
 
     def resonances(self):
         """Frequencies where the reactance Im(Zin) crosses zero (interpolated).

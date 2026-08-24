@@ -132,10 +132,20 @@ def main():
     try:
         import scipy  # noqa: F401
     except ImportError:
-        print("  ....  SKIP: this interpreter has no SciPy, so there is no "
-              "exact kernel to compare the fallback against")
-        print("LITZ NOSCIPY GATE SKIPPED")
-        return 0
+        # ⚠ This branch returned 0 until 2026-08-24 — the EXACT self-skip
+        # shape this project already catalogued and fixed for eight other
+        # gates: on a SciPy-less box the battery printed "ok" and a
+        # standalone run printed a pass banner, for a run that tested
+        # NOTHING. The battery now declares the dependency (FAST
+        # "pymod:scipy" in run_battery.py) and reports an honest skip;
+        # standalone, you asked for the gate by name, so an un-runnable gate
+        # is a FAILURE, not a pass. The irony is noted: this gate exists to
+        # catch a check that passes on both branches of a scipy fork, and
+        # its own skip passed on the branch it could not test.
+        print("  FAIL  this interpreter has no SciPy, so there is no exact "
+              "kernel to compare the fallback against - the gate CANNOT run")
+        print("LITZ NOSCIPY GATE FAILED (1)")
+        return 1
 
     exact = [litz._proximity_h(x) for x in XS]
     check("exact branch ran in-process (warning flag untouched)",

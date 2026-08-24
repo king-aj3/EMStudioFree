@@ -98,6 +98,18 @@ TURBULENT_RE = 200.0
 #: transition-location physics, and no single-Re anchor transfers across it.
 RAS_SQUARE_RE_MAX = 1.5e5
 
+#: The anchor's domain half-width in diameters — PART OF THE BENCHMARK
+#: DEFINITION, not a tuning knob (ruling 2026-08-23). ±10 d reproduces Tian's
+#: 5 % tunnel blockage, and the published Cd band CARRIES that confinement:
+#: the "better" radius_ratio-40 control COMPLETED cleanly and still read
+#: Cd 1.8472 — below the 1.95 floor — while this domain read 2.1304 with
+#: every band met (WIND_TURBULENCE_ANCHOR.md §4, ADDENDUM 2). A RAS square
+#: case on any OTHER domain is therefore method_is_valid = False, however
+#: healthy the solve looks: the answer is not covered by the anchor. The
+#: laminar CIRCLE anchors validated at the dataclass default (radius_ratio
+#: 40) and are untouched by this.
+RAS_SQUARE_RADIUS_RATIO = 20.0
+
 
 @dataclass
 class WindCase:
@@ -250,9 +262,14 @@ class WindCase:
             # collapses the interior to stagnation under freestream BCs, and
             # the radius_ratio-10 domain put the outlet at 4.5 d where the
             # vortex street hit the boundary at full strength (both measured
-            # — WIND_TURBULENCE_ANCHOR.md ADDENDUM 2). The product path with
-            # the anchor's radius_ratio-40 domain runs green end to end.
-            return self.reynolds <= RAS_SQUARE_RE_MAX
+            # — WIND_TURBULENCE_ANCHOR.md ADDENDUM 2). The product path on
+            # the ANCHOR's radius_ratio-20 domain runs green end to end.
+            # ⚠ This comment said "radius_ratio-40" until 2026-08-24 — the
+            # r40 SCOUT also completed, but read Cd 1.847, OUT of the
+            # published band, which is exactly why the domain itself is part
+            # of this validity test and not merely of the gate.
+            return (self.reynolds <= RAS_SQUARE_RE_MAX
+                    and self.radius_ratio == RAS_SQUARE_RADIUS_RATIO)
         if self.reynolds >= TURBULENT_RE:
             return False
         return self.transient or self.steady_is_valid
@@ -262,7 +279,18 @@ class WindCase:
         if (self.transient and self.turbulence == "kOmegaSST"
                 and self.geometry == "square"):
             if self.reynolds <= RAS_SQUARE_RE_MAX:
-                return ""
+                if self.radius_ratio == RAS_SQUARE_RADIUS_RATIO:
+                    return ""
+                return (
+                    "radius_ratio %g is not the validated benchmark domain "
+                    "(%g, i.e. +-10 diameters = Tian's 5%% blockage). The "
+                    "domain is part of the benchmark definition, not a "
+                    "tuning knob: the radius_ratio-40 control COMPLETED "
+                    "cleanly and still read Cd 1.847, below the published "
+                    "1.95 floor, because the literature band carries the "
+                    "experiments' own confinement. Treat this number as "
+                    "unvalidated." % (self.radius_ratio,
+                                      RAS_SQUARE_RADIUS_RATIO))
             return (
                 "Re %.4g is beyond the square-section kOmegaSST validation "
                 "window (Re <= %.3g — the highest experimental point on the "
@@ -510,16 +538,22 @@ def write_wind(case_dir, case=None):
                # symGaussSeidel smoother DIVERGED on that stiff system
                # (measured 2026-08-23: final residual 3e+257 at 1000
                # iterations, then SIGFPE). PBiCGStab+DILU holds it.
+               # ⚠ No Phi entry and no potentialFlow dict, DELIBERATELY
+               # (dropped 2026-08-24). They existed only to support a
+               # potentialFoam init the product never runs (the step tuples
+               # are blockMesh/checkMesh/pimpleFoam) and that is MEASURED
+               # HARMFUL under these freestream BCs: no Dirichlet pressure
+               # anchor, so the init hands pimpleFoam a stagnant interior
+               # (max|U| 0.41 m/s against the writer's uniform 16.05) — root
+               # cause #1 of the six 2026-08-23 startup SIGFPEs
+               # (WIND_TURBULENCE_ANCHOR.md ADDENDUM 2). Anyone adding an
+               # init step must configure it deliberately, anchor included.
                "    \"(k|omega|kFinal|omegaFinal)\" { solver PBiCGStab; "
-               "preconditioner DILU; tolerance 1e-9; relTol 0; }\n"
-               "    Phi { solver GAMG; tolerance 1e-8; relTol 0.01; "
-               "smoother GaussSeidel; }\n" if ras else
+               "preconditioner DILU; tolerance 1e-9; relTol 0; }\n" if ras else
                "    \"(U|UFinal)\" { solver smoothSolver; smoother symGaussSeidel; "
                "tolerance 1e-9; relTol 0; }\n")
             + "}\n\nPIMPLE\n{\n    nOuterCorrectors 2;\n    nCorrectors 2;\n"
-              "    nNonOrthogonalCorrectors 0;\n}\n"
-            + ("\npotentialFlow\n{\n    nNonOrthogonalCorrectors 3;\n}\n"
-               if ras else ""))
+              "    nNonOrthogonalCorrectors 0;\n}\n")
         return case
 
     put("system/controlDict", _header("dictionary", "controlDict", "system")
