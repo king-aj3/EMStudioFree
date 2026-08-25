@@ -8,6 +8,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 
+## [1.9.0] — 2026-08-25
+
+> Pre-tag proof: the FULL `--all` battery ran complete on this release's
+> code — **109 ok / 0 failed / 0 skipped in 19,776 s** — the first complete
+> run at 109 gates (the diffs between that run's tree and the tag are the
+> release tool's CI-shape fixes and docs; no solver or engine code moved).
+
 ### Added
 
 * **The wind engine has its door: Analysis ▸ Solve Wind Loading… (§8b)** —
@@ -59,6 +66,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   tuning-coil sizing stays alive, insulator sizing and sag/tension join C).
 
 ### Fixed
+* **The licence dialog's Remove button heals instead of dying silently when
+  Pro vanishes mid-session** (Add-on Manager uninstall in another window,
+  AV quarantine, manual delete — reachable because the dialog re-imports
+  from disk on every call): it now says Pro is no longer importable and
+  re-probes, which shows "not installed" and disables the button. And the
+  free tier's one-line Pro teaser is now asserted as a rendered WIDGET in
+  gui_smoke, tier-aware — the `pro_installed = True` mutant that would
+  have silently hidden it from every customer is caught.
 * **The free tier's convection advice now matches Pro's, rule for rule — and
   a gate holds them together.** `advice_for`'s fallback is the free tier's
   PRODUCTION advice path, and the 2026-08-24 audit confirmed it litz-class:
