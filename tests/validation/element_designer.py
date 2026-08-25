@@ -1045,12 +1045,115 @@ def gate_live_folded():
         FreeCAD.closeDocument(doc.Name)
 
 
+def gate_ifa():
+    """The printed inverted-F engine vs openEMS's OWN published example
+    (provenance in docs/upstream/ifa-anchors.md). Pure math, python3."""
+    from emstudio.antenna import ifa as f
+
+    r = f.REFERENCE
+    path = r["stub_height_m"] + r["radiator_length_m"]
+    f_rule = f.resonant_frequency(path)
+    # The published reference is h 8 + l 22.5 = 30.5 mm; the quarter-wave rule
+    # must put that at 2.4573 GHz, 0.30 % from the 2.45 GHz its own loss tangent
+    # is referenced to. If this drifts, either REFERENCE was edited or the rule
+    # was, and both matter.
+    check("IFA reference path h+l = 30.5 mm", abs(path * 1e3 - 30.5) < 1e-9,
+          "{0:.4f} mm".format(path * 1e3))
+    check("IFA quarter-wave rule puts the reference at 2.4573 GHz "
+          "(0.30 % from its stated 2.45 GHz)",
+          abs(f_rule / 1e9 - 2.4573) < 1e-3
+          and abs(f_rule / 2.45e9 - 1.0) < 0.005,
+          "{0:.4f} GHz".format(f_rule / 1e9))
+
+    # Designing AT the reference's own frequency must reproduce the reference's
+    # own geometry -- the cheapest possible statement that the scaling ratios
+    # were transcribed from the geometry they claim to come from.
+    d = f.design_ifa(f_rule)
+    check("IFA synthesis at the reference frequency reproduces the reference "
+          "geometry (scale 1.000)", abs(d["scale_vs_reference"] - 1.0) < 1e-6,
+          "scale {0:.6f}, h {1:.3f} l {2:.3f} mm".format(
+              d["scale_vs_reference"], d["stub_height_m"] * 1e3,
+              d["radiator_length_m"] * 1e3))
+    check("IFA refuses a stub taller than the whole quarter-wave path",
+          _raises(f.design_ifa, 2.45e9, stub_height_m=0.1))
+
+
+def gate_pifa():
+    """PIFA Hirasawa interpolation vs the published anchors
+    (provenance in docs/upstream/pifa-anchors.md). Pure math, python3."""
+    from emstudio.antenna import pifa as p
+
+    a = p.ANCHOR
+    fr = p.resonant_frequency(a["l1_m"], a["l2_m"], a["h_m"], a["w_m"])
+    check("PIFA anchor (20x20 mm plate, W 5, H 10): 1873.7 MHz",
+          abs(fr / 1e6 - 1873.7) < 0.5, "{0:.1f} MHz".format(fr / 1e6))
+    check("PIFA anchor is -5.4 % vs the published MoM 1980 MHz",
+          abs((fr / a["published_mom_hz"] - 1.0) * 100.0 + 5.37) < 0.1,
+          "{0:+.2f} %".format((fr / a["published_mom_hz"] - 1.0) * 100.0))
+    check("PIFA anchor is within 1 % of BOTH published chamber measurements "
+          "(1892 / 1886 MHz)",
+          abs(fr / a["published_meas_80mm_hz"] - 1.0) < 0.01
+          and abs(fr / a["published_meas_100mm_hz"] - 1.0) < 0.01,
+          "{0:+.2f} % / {1:+.2f} %".format(
+              (fr / a["published_meas_80mm_hz"] - 1.0) * 100.0,
+              (fr / a["published_meas_100mm_hz"] - 1.0) * 100.0))
+
+    # ⚠ The whole reason the interpolation is implemented rather than the form
+    # the web quotes. If someone "simplifies" resonant_frequency() to its f2
+    # branch, this is what says so -- it is three times worse on the anchor.
+    f2 = p.branch_partial_short(a["l1_m"], a["l2_m"], a["h_m"], a["w_m"])
+    check("PIFA: the f2-alone form the web quotes is ~3x worse (-15.9 % vs "
+          "the interpolation's -5.4 %) — this is why it is not shipped alone",
+          (f2 / a["published_mom_hz"] - 1.0) * 100.0 < -15.0,
+          "{0:+.2f} %".format((f2 / a["published_mom_hz"] - 1.0) * 100.0))
+
+    # The published cellular worked example (a full-width short, W = L1).
+    f859 = p.resonant_frequency(143.2e-3, 71.6e-3, 15.7e-3, 143.2e-3)
+    check("PIFA published worked example -> 858.5 MHz (stated 859)",
+          abs(f859 / 1e6 - 859.0) < 1.0, "{0:.1f} MHz".format(f859 / 1e6))
+
+    # The set must close on itself at both ends of W, or it has been mistyped.
+    closes_hi = abs(p.resonant_frequency(20e-3, 20e-3, 10e-3, 20e-3)
+                    - p.branch_full_short(20e-3, 10e-3)) < 1.0
+    closes_lo = abs(p.resonant_frequency(20e-3, 20e-3, 10e-3, 0.0)
+                    - p.branch_partial_short(20e-3, 20e-3, 10e-3, 0.0)) < 1.0
+    check("PIFA interpolation closes on its own limits (W=L1 -> f1, W=0 -> f2)",
+          closes_hi and closes_lo)
+
+    d = p.design_pifa(2.45e9)
+    check("PIFA synthesis round-trips through the forward equation",
+          abs(d["f_check_hz"] / 2.45e9 - 1.0) < 1e-9,
+          "{0:.6f} GHz".format(d["f_check_hz"] / 1e9))
+    d2 = p.design_pifa(2.45e9, height_m=6.0e-3)
+    check("PIFA synthesis round-trips with the height PINNED (bisection path)",
+          abs(d2["f_check_hz"] / 2.45e9 - 1.0) < 1e-6
+          and abs(d2["height_m"] * 1e3 - 6.0) < 1e-9,
+          "{0:.6f} GHz at H {1:.3f} mm".format(
+              d2["f_check_hz"] / 1e9, d2["height_m"] * 1e3))
+    check("PIFA refuses a shorting plate wider than the plate it shorts",
+          _raises(p.resonant_frequency, 20e-3, 20e-3, 10e-3, 25e-3))
+
+
+def _raises(fn, *args, **kw):
+    """True if ``fn`` raises ValueError — a refusal that is not tested is a
+    refusal that quietly stops refusing."""
+    try:
+        fn(*args, **kw)
+    except ValueError:
+        return True
+    except Exception:
+        return False
+    return False
+
+
 def main():
     print("EMStudio Element Designer E1-E5 (synthesis/recommender/families) gate")
     gate_synthesis()
     gate_picker()
     gate_yagi()
     gate_patch()
+    gate_ifa()
+    gate_pifa()
     gate_lpda()
     gate_presets()
     gate_tl_writer()

@@ -95,6 +95,7 @@ SOLVER = [
     "heat_ktemp_elmer", "heat_radiation_elmer", "heat_sigma_elmer",
     "induction_elmer", "isolation_nec2", "isolation_openems",
     "horn_openems",
+    "ifa_openems",
     "isolation_patch_openems", "lpda_nec2", "mmwave_palace", "monopole_nec2",
     "msl_notch_openems", "open_coil_elmer", "palace_gpu_agreement",
     "patch_auto_openems",
@@ -186,6 +187,7 @@ SOLVER_REQS = {
     # battery printed "ok". A gate that reports a pass it did not earn is worse
     # than one that is missing. Declared here, the battery says "skip".
     "horn_openems": "openems_python",
+    "ifa_openems": "openems_python",
     "isolation_openems": "openems_python",
     "isolation_patch_openems": "openems_python",
     "stl_mesh_openems": "openems_python",
@@ -309,7 +311,7 @@ NEEDS_FREECAD = {
     # beats a vacuous pass every time.
     "lpda_nec2", "yagi_nec2", "antenna_from_selection",
     "curved_wire_nec2", "solenoid3d_elmer", "stl_mesh_openems",
-    "horn_openems",
+    "horn_openems", "ifa_openems",
 }
 
 #: SOLVER gates that RUN under python3 but carry a FreeCAD-only template half
