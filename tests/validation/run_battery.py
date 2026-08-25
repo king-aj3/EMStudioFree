@@ -98,6 +98,7 @@ SOLVER = [
     "isolation_patch_openems", "lpda_nec2", "mmwave_palace", "monopole_nec2",
     "msl_notch_openems", "open_coil_elmer", "palace_gpu_agreement",
     "patch_auto_openems",
+    "patch_n78_openems",
     "patch_openems",
     "patch_stl_openems", "solenoid3d_elmer",
     "stl_mesh_openems", "n_port_live_palace",
@@ -176,6 +177,7 @@ SOLVER_REQS = {
     "patch_openems": "openems_python",
     "msl_notch_openems": "openems_python",
     "patch_auto_openems": "openems_python",
+    "patch_n78_openems": "openems_python",
     "patch_stl_openems": "openems_python",
     "two_port_openems": "openems_python",
     "waveguide_port_openems": "openems_python",
@@ -296,7 +298,8 @@ def _requirement_missing(req):
 #: output and exit codes alive), and SKIP honestly when freecadcmd is absent.
 NEEDS_FREECAD = {
     "dipole_nec2", "isolation_nec2", "monopole_nec2",
-    "msl_notch_openems", "patch_auto_openems", "patch_openems",
+    "msl_notch_openems", "patch_auto_openems", "patch_n78_openems",
+    "patch_openems",
     "patch_stl_openems", "two_port_openems", "waveguide_port_openems",
     "n_port_live_palace",
     # ⚠ These eight SELF-SKIP under python3 with exit 0 — `--all` printed

@@ -127,10 +127,14 @@ solve is what settles it.
 which runs the same patch through the STL import path and must land in the same
 window).
 
-**Design your own:** **EMStudio ▸ Templates ▸ Template: Patch Antenna** asks
-for frequency, dielectric constant and substrate height, works the dimensions
-out from the same model, and sets the analysis up so **Run Solver** works
-immediately.
+**Design your own:** **EMStudio ▸ Tools ▸ Element Designer**, family
+**Patch** — it asks for frequency, dielectric constant, substrate height and a
+target feed impedance, works the dimensions out from the same model, and sets
+the analysis up so **Run Solver** works immediately. ⚠ **Templates ▸ Template:
+Patch Antenna** is a different thing: it drops this fixed 2.4 GHz tutorial
+geometry in with no questions asked. It is the right button for reproducing
+*this* tutorial and the wrong one for designing your own — tutorial 34 takes
+the Element Designer route to 3.5 GHz.
 
 ---
 
@@ -210,9 +214,10 @@ whether one is present.
 
 ⚠ **Read this before the numbers, because it is the part people get wrong.**
 EMStudio is validated to **57 GHz for CLOSED STRUCTURES** — waveguides and
-cavities. It is **not** validated for *antennas* up there: the highest-frequency
-radiating structure with a gate behind it is the **2.435 GHz patch** in
-tutorial 3. Full-wave Maxwell has no physics break at mmWave — the only real
+cavities. For *antennas* the gated ladder stops far lower: the highest-frequency
+radiating structure with a gate behind it is the **30 GHz standard-gain horn**
+of tutorial 33, and below that the **3.5 GHz n78 patch** of tutorial 34 and the
+**2.435 GHz patch** of tutorial 3. Full-wave Maxwell has no physics break at mmWave — the only real
 cost is a finer mesh — but "no reason it should fail" is not the same as
 "checked", and this project only claims the second. If you are here for a 28 GHz
 patch, this tutorial shows you the solver is sound at that frequency; it does
@@ -251,12 +256,15 @@ TE101 must match the closed form to better than 0.1 %: measured
 **39.0255 GHz (+0.003 %)** and **56.9092 GHz (+0.002 %)**. The 57 GHz point is
 there specifically to prove headroom past 40 GHz.
 
-⛳ **What is still missing, said plainly.** No radiating structure is gated above
-**2.435 GHz** — that is the patch in tutorial 3, and it is the real ceiling, not
-the 6 GHz this file used to quote. So mmWave *antenna* work — 28 GHz patches,
-handset PIFAs, arrays — is not something this project has earned the right to
-claim yet. It is the next gate
-being sought, and it needs a published, *measured* reference to anchor to.
+⛳ **What is still missing, said plainly.** The gated radiating points are
+**2.435 GHz**, **3.5 GHz** and **30 GHz** — three rungs, not a continuum, and
+everything between them is *feasible* rather than *checked*. ⚠ They are also
+not equally strong: tutorial 3 reproduces an external published geometry and
+tutorial 33 an external published gain curve, while tutorial 34's n78 patch is
+checked against our own synthesis. So mmWave *antenna* work — 28 GHz patches,
+handset PIFAs, arrays — is still not something this project has earned the
+right to claim, and the gate being sought needs a published, *measured*
+reference to anchor to.
 
 ## 7. Induction heating, against measured laboratory data
 
@@ -1539,6 +1547,105 @@ holding the horn plus radiating padding. Expect a long run. This is a SOLVER-
 tier gate and is deliberately **not** in the fast battery.
 
 **Prove it** — `tests/validation/horn_openems.py`.
+
+## 34. A 5G sub-6 patch, designed into band n78
+
+**Needs:** **openEMS** — the same install as tutorial 3, and the same warning:
+there is still no one-click path for openEMS on any platform.
+
+⛳ **Why this one exists.** Tutorial 3 puts a patch at 2.4 GHz. This puts the
+*same patch, on the same board* at **3.5 GHz**, the centre of **5G NR band n78
+(3300–3800 MHz)** — the band people actually ask about. Holding the substrate
+fixed is the whole design of the exercise: frequency is the only thing that
+changes between the two documents, so anything different in the answer is
+caused by frequency and nothing else.
+
+**Do**
+1. Open `examples/patch_n78_3p5GHz.FCStd`. It is synthesised at 3.5 GHz on the
+   same 1.524 mm RO4003-class board (εr 3.38) as tutorial 3: **W 28.94 mm,
+   L 22.78 mm**, inset feed **3.16 mm** off centre.
+2. **Run Solver.** A real FDTD run — the reference box takes about **9 s**,
+   but quote your own: this is a band, not a stopwatch reading.
+
+**You should see** a patch that lands in band and matches only moderately:
+
+| quantity | gate window | reference run |
+|---|---|---|
+| resonance | **3.325–3.675 GHz** (the TL model's ±5 %), and inside n78 | **3.3950 GHz** |
+| best match | **< −10 dB** | **−10.7 dB** |
+| peak gain | **4.5–9.5 dBi**, boresight | **6.85 dBi at θ = 0°** |
+| −10 dB bandwidth | **narrower than n78's 500 MHz** | **21.0 MHz** (0.62 %), 3.381–3.402 GHz |
+
+⛳ **The first row is the useful one, and it is a statement about the
+*designer*, not the solver.** The synthesiser states its resonance accuracy as
+±5 %. At a 3.5 GHz design that window is **3.325–3.675 GHz**, and n78 runs
+**3.300–3.800 GHz** — so the model's *entire stated error* fits inside the
+band. You can size an n78 patch analytically, with no solver installed at all,
+and be in band even at the worst case of the model's own admitted uncertainty.
+The gate asserts that relationship between the two windows rather than trusting
+this sentence.
+
+⚠ **But only near the middle of the band, and here is the edge.** That
+containment holds for design frequencies between **3.4737 and 3.6190 GHz**
+— outside those, part of the ±5 % window pokes out of n78 and the guarantee is
+gone. Design at 3.4 GHz and the model's worst case is 3.23 GHz, below the band.
+The gate prints this interval so you can re-derive it instead of believing it.
+
+⚠⚠ **It matches to −10.7 dB, not −29 dB, and the reason is worth the
+tutorial.** Tutorial 3's patch reaches **−29.95 dB**. This one reaches
+**−10.7 dB** — same solver, same board, same mesh rules. The difference is the
+**feed**. Tutorial 3 solves openEMS's *hand-dimensioned* tutorial geometry;
+this one is placed by our transmission-line synthesiser, whose own warning list
+says the two-slot edge resistance behind it is *"only order-of-magnitude
+accurate — seed for openEMS/measurement, not fabrication-ready"*.
+
+⛳ **And the error is a constant, not a frequency problem — which is the part
+you can act on.** Run the identical synthesis at 2.4 GHz
+(`patch_auto_openems`): it matches to **−10.71 dB**, the same depth to two
+decimals, with the same ≈ −3 % resonance offset. That is not coincidence: the
+edge resistance the feed placement is derived from barely moves between the two
+designs — **282.25 Ω at 2.4 GHz against 280.79 Ω at 3.5 GHz**, 0.5 % apart — so
+the synthesiser commits the *same proportional* feed error at both. Read it as
+a division of labour: the tool puts your patch on the right **frequency**, and
+leaves the **feed** for you to tune. Nudging the inset and re-running is the
+fastest way to see it move.
+
+⚠ **One patch is a channel in n78, not the band. Say this out loud to
+anyone who asks for "an n78 antenna".** 21 MHz of −10 dB bandwidth against the
+band's 500 MHz is about **4 %** of it. That is not a meshing failure — it is
+what 1.524 mm of substrate is worth at 3.5 GHz, where the board is only
+**0.018 λ₀** thick, and a thin board makes a high-Q patch. Covering n78 needs a
+thicker or lower-εr substrate, a stacked or slotted patch, or an array — **none
+of which this template builds.** The gate asserts the bandwidth stays below
+500 MHz precisely so that this paragraph cannot quietly become false.
+
+⛳ **Try breaking it.** Re-run the Element Designer at 3.5 GHz with the
+substrate height dropped to **0.8 mm**: the patch barely changes size, and the
+bandwidth roughly halves. Thickness buys bandwidth, and almost nothing else
+does on a single patch — which is why every real sub-6 element is more
+complicated than this one.
+
+**Prove it** — `tests/validation/patch_n78_openems.py`, with
+`tests/validation/patch_auto_openems.py` as its companion: that is the 2.4 GHz
+run the constant-feed-error comparison above rests on, and the two gates share
+their windows deliberately so they can be read side by side.
+
+⚠ **What this does NOT prove, stated as plainly as the rest.** There is no
+published *measured* n78 patch behind these numbers. Tutorial 3 reproduces the
+openEMS project's own published tutorial geometry, and tutorial 33 compares
+against a vendor's published gain curve; both reach outside this project for
+their reference. This one does not: it checks our full-wave solver against our
+own analytic synthesis — a consistency check between two independent models,
+which is real evidence and is *weaker* than a measured anchor. The published
+n78 designs in the literature are slotted, L-shaped or stacked patches this
+template cannot build, so anchoring to one would have meant comparing a
+different antenna and calling it agreement.
+
+**Design your own:** **EMStudio ▸ Tools ▸ Element Designer**, family
+**Patch** — it asks for frequency, dielectric constant, substrate height and a
+target feed impedance, works the dimensions out from the same model, and drops
+a ready-to-run analysis into your document.
+
 
 # Coverage — the standing order is met
 

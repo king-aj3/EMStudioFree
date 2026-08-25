@@ -7,6 +7,58 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
+> ⚠ `docs/CAPABILITIES.md` carries two **UNRELEASED** markers for the n78 rung
+> below — replace both with the real version at release.
+
+### Added
+
+* **A 5G sub-6 worked example: band n78 at 3.5 GHz** (bucket A, item A1) —
+  the same patch template on the same 1.524 mm RO4003-class board as the
+  2.4 GHz example, moved to the centre of 5G NR band **n78 (3300–3800 MHz)**,
+  so frequency is the only variable between the two documents. New example
+  `examples/patch_n78_3p5GHz.FCStd` (W 28.94 mm, L 22.78 mm, inset feed
+  3.16 mm) and **tutorial 34**. No template code changed — this is
+  configuration on machinery that already shipped, which is what the triage
+  scoped it as.
+* **New SOLVER gate `patch_n78_openems`** — 110 gate files now (FAST 52 /
+  SOLVER 58), free tree 92. It pins three things, each mutation-proven
+  individually: the FDTD resonance lands inside the synthesiser's stated
+  ±5 % window (measured **3.3950 GHz** against a 3.5 GHz design, −10.7 dB,
+  6.85 dBi boresight); the ±5 % window itself lies **inside n78**, so the
+  analytic designer cannot put an n78 patch out of band even at its own worst
+  case; and the −10 dB bandwidth stays **below n78's 500 MHz**, which is the
+  gated form of the tutorial's central limitation.
+
+### Fixed
+
+* **Tutorial 3 named a button that does not do what it said.** Its "design
+  your own" step pointed at **Templates ▸ Template: Patch Antenna**, claiming
+  it "asks for frequency, dielectric constant and substrate height" — that
+  command calls `makePatch()`, the fixed 2.4 GHz tutorial geometry, with no
+  dialog at all (`emstudio/commands.py:1442-1461`). The parameterised route is
+  **Tools ▸ Element Designer**, family Patch, and both tutorials now say so.
+* **Tutorial 6 still called 2.435 GHz "the real ceiling"** for gated radiating
+  structures — true until v1.5.0 and retired by `horn_openems` at 30 GHz;
+  `docs/CAPABILITIES.md` had already been corrected and the tutorial had not.
+  Both of its ceiling passages now name the actual ladder (2.435 / 3.5 /
+  30 GHz) and, more importantly, say that the three rungs are **not equally
+  strong**: two reach outside this project for their reference and the n78 one
+  does not.
+
+### Measured, and worth recording
+
+* **The synthesiser's feed-placement error is a constant, not a frequency
+  problem.** The synthesized n78 patch matches to **−10.71 dB**; the identical
+  synthesis at 2.4 GHz (`patch_auto_openems`) matches to **−10.71 dB** — same
+  depth to two decimals, same ≈ −3 % resonance offset — because the two-slot
+  edge resistance the inset is derived from barely moves between them
+  (282.25 Ω vs 280.79 Ω, 0.5 % apart). The control that settles it:
+  `patch_openems`, solving openEMS's own **hand-dimensioned** geometry, reaches
+  **−29.95 dB** on the same box in the same ~9 s. So the ≈19 dB shortfall is
+  the price of the analytic feed estimate — which `patch_tl` already warns is
+  "only order-of-magnitude accurate" — and not a solver fault. Match depth is
+  therefore deliberately **not** gated tightly; both synthesis gates pass on
+  0.71 dB of margin, and have since the 2.4 GHz one shipped.
 
 ## [1.9.0] — 2026-08-25
 

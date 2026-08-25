@@ -13,6 +13,7 @@ files stay small and the numbers you get are your own.
 | `yagi_400MHz.FCStd` | Yagi-Uda sized from NBS TN-688, 0.8 lambda boom | NEC2 | forward gain about 9.1 dBd with front-to-back in the 13-19 dB band |
 | `lpda_54_216MHz.FCStd` | Carrel log-periodic across the VHF-TV band, real TL-card feeder | NEC2 | usable VSWR across the whole 54-216 MHz span, not just at one spot |
 | `patch_2p4GHz.FCStd` | Inset-fed microstrip patch synthesised from frequency and substrate | openEMS | S11 dip within the transmission-line model's stated +/-5 % of 2.4 GHz |
+| `patch_n78_3p5GHz.FCStd` | 5G NR n78 patch (sub-6), same board as the 2.4 GHz one at 3.5 GHz | openEMS | S11 dip inside n78 (3.3-3.8 GHz), within the TL model's +/-5 % of 3.5 GHz |
 | `notch_filter_msl.FCStd` | Microstrip notch filter with trace-aware meshing | openEMS | an S21 notch that matches analytic theory (gated to 0.6 %) |
 | `coax_50ohm.FCStd` | Coaxial line section | Palace | characteristic impedance about 50 ohm |
 | `waveguide_wr90.FCStd` | WR-90 rectangular waveguide, X-band | Palace | TE10 propagation above the 6.56 GHz cutoff |

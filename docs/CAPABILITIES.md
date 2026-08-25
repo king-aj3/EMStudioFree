@@ -23,8 +23,16 @@ rather than one span:
 * **openEMS (FDTD)** — the highest gated **radiating** structure is the
   **30 GHz** standard-gain horn (v1.5.0: 19.29 dBi vs the vendor's published
   19.70, −0.41 dB inside the citable ±0.5 dB, with a second λ/40 solve gating
-  the mesh spread to 0.5 dB); highest gated guided point below that is the
+  the mesh spread to 0.5 dB); below it the **3.5 GHz** 5G NR n78 patch
+  (UNRELEASED: FDTD 3.3950 GHz inside the synthesiser's own ±5 % window and inside
+  n78) and the **2.435 GHz** patch; highest gated guided point is the
   **3.68 GHz** microstrip notch filter.
+  ⚠ The three radiating rungs are **not equally strong**. 2.435 GHz reproduces
+  openEMS's own published tutorial geometry and 30 GHz compares against a
+  vendor's published curve — both reach outside this project for their
+  reference. **3.5 GHz does not**: it checks the full-wave solver against our
+  own analytic synthesis, which is a consistency check between two independent
+  models, not a validation against measurement. Quote it as such.
 * **NEC2 (MoM)** — wire antennas, gated at 296 MHz.
 
 ⚠ The old ceiling here read *"no radiating structure is gated above
@@ -40,7 +48,7 @@ quasi-static validity — that is the one hard limitation to know.
 | Engine | Method | Validated / usable range | Upper-limit cause | Lower-limit cause |
 |---|---|---|---|---|
 | **Palace** | full-wave FEM | **validated to 57 GHz** (cavity TE101 +0.002 % @ 56.9 GHz, +0.003 % @ 39.0 GHz; WR-22 driven 38–42 GHz, |S11| −106 dB) | mesh element size ∝ λ → memory/time (no physics break) | driven/eigenmode are f > 0; true DC statics is a different formulation |
-| **openEMS** | EC-FDTD | broadband in one run; **validated radiating points 2.435 GHz (patch) and 30 GHz (standard-gain horn, v1.5.0, −0.41 dB vs the vendor curve + λ/40 mesh-spread gate)** — ⚠ between and above those points is *feasible*, not *validated*; Palace remains the validated route for closed structures above 6 GHz | grid cell < ~λ/20 → memory/time | very low f needs long settling (~MHz practical floor) |
+| **openEMS** | EC-FDTD | broadband in one run; **validated radiating points 2.435 GHz (patch), 3.5 GHz (5G NR n78 patch, UNRELEASED — ⚠ consistency against our own synthesis, NOT an external anchor) and 30 GHz (standard-gain horn, v1.5.0, −0.41 dB vs the vendor curve + λ/40 mesh-spread gate)** — ⚠ between and above those points is *feasible*, not *validated*; Palace remains the validated route for closed structures above 6 GHz | grid cell < ~λ/20 → memory/time | very low f needs long settling (~MHz practical floor) |
 | **NEC2** | MoM (wire) | validated **100 kHz VLF/LF (monopole over ground)** → 296 MHz (dipole); HF→low-microwave in practice | segments must be < ~λ/10 **and** obey radius/length ratios → sub-mm wires above ~a few GHz are impractical (not a solver break) | none (thin-wire quasi-static kernel valid to low f; ground image via GN card) |
 | **Elmer** | magneto-quasi-static | **DC → ~few MHz** (validated: induction 0.03 %, WPT k <0.5 % @ 100 kHz) | **hard**: eddy-current/A-V formulation assumes the object is electrically small and displacement current is negligible — **not full-wave; do not use for radiating/electrically-large problems** | true DC magnetostatics is a sub-case |
 | **FastHenry** | PEEC (quasi-static R/L) | DC → ~low-GHz for per-unit-length R(f)/L(f) of electrically-small conductors | quasi-static: no radiation/full-wave; valid while the structure ≪ λ | DC (Rdc) is the f→0 limit |
