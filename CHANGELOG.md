@@ -56,10 +56,25 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
     reporting a dip at the right frequency -- its gate asserts feed-point
     IMPEDANCE, because a resonance-only check passes a shorted antenna. The
     PIFA has no such trap. Do not copy the warning across.
-  * ⚠ Neither has an Element Designer page yet: the examples ship and open, but
-    you cannot type a frequency and get one. Left deliberately -- four
-    dispatchers in `element_dialog.py` fall through to the wire branch on an
-    unknown family key and would silently build a DIPOLE. Fix those first.
+  * **Both now have an Element Designer page** -- Tools ▸ Element Designer,
+    families **Inverted-F, printed** and **PIFA**: frequency and board (or
+    plate) in, a dimensioned element and a ready-to-run analysis out, with the
+    fine mesh already set. The PIFA page shows both limiting branches of the
+    interpolation alongside the answer, and both pages state their limits on
+    screen -- the IFA's mesh trap, the PIFA's short-position sensitivity, and
+    the element-is-not-a-phone caveat on both.
+  * ⚠⚠ **Four family dispatchers in `element_dialog.py` fell THROUGH to the
+    wire branch on an unknown family key** -- `_recalc`, `_build_verify_analysis`
+    and `_generate` would have synthesised, solved and BUILT a dipole under
+    whatever family heading was on screen, and `_family_changed` indexed a
+    literal dict so it raised KeyError inside a Qt slot. All four now refuse
+    and name the family. gui_smoke drives a deliberately bogus family key to
+    prove they refuse.
+  * ⚠ **A check written here was vacuous and a mutation caught it.** The first
+    version asserted `pages.currentIndex() == _PAGE_INDEX[fam]`, which compares
+    the map against itself and passes for any value in it -- pointing the IFA
+    family at the LPDA page still passed. It now asserts the title of the page
+    actually on screen. Negative-control every new check.
 
 ### Fixed
 

@@ -43,6 +43,8 @@ FAMILIES = [
     ("yagi", "Yagi-Uda", True, None),
     ("patch", "Microstrip patch", True, None),
     ("lpda", "LPDA (log-periodic)", True, None),
+    ("ifa", "Inverted-F, printed (PCB/handset)", True, None),
+    ("pifa", "PIFA (planar inverted-F)", True, None),
 ]
 FAMILY_INFO = {k: (label, avail, ships) for k, label, avail, ships in FAMILIES}
 

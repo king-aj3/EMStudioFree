@@ -1734,6 +1734,15 @@ geometry and asserts every row of the table above, and
 `tests/validation/element_designer.py`, whose `gate_ifa` pins the quarter-wave
 rule against the reference without needing a solver at all.
 
+**Design your own:** **EMStudio ▸ Tools ▸ Element Designer**, family
+**Inverted-F, printed** — give it a frequency, a board and (optionally) a stub
+height fixed by your keep-out, and it sizes the quarter-wave path, scales the
+widths and feed from the published reference, and drops a ready-to-run analysis
+into your document with the fine mesh already set. Ask it for 2.45 GHz on a
+1.5 mm εr 4.3 board and it hands you back the reference's own 8 mm stub and
+22.5 mm radiator, which is the cheapest way to satisfy yourself the page is
+driving the same engine this tutorial does.
+
 ⚠ **What this does NOT prove.** The geometry is external and published, which is
 more than tutorial 34 can say — but the *numbers* are not: openEMS's example
 publishes no expected resonance, S11 or gain, only its title. So this is our
@@ -1823,6 +1832,15 @@ the failure message names the cause. `tests/validation/element_designer.py`'s
 `gate_pifa` checks the closed form against the published measurements and
 simulation with no solver at all, and pins the fact that the simplified form
 often quoted online is three times worse.
+
+**Design your own:** **EMStudio ▸ Tools ▸ Element Designer**, family **PIFA** —
+frequency, plate height, plate aspect L1/L2 and the shorting-plate width as a
+fraction of L1. It shows you both limiting branches of the interpolation
+alongside the answer, so you can see the design move between the quarter-wave
+short-circuited patch at one end and the shorting-pin case at the other. It
+places the short **at the plate edge**, for the reason above. Ask it for
+1.892 GHz with the height pinned at 10 mm and it returns the published anchor's
+own 20 × 20 mm plate.
 
 ⚠ **What this does NOT prove.** One measured geometry is one point, not a
 validated envelope. And this is an **element** on an 80 mm ground: published

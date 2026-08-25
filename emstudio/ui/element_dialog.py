@@ -130,6 +130,8 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         self._yagi_design = None
         self._patch_design = None
         self._lpda_design = None
+        self._ifa_design = None
+        self._pifa_design = None
         self._rec = None
         self._verify_docname = None
 
@@ -144,6 +146,8 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         self.family.addItem("Yagi-Uda (NBS TN-688)", "yagi")
         self.family.addItem("Microstrip patch", "patch")
         self.family.addItem("LPDA (log-periodic, Carrel)", "lpda")
+        self.family.addItem("Inverted-F, printed (IFA — PCB/handset)", "ifa")
+        self.family.addItem("PIFA (planar inverted-F, elevated plate)", "pifa")
         self.family.addItem("Small antenna (VLF/LF/MF)", "small")
         sel_form.addRow("<b>Element family</b>", self.family)
         left.addLayout(sel_form)
@@ -278,6 +282,8 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         self.pages.addWidget(self._build_patch_page())    # index 2
         self.pages.addWidget(self._build_lpda_page())     # index 3
         self.pages.addWidget(self._build_small_page())    # index 4
+        self.pages.addWidget(self._build_ifa_page())      # index 5
+        self.pages.addWidget(self._build_pifa_page())     # index 6
         left.addWidget(self.pages)
 
         # ---- actions ----
@@ -545,6 +551,120 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                 self.patch_er.setValue(er)
                 self.patch_h.setValue(h)  # → _recalc via valueChanged
 
+    def _build_ifa_page(self):
+        page = QtWidgets.QGroupBox(
+            "Printed inverted-F / IFA (quarter-wave synthesis)")
+        form = QtWidgets.QFormLayout(page)
+
+        # ⚠ Attribute names are ifa_-prefixed on purpose. ui_attr_collisions
+        # forbids 37 inherited Qt method names as widget attributes, and this
+        # page naturally wants `height`, `width` and `size` -- all three are on
+        # that list and shadowing one SIGSEGVs on the next repaint.
+        self.ifa_er = QtWidgets.QDoubleSpinBox()
+        self.ifa_er.setDecimals(2)
+        self.ifa_er.setRange(1.0, 12.0)
+        self.ifa_er.setValue(4.3)
+        self.ifa_er.setToolTip(
+            "Board permittivity. The ground plane is cut away beneath the "
+            "element, so it is nearly air-loaded and er matters far less here "
+            "than it does for a patch.")
+        form.addRow("Board εr", self.ifa_er)
+
+        self.ifa_thick = QtWidgets.QDoubleSpinBox()
+        self.ifa_thick.setDecimals(3)
+        self.ifa_thick.setRange(0.1, 10.0)
+        self.ifa_thick.setValue(1.5)
+        self.ifa_thick.setSuffix(" mm")
+        form.addRow("Board thickness", self.ifa_thick)
+
+        self.ifa_stub = QtWidgets.QDoubleSpinBox()
+        self.ifa_stub.setDecimals(2)
+        self.ifa_stub.setRange(0.0, 200.0)
+        self.ifa_stub.setValue(0.0)
+        self.ifa_stub.setSuffix(" mm")
+        self.ifa_stub.setToolTip(
+            "Height of the short-circuit stub. 0 = take the reference's own "
+            "proportion. Set it when a board keep-out fixes the height; the "
+            "radiator length absorbs the difference.")
+        form.addRow("Stub height (0 = auto)", self.ifa_stub)
+
+        self.ifa_z = QtWidgets.QDoubleSpinBox()
+        self.ifa_z.setDecimals(1)
+        self.ifa_z.setRange(10.0, 300.0)
+        self.ifa_z.setValue(50.0)
+        self.ifa_z.setSuffix(" ohm")
+        form.addRow("Feed impedance", self.ifa_z)
+
+        note = QtWidgets.QLabel(
+            "Uses the shared Frequency (left). h + l = \u03bb/4 is the physics "
+            "and is good to ~\u00b15 %; the widths and feed offset are SCALED "
+            "SEEDS from openEMS's own published example, not models. \u26a0 At "
+            "a coarse grid this element solves as a SHORT while still showing "
+            "a dip at the right frequency -- the template sets a fine one. "
+            "\u26a0 Element model, not a phone model: on a real handset the "
+            "chassis radiates too.")
+        note.setWordWrap(True)
+        note.setStyleSheet("QLabel { color: #888; }")
+        form.addRow(note)
+        return page
+
+    def _build_pifa_page(self):
+        page = QtWidgets.QGroupBox(
+            "PIFA \u2014 elevated plate (Hirasawa interpolation)")
+        form = QtWidgets.QFormLayout(page)
+
+        self.pifa_height = QtWidgets.QDoubleSpinBox()
+        self.pifa_height.setDecimals(2)
+        self.pifa_height.setRange(0.0, 100.0)
+        self.pifa_height.setValue(0.0)
+        self.pifa_height.setSuffix(" mm")
+        self.pifa_height.setToolTip(
+            "Top-plate height above the ground plane. 0 = derive it from the "
+            "plate size. Height buys bandwidth; almost nothing else does.")
+        form.addRow("Plate height (0 = auto)", self.pifa_height)
+
+        self.pifa_ratio = QtWidgets.QDoubleSpinBox()
+        self.pifa_ratio.setDecimals(2)
+        self.pifa_ratio.setRange(0.2, 5.0)
+        self.pifa_ratio.setValue(1.0)
+        self.pifa_ratio.setToolTip(
+            "L1/L2 -- plate length along the shorted edge over the resonant "
+            "length. 1.0 is square. Above 1 the published interpolation "
+            "changes its exponent.")
+        form.addRow("Plate aspect L1/L2", self.pifa_ratio)
+
+        self.pifa_short = QtWidgets.QDoubleSpinBox()
+        self.pifa_short.setDecimals(3)
+        self.pifa_short.setRange(0.0, 1.0)
+        self.pifa_short.setSingleStep(0.05)
+        self.pifa_short.setValue(0.25)
+        self.pifa_short.setToolTip(
+            "Shorting-plate width as a fraction of L1. This is the parameter "
+            "the whole interpolation turns on: 1.0 is a quarter-wave "
+            "short-circuited patch, near 0 is a shorting pin.")
+        form.addRow("Short width W/L1", self.pifa_short)
+
+        self.pifa_z = QtWidgets.QDoubleSpinBox()
+        self.pifa_z.setDecimals(1)
+        self.pifa_z.setRange(10.0, 300.0)
+        self.pifa_z.setValue(50.0)
+        self.pifa_z.setSuffix(" ohm")
+        form.addRow("Feed impedance", self.pifa_z)
+
+        note = QtWidgets.QLabel(
+            "Uses the shared Frequency (left). \u26a0\u26a0 The shorting plate "
+            "is placed AT THE PLATE EDGE. Its position along that edge appears "
+            "in NO term of the design equations and is worth ~7.6 % -- "
+            "measured. \u26a0\u26a0 The ground plane is part of the antenna, "
+            "not packaging: published data for this geometry shows +18.3 % "
+            "resonance shift, a 2.4:1 bandwidth spread and 3.7 dB of gain "
+            "spread as it shrinks. On a handset the chassis IS the ground "
+            "plane, and that is not modelled here.")
+        note.setWordWrap(True)
+        note.setStyleSheet("QLabel { color: #888; }")
+        form.addRow(note)
+        return page
+
     def _build_lpda_page(self):
         page = QtWidgets.QGroupBox("LPDA (Carrel log-periodic synthesis)")
         form = QtWidgets.QFormLayout(page)
@@ -723,9 +843,17 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         self.rec_view.setPlainText(text)
         self.rec_use_btn.setEnabled(top is not None)
 
+    #: family data key -> index in ``self.pages``. A class attribute rather
+    #: than a literal inside _family_changed, so that adding a page and
+    #: forgetting its index is a KeyError naming the family rather than a
+    #: silently wrong page.
+    _PAGE_INDEX = {"wire": 0, "yagi": 1, "patch": 2, "lpda": 3, "small": 4,
+                   "ifa": 5, "pifa": 6}
+
     #: recommender family key -> dialog family-selector data key (available fams)
     _FAMILY_PAGE = {"wire": "wire", "yagi": "yagi", "patch": "patch",
-                    "lpda": "lpda", "small_antenna": "small"}
+                    "lpda": "lpda", "small_antenna": "small",
+                    "ifa": "ifa", "pifa": "pifa"}
 
     def _use_recommended(self):
         if not self._rec or not self._rec["candidates"]:
@@ -741,10 +869,19 @@ class ElementDesignerDialog(QtWidgets.QDialog):
     # ================= recalc =================
     def _family_changed(self):
         fam = self.family.currentData()
-        self.pages.setCurrentIndex(
-            {"wire": 0, "yagi": 1, "patch": 2, "lpda": 3, "small": 4}[fam])
-        can_solve = fam in ("wire", "yagi", "patch", "lpda")
-        if fam == "patch":
+        # ⚠ This indexed a literal dict until 2026-08-25, so an unknown key
+        # raised KeyError INSIDE a Qt slot -- which surfaces as a console
+        # traceback and a dialog that silently stops responding to the family
+        # selector. A missing page is a wiring bug; fail loudly at the point of
+        # the bug rather than at a random later repaint.
+        page = self._PAGE_INDEX.get(fam)
+        if page is None:
+            raise KeyError(
+                "family '{0}' has no page index in _PAGE_INDEX — add it "
+                "alongside the page widget".format(fam))
+        self.pages.setCurrentIndex(page)
+        can_solve = fam in ("wire", "yagi", "patch", "lpda", "ifa", "pifa")
+        if fam in ("patch", "ifa", "pifa"):
             solver_ok, missing, solver = self._openems_found, "openEMS", "openEMS"
         else:
             solver_ok, missing, solver = self._nec2_found, "nec2c", "NEC2"
@@ -844,6 +981,12 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         if fam == "lpda":
             self._recalc_lpda()
             return
+        if fam == "ifa":
+            self._recalc_ifa()
+            return
+        if fam == "pifa":
+            self._recalc_pifa()
+            return
         if fam == "small":
             rec = band_picker.recommend_method(f, wire_structure=True)
             self.banner.setText("Band {0} ({1}) — recommended: {2}".format(
@@ -858,6 +1001,22 @@ class ElementDesignerDialog(QtWidgets.QDialog):
             ax.text(0.5, 0.5, "Small-antenna family:\nuse the dedicated "
                     "designer (left column)", ha="center", va="center")
             self.canvas_sketch.draw_idle()
+            return
+        if fam != "wire":
+            # ⚠ Until 2026-08-25 this fell THROUGH to the wire synthesis on any
+            # unrecognised key, so a new family whose branch was forgotten
+            # showed dipole numbers under its own page heading -- a wrong answer
+            # that looks like a right one, which is the worst failure this
+            # project has. Refuse in the read-out instead: this is a Qt slot, so
+            # it says so on screen rather than raising into the event loop.
+            self.perf_view.setPlainText(
+                "Family '{0}' has no synthesis branch in _recalc(). This is a "
+                "wiring bug, not a bad input: every family key must be handled "
+                "explicitly here.".format(fam))
+            self.fig_sketch.clear()
+            self.canvas_sketch.draw_idle()
+            self.verify_btn.setEnabled(False)
+            self.accept_btn.setEnabled(False)
             return
 
         try:
@@ -1340,6 +1499,238 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                          d["er"], d["h_m"] * 1e3, d["gain_dbi"]), fontsize=8)
         self.canvas_sketch.draw_idle()
 
+    def _recalc_ifa(self):
+        from emstudio.antenna import band_picker
+        from emstudio.antenna import ifa as ifa_eng
+
+        f = self._freq_hz()
+        stub = self.ifa_stub.value()
+        try:
+            design = ifa_eng.design_ifa(
+                f, er=self.ifa_er.value(),
+                board_thickness_m=self.ifa_thick.value() / 1000.0,
+                stub_height_m=(None if stub <= 0.0 else stub / 1000.0),
+                target_z_ohm=self.ifa_z.value())
+        except Exception as exc:  # noqa: BLE001 — surfaced in the read-out
+            self._ifa_design = None
+            self.verify_btn.setEnabled(False)
+            self.accept_btn.setEnabled(False)
+            self.perf_view.setPlainText("Invalid IFA inputs: {0}".format(exc))
+            self.fig_sketch.clear()
+            self.canvas_sketch.draw_idle()
+            return
+        self._ifa_design = design
+        self.verify_btn.setEnabled(self._openems_found)
+        self.accept_btn.setEnabled(True)
+        rec = band_picker.recommend_method(
+            f, max_dim_m=design["board_m"], wire_structure=False)
+        self.banner.setText("Band {0} ({1}) — recommended: {2}".format(
+            rec["band"], band_picker._fmt_freq(f), rec["primary_label"]))
+        self._refresh_predicted_ifa()
+        self._draw_schematic_ifa()
+
+    def _refresh_predicted_ifa(self):
+        from emstudio.antenna import band_picker
+
+        d = self._ifa_design
+        if not d:
+            return
+        L = ["PREDICTED PERFORMANCE — Printed inverted-F (IFA)"]
+        L.append("=" * 48)
+        L.append("frequency        : {0}".format(
+            band_picker._fmt_freq(d["f0_hz"])))
+        L.append("board            : er {0:g}, {1:.3g} mm thick".format(
+            d["er"], d["board_thickness_m"] * 1e3))
+        L.append("quarter-wave path: {0:.3f} mm  (h + l)".format(
+            d["path_length_m"] * 1e3))
+        L.append("  stub height h  : {0:.3f} mm".format(
+            d["stub_height_m"] * 1e3))
+        L.append("  radiator l     : {0:.3f} mm".format(
+            d["radiator_length_m"] * 1e3))
+        L.append("stub width w1    : {0:.3f} mm".format(
+            d["stub_width_m"] * 1e3))
+        L.append("radiator width w2: {0:.3f} mm".format(
+            d["radiator_width_m"] * 1e3))
+        L.append("feed width / gap : {0:.3f} / {1:.3f} mm".format(
+            d["feed_width_m"] * 1e3, d["feed_gap_m"] * 1e3))
+        L.append("feed offset      : {0:.3f} mm from the short  (SEED)".format(
+            d["feed_offset_m"] * 1e3))
+        L.append("ground clearance : {0:.3f} mm".format(
+            d["ground_clearance_m"] * 1e3))
+        L.append("board size       : {0:.2f} mm square".format(
+            d["board_m"] * 1e3))
+        L.append("scale vs openEMS's published reference: {0:.4f}".format(
+            d["scale_vs_reference"]))
+        for w in d.get("warnings", []):
+            L.append("")
+            L.append("warning: {0}".format(w))
+        L.append("")
+        L.append("source: {0}".format(d.get("source_note", "")))
+        self.perf_view.setPlainText("\n".join(L))
+
+    def _draw_schematic_ifa(self):
+        d = self._ifa_design
+        if not d:
+            return
+        from matplotlib.patches import Rectangle as _Rect
+
+        self.fig_sketch.clear()
+        ax = self.fig_sketch.add_subplot(111)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        mm = 1e3
+        board = d["board_m"] * mm
+        e = d["ground_clearance_m"] * mm
+        h = d["stub_height_m"] * mm
+        lr = d["radiator_length_m"] * mm
+        w1 = d["stub_width_m"] * mm
+        w2 = d["radiator_width_m"] * mm
+        wf = d["feed_width_m"] * mm
+        fp = d["feed_offset_m"] * mm
+        gap = d["feed_gap_m"] * mm
+
+        # board, then the ground plane stopping short of the top edge
+        ax.add_patch(_Rect((-board / 2, -board / 2), board, board,
+                           facecolor="#2b3b2b", edgecolor="#4a5", lw=1))
+        ax.add_patch(_Rect((-board / 2, -board / 2), board, board - e,
+                           facecolor="#3d5a3d", edgecolor="#6b8", lw=1))
+        y0 = board / 2 - e
+        ax.add_patch(_Rect((-(fp + w1), y0), w1, h,
+                           facecolor="#c87533", edgecolor="#e0a060", lw=1.2))
+        ax.add_patch(_Rect((-(fp + w1), y0 + h - w2), lr, w2,
+                           facecolor="#c87533", edgecolor="#e0a060", lw=1.2))
+        ax.add_patch(_Rect((0.0, y0 + gap), wf, h - gap,
+                           facecolor="#c87533", edgecolor="#e0a060", lw=1.2))
+        ax.plot([wf / 2], [y0 + gap / 2], "o", color="#d33", ms=6)
+        ax.annotate("feed", (wf / 2, y0), (board * 0.18, y0 - board * 0.13),
+                    color="#d33", fontsize=8,
+                    arrowprops=dict(arrowstyle="->", color="#d33"))
+        ax.annotate("ground cut away", (0, y0), (-board * 0.30, y0 + e * 0.45),
+                    color="#8c8", fontsize=7,
+                    arrowprops=dict(arrowstyle="->", color="#8c8"))
+        lim = board / 2 * 1.08
+        ax.set_xlim(-lim, lim)
+        ax.set_ylim(-lim, lim)
+        ax.set_title("Printed IFA — h + l = {0:.2f} mm = λ/4 on a {1:.0f} mm "
+                     "board".format(d["path_length_m"] * mm, board),
+                     fontsize=8)
+        self.canvas_sketch.draw_idle()
+
+    def _recalc_pifa(self):
+        from emstudio.antenna import band_picker
+        from emstudio.antenna import pifa as pifa_eng
+
+        f = self._freq_hz()
+        hgt = self.pifa_height.value()
+        try:
+            design = pifa_eng.design_pifa(
+                f, height_m=(None if hgt <= 0.0 else hgt / 1000.0),
+                l1_over_l2=self.pifa_ratio.value(),
+                short_frac=self.pifa_short.value(),
+                target_z_ohm=self.pifa_z.value())
+        except Exception as exc:  # noqa: BLE001 — surfaced in the read-out
+            self._pifa_design = None
+            self.verify_btn.setEnabled(False)
+            self.accept_btn.setEnabled(False)
+            self.perf_view.setPlainText("Invalid PIFA inputs: {0}".format(exc))
+            self.fig_sketch.clear()
+            self.canvas_sketch.draw_idle()
+            return
+        self._pifa_design = design
+        self.verify_btn.setEnabled(self._openems_found)
+        self.accept_btn.setEnabled(True)
+        rec = band_picker.recommend_method(
+            f, max_dim_m=design["ground_m"], wire_structure=False)
+        self.banner.setText("Band {0} ({1}) — recommended: {2}".format(
+            rec["band"], band_picker._fmt_freq(f), rec["primary_label"]))
+        self._refresh_predicted_pifa()
+        self._draw_schematic_pifa()
+
+    def _refresh_predicted_pifa(self):
+        from emstudio.antenna import band_picker
+
+        d = self._pifa_design
+        if not d:
+            return
+        L = ["PREDICTED PERFORMANCE — PIFA (elevated plate)"]
+        L.append("=" * 46)
+        L.append("frequency        : {0}".format(
+            band_picker._fmt_freq(d["f0_hz"])))
+        L.append("plate L1 x L2    : {0:.3f} x {1:.3f} mm".format(
+            d["l1_m"] * 1e3, d["l2_m"] * 1e3))
+        L.append("plate height H   : {0:.3f} mm".format(d["height_m"] * 1e3))
+        L.append("short width W    : {0:.3f} mm  (W/L1 = {1:.3f})".format(
+            d["short_width_m"] * 1e3, d["short_frac"]))
+        L.append("  short position : AT THE PLATE EDGE — not in the equations,")
+        L.append("                   and worth ~7.6 % if moved")
+        L.append("feed offset      : {0:.3f} mm from the short  (SEED)".format(
+            d["feed_offset_m"] * 1e3))
+        L.append("ground plane     : {0:.2f} mm square  (PART OF THE ANTENNA)"
+                 .format(d["ground_m"] * 1e3))
+        L.append("")
+        L.append("limiting branches of the interpolation:")
+        L.append("  f1 (W = L1, full-width short) : {0:.4f} GHz".format(
+            d["f1_full_short_hz"] / 1e9))
+        L.append("  f2 (partial short)            : {0:.4f} GHz".format(
+            d["f2_partial_short_hz"] / 1e9))
+        L.append("  interpolated                  : {0:.4f} GHz".format(
+            d["f_check_hz"] / 1e9))
+        for w in d.get("warnings", []):
+            L.append("")
+            L.append("warning: {0}".format(w))
+        L.append("")
+        L.append("source: {0}".format(d.get("source_note", "")))
+        self.perf_view.setPlainText("\n".join(L))
+
+    def _draw_schematic_pifa(self):
+        d = self._pifa_design
+        if not d:
+            return
+        from matplotlib.patches import Rectangle as _Rect
+
+        self.fig_sketch.clear()
+        ax = self.fig_sketch.add_subplot(111)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        mm = 1e3
+        l1 = d["l1_m"] * mm
+        l2 = d["l2_m"] * mm
+        w = d["short_width_m"] * mm
+        g = d["ground_m"] * mm
+        fo = d["feed_offset_m"] * mm
+
+        ax.add_patch(_Rect((-g / 2, -g / 2), g, g,
+                           facecolor="#2b3b2b", edgecolor="#4a5", lw=1))
+        ax.add_patch(_Rect((-l1 / 2, 0.0), l1, l2,
+                           facecolor="#c87533", edgecolor="#e0a060", lw=1.5,
+                           alpha=0.85))
+        # the short, drawn where it actually is: at the edge, not centred.
+        ax.add_patch(_Rect((-l1 / 2, -w * 0.18), w, w * 0.18,
+                           facecolor="#d33", edgecolor="#f66", lw=1.2))
+        ax.annotate("short (AT THE EDGE)", (-l1 / 2 + w / 2, 0.0),
+                    (-g * 0.44, -g * 0.30), color="#d33", fontsize=7,
+                    arrowprops=dict(arrowstyle="->", color="#d33"))
+        fx = -l1 / 2 + w / 2
+        ax.plot([fx], [fo], "o", color="#2b8cff", ms=6)
+        ax.annotate("feed", (fx, fo), (g * 0.16, fo + g * 0.10),
+                    color="#2b8cff", fontsize=8,
+                    arrowprops=dict(arrowstyle="->", color="#2b8cff"))
+        ax.annotate("", xy=(l1 / 2, -g * 0.10), xytext=(-l1 / 2, -g * 0.10),
+                    arrowprops=dict(arrowstyle="<->", color="#2b8cff"))
+        ax.text(0, -g * 0.145, "L1 = {0:.2f} mm".format(l1), ha="center",
+                color="#2b8cff", fontsize=7)
+        ax.annotate("", xy=(l1 / 2 + g * 0.06, l2), xytext=(l1 / 2 + g * 0.06, 0),
+                    arrowprops=dict(arrowstyle="<->", color="#2b8cff"))
+        ax.text(l1 / 2 + g * 0.09, l2 / 2, "L2 = {0:.2f} mm".format(l2),
+                rotation=90, va="center", color="#2b8cff", fontsize=7)
+        lim = g / 2 * 1.06
+        ax.set_xlim(-lim, lim)
+        ax.set_ylim(-lim, lim)
+        ax.set_title("PIFA — plate {0:.1f} mm above a {1:.0f} mm ground "
+                     "(the ground is part of it)".format(
+                         d["height_m"] * mm, g), fontsize=8)
+        self.canvas_sketch.draw_idle()
+
     # ================= verify (production NEC2 writer, off-thread) ========
     def _close_verify_doc(self):
         if not self._verify_docname:
@@ -1382,6 +1773,37 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         if fam == "lpda":
             ana = self._make_lpda_analysis(doc)
             return ana, query.get_solvers(ana)[0]
+        if fam == "ifa":
+            from emstudio.templates import ifa as ifa_tpl
+
+            if self._ifa_design is None:
+                raise ValueError("no valid IFA design — adjust the inputs")
+            stub = self.ifa_stub.value()
+            ana = ifa_tpl.makeIFADesign(
+                doc, f0_hz=self._freq_hz(), er=self.ifa_er.value(),
+                board_thickness_mm=self.ifa_thick.value(),
+                stub_height_mm=(None if stub <= 0.0 else stub),
+                target_z_ohm=self.ifa_z.value())
+            return ana, query.get_solvers(ana)[0]
+        if fam == "pifa":
+            from emstudio.templates import pifa as pifa_tpl
+
+            if self._pifa_design is None:
+                raise ValueError("no valid PIFA design — adjust the inputs")
+            hgt = self.pifa_height.value()
+            ana = pifa_tpl.makePIFADesign(
+                doc, f0_hz=self._freq_hz(),
+                height_mm=(None if hgt <= 0.0 else hgt),
+                l1_over_l2=self.pifa_ratio.value(),
+                short_frac=self.pifa_short.value(),
+                target_z_ohm=self.pifa_z.value())
+            return ana, query.get_solvers(ana)[0]
+        if fam != "wire":
+            # See the note in _recalc: falling through built a DIPOLE for any
+            # unhandled family, and then solved it and reported the numbers.
+            raise ValueError(
+                "family '{0}' has no branch in _build_verify_analysis()".format(
+                    fam))
 
         kind = self._wire_kind()
         f0 = self._freq_hz()
@@ -1457,6 +1879,12 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         elif fam == "lpda":
             design = dict(self._lpda_design or {})
             label = "NEC2, LPDA {0}el".format(design.get("n_elements", 0))
+        elif fam == "ifa":
+            design = dict(self._ifa_design or {})
+            label = "openEMS, printed IFA"
+        elif fam == "pifa":
+            design = dict(self._pifa_design or {})
+            label = "openEMS, PIFA"
         else:
             design = dict(self._design or {})
             design["length_used_m"] = self.length.value()
@@ -1466,7 +1894,7 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         kind = self._wire_kind()
 
         def run_fn(_a, _s, cb):
-            if fam == "patch":
+            if fam in ("patch", "ifa", "pifa"):
                 from emstudio.solvers import openems
 
                 return openems.run(ana, solver, line_callback=cb)
@@ -1803,6 +2231,10 @@ class ElementDesignerDialog(QtWidgets.QDialog):
             d = self._patch_design
         elif fam == "lpda":
             d = self._lpda_design
+        elif fam == "ifa":
+            d = self._ifa_design
+        elif fam == "pifa":
+            d = self._pifa_design
         elif fam == "wire":
             d = self._design
         else:
@@ -1881,6 +2313,35 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                 h_mm=self.patch_h.value(), target_z_ohm=self.patch_z.value())
         if fam == "lpda":
             return self._make_lpda_analysis(doc)
+        if fam == "ifa":
+            from emstudio.templates import ifa as ifa_tpl
+
+            if self._ifa_design is None:
+                raise ValueError("no valid IFA design — adjust the inputs")
+            stub = self.ifa_stub.value()
+            return ifa_tpl.makeIFADesign(
+                doc, f0_hz=self._freq_hz(), er=self.ifa_er.value(),
+                board_thickness_mm=self.ifa_thick.value(),
+                stub_height_mm=(None if stub <= 0.0 else stub),
+                target_z_ohm=self.ifa_z.value())
+        if fam == "pifa":
+            from emstudio.templates import pifa as pifa_tpl
+
+            if self._pifa_design is None:
+                raise ValueError("no valid PIFA design — adjust the inputs")
+            hgt = self.pifa_height.value()
+            return pifa_tpl.makePIFADesign(
+                doc, f0_hz=self._freq_hz(),
+                height_mm=(None if hgt <= 0.0 else hgt),
+                l1_over_l2=self.pifa_ratio.value(),
+                short_frac=self.pifa_short.value(),
+                target_z_ohm=self.pifa_z.value())
+        if fam != "wire":
+            # See the note in _recalc. This one is the worst of the three: it
+            # would have dropped a dipole into the user's DOCUMENT under the
+            # label of whatever family was selected.
+            raise ValueError(
+                "family '{0}' has no branch in _generate()".format(fam))
 
         kind = self._wire_kind()
         f0 = self._freq_hz()

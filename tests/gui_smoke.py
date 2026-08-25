@@ -1450,6 +1450,123 @@ def _element_designer_dialog():
     finally:
         FreeCAD.closeDocument(doc.Name)
 
+    # --- IFA + PIFA families (A2): the handset elements ------------------
+    # ⚠ These two are why the four family dispatchers were made to REFUSE an
+    # unknown key. Until 2026-08-25 _recalc, _build_verify_analysis and
+    # _generate all fell THROUGH to the wire branch, so a family whose branch
+    # was forgotten silently produced a DIPOLE under its own page heading. The
+    # asserts below check the produced geometry is the right ANTENNA, not just
+    # that something was produced.
+    dlg.family.setCurrentIndex(dlg.family.findData("ifa"))
+    # ⚠ Assert the page ACTUALLY SHOWN, by its title -- not
+    # `currentIndex() == _PAGE_INDEX["ifa"]`, which compares the map against
+    # itself and passes for ANY value in the map. That vacuous form was written
+    # here first and a mutation caught it: pointing the family at page 3 left
+    # the LPDA page on screen and the check still passed.
+    assert "inverted-F" in dlg.pages.currentWidget().title(), \
+        "IFA family shows the wrong page: {0!r}".format(
+            dlg.pages.currentWidget().title())
+    assert "openEMS" in dlg.verify_btn.text(), \
+        "IFA Verify button must name openEMS, not NEC2"
+    dlg.freq.setValue(2.45)
+    dlg.freq_unit.setCurrentText("GHz")
+    dlg.ifa_er.setValue(4.3)
+    dlg.ifa_thick.setValue(1.5)
+    dlg.ifa_stub.setValue(0.0)          # 0 = the reference's own proportion
+    dlg._recalc()
+    fd = dlg._ifa_design
+    assert fd is not None, "IFA design not produced"
+    # Designing at the reference's own frequency must reproduce the reference
+    # geometry: h 8 mm + l 22.5 mm. That is the cheapest end-to-end statement
+    # that the dialog is driving the engine it claims to.
+    assert abs(fd["stub_height_m"] * 1e3 - 8.0) < 0.15 \
+        and abs(fd["radiator_length_m"] * 1e3 - 22.5) < 0.35, \
+        "IFA at 2.45 GHz must be ~8 mm stub + ~22.5 mm radiator, got " \
+        "{0:.2f}/{1:.2f}".format(fd["stub_height_m"] * 1e3,
+                                 fd["radiator_length_m"] * 1e3)
+    ftxt = dlg.perf_view.toPlainText()
+    assert "inverted-F" in ftxt and "quarter-wave path" in ftxt, \
+        "IFA predicted read-out malformed"
+    assert "not a phone model" in ftxt, \
+        "IFA read-out must carry the element-not-a-phone warning"
+    doc = FreeCAD.newDocument("gui_ifa_gen")
+    try:
+        ana = dlg._generate(doc)
+        assert doc.getObject("Radiator") is not None \
+            and doc.getObject("ShortStub") is not None, \
+            "IFA geometry missing — did _generate fall through to the wire " \
+            "branch and build a dipole?"
+        assert query.get_solvers(ana) and query.get_ports(ana), \
+            "generated IFA analysis missing solver/port"
+        assert int(ana.MeshResolution) >= 40, \
+            "IFA analysis must carry a fine mesh — at the default grid it " \
+            "solves as a SHORT while still showing a dip at the right frequency"
+    finally:
+        FreeCAD.closeDocument(doc.Name)
+
+    dlg.family.setCurrentIndex(dlg.family.findData("pifa"))
+    assert "PIFA" in dlg.pages.currentWidget().title(), \
+        "PIFA family shows the wrong page: {0!r}".format(
+            dlg.pages.currentWidget().title())
+    dlg.freq.setValue(1.892)
+    dlg.freq_unit.setCurrentText("GHz")
+    dlg.pifa_height.setValue(10.0)
+    dlg.pifa_ratio.setValue(1.0)
+    dlg.pifa_short.setValue(0.25)
+    dlg._recalc()
+    qd = dlg._pifa_design
+    assert qd is not None, "PIFA design not produced"
+    # Pinning the height at the anchor's 10 mm and asking for its measured
+    # frequency must return the anchor's own ~20 mm square plate.
+    assert abs(qd["l1_m"] * 1e3 - 20.0) < 1.5 \
+        and abs(qd["l2_m"] * 1e3 - 20.0) < 1.5, \
+        "PIFA at 1.892 GHz / H 10 mm must be ~20 x 20 mm, got " \
+        "{0:.2f} x {1:.2f}".format(qd["l1_m"] * 1e3, qd["l2_m"] * 1e3)
+    qtxt = dlg.perf_view.toPlainText()
+    assert "AT THE PLATE EDGE" in qtxt and "7.6 %" in qtxt, \
+        "PIFA read-out must state the short-position finding"
+    assert "PART OF THE ANTENNA" in qtxt, \
+        "PIFA read-out must say the ground plane is part of the antenna"
+    doc = FreeCAD.newDocument("gui_pifa_gen")
+    try:
+        ana = dlg._generate(doc)
+        assert doc.getObject("TopPlate") is not None \
+            and doc.getObject("ShortingPlate") is not None, \
+            "PIFA geometry missing — did _generate fall through and build a " \
+            "dipole?"
+        assert query.get_solvers(ana) and query.get_ports(ana), \
+            "generated PIFA analysis missing solver/port"
+        # The short must be AT THE EDGE: its x-range must start at -L1/2.
+        sp = doc.getObject("ShortingPlate").Shape.BoundBox
+        tp = doc.getObject("TopPlate").Shape.BoundBox
+        assert abs(sp.XMin - tp.XMin) < 1e-6, \
+            "the shorting plate is not at the plate edge — that placement is " \
+            "worth 7.6 % and no equation here can see it"
+    finally:
+        FreeCAD.closeDocument(doc.Name)
+
+    # --- the family dispatchers must REFUSE an unknown key, not fall through
+    dlg.family.addItem("(smoke) bogus family", "bogus")
+    dlg.family.setCurrentIndex(dlg.family.findData("bogus"))
+    doc = FreeCAD.newDocument("gui_bogus_gen")
+    try:
+        try:
+            dlg._generate(doc)
+            raise AssertionError(
+                "_generate accepted an unknown family — it used to build a "
+                "DIPOLE here, which is the whole reason this check exists")
+        except ValueError:
+            pass
+        try:
+            dlg._build_verify_analysis(doc)
+            raise AssertionError(
+                "_build_verify_analysis accepted an unknown family")
+        except ValueError:
+            pass
+    finally:
+        FreeCAD.closeDocument(doc.Name)
+    dlg.family.removeItem(dlg.family.findData("bogus"))
+
     # --- LPDA family (§1-E5): band inputs, synthesis, verify formatter,
     # crossed-TL generate
     dlg.family.setCurrentIndex(dlg.family.findData("lpda"))
@@ -3292,7 +3409,8 @@ def main():
     check("Palace AMR opt-in (MeshRefinement property -> writer)", _palace_amr_option)
     check("quasi-static frequency guard (GUI magnetics)", _freq_guard_gui)
     check("small-antenna designer dialog (VLF/LF)", _small_antenna_dialog)
-    check("element designer dialog (wire + Yagi + patch + LPDA + recommender, "
+    check("element designer dialog (wire + Yagi + patch + LPDA + IFA + PIFA + "
+          "recommender, "
           "§1-E2/E3/E4/E5)", _element_designer_dialog)
     check("system matching designer dialog (L/pi/T/transformer/stub + "
           "recommender + E-series, §7-S2)", _system_matching_dialog)
