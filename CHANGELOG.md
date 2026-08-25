@@ -29,6 +29,38 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   case; and the −10 dB bandwidth stays **below n78's 500 MHz**, which is the
   gated form of the tutorial's central limitation.
 
+* **A2 complete: the handset elements, and the project's FIRST radiating
+  anchor against MEASURED hardware.** Two engines (`emstudio/antenna/ifa.py`,
+  `emstudio/antenna/pifa.py`), two templates, two solver gates
+  (`ifa_openems`, `pifa_openems`, both mutation-proven), 13 analytic checks in
+  `element_designer`, two examples and tutorials 35-36. 112 gate files
+  (FAST 52 / SOLVER 60), free tree 94.
+  * **PIFA: 1.8962 GHz against a published anechoic-chamber measurement of
+    1.892 GHz — +0.22 %.** Every other radiating gate here compares against
+    something computed; this one is checked against a real antenna somebody
+    measured. Every grid from lambda/20 to lambda/90 lands within 1.3 %.
+  * **Inverted-F: rebuilt from openEMS's own published example**, resonance
+    2.3934 GHz against a quarter-wave rule's 2.4573 (-2.60 %), -26.5 dB,
+    Zin 54.76 +1.40j, and 211 MHz of -10 dB bandwidth covering the whole
+    2.4 GHz ISM band -- ten times the n78 patch's 21 MHz.
+  * ⚠⚠ **The finding: the shorting plate's POSITION is worth 7.6 %, and no
+    closed form can see it.** The standard PIFA equations have no term for
+    where along the edge the short sits. Centred solves at 2.0370 GHz, at the
+    edge at 1.8930 GHz, and the formula returns 1873.7 MHz for both. A PIFA
+    built to exactly the right dimensions with the short in the wrong place is
+    wrong by more than the formula's own stated accuracy, with nothing
+    analytic to warn you. Found by chasing a 7.7 % discrepancy instead of
+    tuning it away.
+  * ⚠ **The two antennas fail differently.** The inverted-F has a 0.5 mm port
+    gap, so at the default grid it solves as a dead SHORT while still
+    reporting a dip at the right frequency -- its gate asserts feed-point
+    IMPEDANCE, because a resonance-only check passes a shorted antenna. The
+    PIFA has no such trap. Do not copy the warning across.
+  * ⚠ Neither has an Element Designer page yet: the examples ship and open, but
+    you cannot type a frequency and get one. Left deliberately -- four
+    dispatchers in `element_dialog.py` fall through to the wire branch on an
+    unknown family key and would silently build a DIPOLE. Fix those first.
+
 ### Fixed
 
 * **Tutorial 3 named a button that does not do what it said.** Its "design

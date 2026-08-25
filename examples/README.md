@@ -15,6 +15,7 @@ files stay small and the numbers you get are your own.
 | `patch_2p4GHz.FCStd` | Inset-fed microstrip patch synthesised from frequency and substrate | openEMS | S11 dip within the transmission-line model's stated +/-5 % of 2.4 GHz |
 | `patch_n78_3p5GHz.FCStd` | 5G NR n78 patch (sub-6), same board as the 2.4 GHz one at 3.5 GHz | openEMS | S11 dip inside n78 (3.3-3.8 GHz), within the TL model's +/-5 % of 3.5 GHz |
 | `ifa_2p45GHz.FCStd` | Printed inverted-F (IFA) — openEMS's own published 2.45 GHz reference | openEMS | S11 about -26 dB near 2.39 GHz, feed Z about 55 ohm, and a -10 dB band covering the whole 2.4 GHz ISM band |
+| `pifa_1p9GHz.FCStd` | PIFA — the published anchor whose resonance was chamber-MEASURED | openEMS | resonance within about 1 % of the measured 1.892 GHz, feed Z near 40 ohm |
 | `notch_filter_msl.FCStd` | Microstrip notch filter with trace-aware meshing | openEMS | an S21 notch that matches analytic theory (gated to 0.6 %) |
 | `coax_50ohm.FCStd` | Coaxial line section | Palace | characteristic impedance about 50 ohm |
 | `waveguide_wr90.FCStd` | WR-90 rectangular waveguide, X-band | Palace | TE10 propagation above the 6.56 GHz cutoff |

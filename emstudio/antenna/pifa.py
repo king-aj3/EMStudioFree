@@ -75,6 +75,18 @@ ANCHOR = {
     "l2_m": 20.0e-3,
     "h_m": 10.0e-3,
     "w_m": 5.0e-3,
+    # ⚠ The ground plane is NOT packaging here — it is part of the antenna.
+    # The published measurements were taken on 80 mm and 100 mm square
+    # grounds and differ BY 6 MHz between them; quoting a PIFA number
+    # without a ground size attached is quoting half a number.
+    "ground_m": 80.0e-3,
+    # ⚠⚠ The shorting plate sits AT THE SIDE EDGE of the top plate, not
+    # centred on it. The closed form has no term for this and cannot tell
+    # the two apart -- but full-wave can, and it is worth 7.6 %: centred
+    # solves at 2.0370 GHz, at the edge 1.8930 GHz, against a measured
+    # 1.892 GHz. Getting this wrong is a bigger error than the closed
+    # form's own stated accuracy.
+    "short_at_edge": True,
     "published_mom_hz": 1980e6,       # IE3D, infinite ground
     "published_meas_80mm_hz": 1892e6,  # chamber, 80 mm square ground
     "published_meas_100mm_hz": 1886e6,  # chamber, 100 mm square ground
@@ -200,6 +212,11 @@ def design_pifa(f0_hz, height_m=None, l1_over_l2=1.0, short_frac=0.25,
     # a SEED, not a model -- the same status the IFA engine's feed offset has.
     feed_offset = 0.25 * l2
 
+    # Ground plane, at the anchor's own ratio (80 mm square under a 20 mm
+    # plate = 4x). Returned rather than assumed because it MOVES THE ANSWER:
+    # see the ground-plane spread in the warnings below.
+    ground = 4.0 * max(l1, l2)
+
     warnings = [
         "resonant frequency is the Hirasawa closed form, accurate to ~±5 % vs "
         "full-wave/measurement — use Verify with openEMS for the achieved "
@@ -208,6 +225,12 @@ def design_pifa(f0_hz, height_m=None, l1_over_l2=1.0, short_frac=0.25,
         "impedance model: it starts the geometry near {1:.0f} ohm and is meant "
         "to be moved and re-solved".format(feed_offset * 1e3,
                                            float(target_z_ohm)),
+        "the shorting plate is placed AT THE SIDE EDGE of the top plate. "
+        "⚠ Its POSITION along that edge is NOT in the closed form and is worth "
+        "~7.6 % in resonance (measured: centred 2.0370 GHz vs at-edge 1.8930 "
+        "GHz on the anchor geometry) — larger than the form's own stated "
+        "accuracy. Move the short and you must re-solve; the equation will not "
+        "tell you.",
         "ELEMENT model, not a phone model: published data for this geometry "
         "shows +18.3 % resonance shift, a 2.4:1 bandwidth spread and 3.7 dB of "
         "gain spread as the ground plane shrinks toward 0.156·lambda. A PIFA on "
@@ -237,6 +260,7 @@ def design_pifa(f0_hz, height_m=None, l1_over_l2=1.0, short_frac=0.25,
         "short_frac": sf,
         "l1_over_l2": ratio,
         "feed_offset_m": feed_offset,
+        "ground_m": ground,
         "f1_full_short_hz": branch_full_short(l2, h),
         "f2_partial_short_hz": branch_partial_short(l1, l2, h, w_short),
         "target_z_ohm": float(target_z_ohm),

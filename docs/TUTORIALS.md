@@ -1743,6 +1743,96 @@ is **not** a comparison against a measurement. And it is an **element** on an
 part of the answer, not a container for it.
 
 
+## 36. A PIFA, checked against hardware someone actually measured
+
+**Needs:** **openEMS**. Same install as tutorials 3, 34 and 35.
+
+⭐ **Why this entry is the most important one in the file.** Every other
+radiating check here compares against something *computed*. Tutorial 3
+reproduces openEMS's own tutorial geometry. Tutorial 33's horn compares against
+a vendor's **analytic** gain curve, and says so. Tutorial 34's n78 patch checks
+our solver against our own synthesis. Tutorial 35's inverted-F rebuilds a
+published geometry whose author never published any numbers.
+
+This one is checked against a **real antenna, measured in an anechoic chamber**,
+and it is the first radiating anchor in this project that can say that.
+
+**Do**
+1. Open `examples/pifa_1p9GHz.FCStd`. It is the published geometry: a
+   **20 × 20 mm** top plate, **10 mm** above an **80 × 80 mm** ground on air,
+   shorted along **5 mm** of one edge — and the short sits **at the corner of
+   that edge**, which turns out to matter enormously.
+2. **Run Solver.** About **30 s**.
+
+**You should see** a resonance that lands on the measured one:
+
+| quantity | gate window | reference run |
+|---|---|---|
+| resonance | within **±3 %** of the **measured 1.892 GHz** | **1.8962 GHz** (**+0.22 %**) |
+| feed-point impedance | **25–60 Ω** real, **\|X\| < 20 Ω** | **38.6 − 8.3j Ω** |
+| best match | **< −10 dB** | **−16.0 dB** |
+| peak gain | **0–5 dBi** | **2.31 dBi** |
+| −10 dB bandwidth | reported | **82.4 MHz** (4.35 %) |
+
+The published measurement is **1.892 GHz** on this 80 mm ground — and
+**1.886 GHz** on a 100 mm one. Those two numbers, six megahertz apart from
+nothing but a bigger ground plane, are the whole argument for the warning at the
+end of this entry.
+
+⚠⚠ **The 7.6 % that no equation could see, and this is the lesson.** The
+standard closed-form PIFA design equations take the plate length, the plate
+width, the height and the shorting-plate *width*. They contain **no term for
+where along the edge the short sits**. So they cannot distinguish these two
+antennas — and full-wave can:
+
+| shorting plate | solved resonance | vs measured |
+|---|---|---|
+| **at the edge** (what ships) | **1.8930 GHz** | **+0.05 %** |
+| centred on the same edge | 2.0370 GHz | **+7.66 %** |
+
+The equation returns **1873.7 MHz for both**. Build the plate to exactly the
+right dimensions, put the short in the middle instead of the corner, and you are
+wrong by more than the formula's own stated accuracy — with nothing analytic to
+warn you. ⛳ **Generalise it: a closed form is blind to the parameters it has no
+symbol for, and those parameters do not stop mattering.** When an analytic model
+and a full-wave solve disagree by more than the model admits to, suspect a
+geometric degree of freedom the model does not contain before you suspect the
+solver. That is how this one was found.
+
+⛳ **The closed form is still worth having, and here is its honest score.** It
+predicts **1873.7 MHz** against the measured 1892 — **−0.97 %** — and against
+the same paper's method-of-moments simulation, **−5.4 %**. It is *closer to the
+measured hardware than to the simulation*, which is the right way round for a
+formula meant to design real antennas. **Prove it** below runs that check with
+no solver at all.
+
+⚠ **Not the inverted-F's mesh trap — these two antennas fail differently.**
+Tutorial 35 warns that at a coarse grid its antenna solves as a dead short. This
+one does not: its smallest features are 5 mm and 10 mm, so even the default grid
+gives a real match. Every grid from λ/20 to λ/90 lands within **1.3 %** of the
+measurement. Do not carry that warning across without checking which failure
+you actually have.
+
+⛳ **Try breaking it.** Move the shorting plate to the middle of its edge and
+re-run. Watch 7.6 % appear out of a geometry the design equations call
+identical.
+
+**Prove it** — `tests/validation/pifa_openems.py` asserts every row above
+against the measurement, and is mutation-proven: centring the short fires it and
+the failure message names the cause. `tests/validation/element_designer.py`'s
+`gate_pifa` checks the closed form against the published measurements and
+simulation with no solver at all, and pins the fact that the simplified form
+often quoted online is three times worse.
+
+⚠ **What this does NOT prove.** One measured geometry is one point, not a
+validated envelope. And this is an **element** on an 80 mm ground: published
+data for this very antenna shows **+18.3 %** resonance shift, a **2.4 : 1**
+bandwidth spread and **3.7 dB** of gain spread as the ground shrinks toward
+0.156 λ. On a handset the chassis *is* the ground plane, so a PIFA number
+quoted without a ground-plane size attached is not a number about a phone.
+Finite-chassis modelling is not something this project does yet.
+
+
 # Coverage — the standing order is met
 
 > ✅ **Tutorials are available for every capability.** Every solver and every

@@ -27,12 +27,22 @@ rather than one span:
   (UNRELEASED: FDTD 3.3950 GHz inside the synthesiser's own ±5 % window and inside
   n78) and the **2.435 GHz** patch; highest gated guided point is the
   **3.68 GHz** microstrip notch filter.
-  ⚠ The three radiating rungs are **not equally strong**. 2.435 GHz reproduces
-  openEMS's own published tutorial geometry and 30 GHz compares against a
-  vendor's published curve — both reach outside this project for their
-  reference. **3.5 GHz does not**: it checks the full-wave solver against our
-  own analytic synthesis, which is a consistency check between two independent
-  models, not a validation against measurement. Quote it as such.
+  ⭐ **1.892 GHz — a PIFA against a published anechoic-chamber MEASUREMENT,
+  reproduced to +0.22 % (UNRELEASED).** This is the project's only radiating
+  anchor checked against real measured hardware rather than against a
+  computation, and it is the strongest radiating claim available here.
+  ⛳ Also **2.45 GHz — a printed inverted-F rebuilt from openEMS's own published
+  example** (UNRELEASED); external geometry, but that example publishes no
+  numbers, so the window comes from a quarter-wave rule.
+  ⚠ The radiating rungs are **not equally strong, and the difference matters
+  more than the frequency does**. Ranked honestly: 1.892 GHz is against a
+  MEASUREMENT; 2.435 GHz reproduces openEMS's own published tutorial geometry
+  and 30 GHz compares against a vendor's published *analytic* curve — external,
+  but computed; 2.45 GHz (the inverted-F) is an external geometry with no
+  published numbers; and **3.5 GHz is weakest of all** — it checks the
+  full-wave solver against our own analytic synthesis, a consistency check
+  between two of our own models, not a validation against measurement. Quote
+  each as what it is.
 * **NEC2 (MoM)** — wire antennas, gated at 296 MHz.
 
 ⚠ The old ceiling here read *"no radiating structure is gated above
