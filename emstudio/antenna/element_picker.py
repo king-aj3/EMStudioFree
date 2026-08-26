@@ -43,6 +43,7 @@ FAMILIES = [
     ("yagi", "Yagi-Uda", True, None),
     ("patch", "Microstrip patch", True, None),
     ("lpda", "LPDA (log-periodic)", True, None),
+    ("horn", "Pyramidal horn (waveguide-fed, microwave)", True, None),
     ("ifa", "Inverted-F, printed (PCB/handset)", True, None),
     ("pifa", "PIFA (planar inverted-F)", True, None),
 ]

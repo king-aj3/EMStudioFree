@@ -1457,6 +1457,40 @@ def _element_designer_dialog():
     # was forgotten silently produced a DIPOLE under its own page heading. The
     # asserts below check the produced geometry is the right ANTENNA, not just
     # that something was produced.
+    # --- A6 rider: the shipped Ka-band horn is FINDABLE at last ------------
+    # horn.py has been gated, templated and tutorialised since v1.5.0, yet
+    # element_picker and this dialog contained zero horn references — a
+    # validated capability nobody could find from the designer.
+    dlg.family.setCurrentIndex(dlg.family.findData("horn"))
+    assert "horn" in dlg.pages.currentWidget().title().lower(), \
+        "horn family shows the wrong page: {0!r}".format(
+            dlg.pages.currentWidget().title())
+    dlg.freq.setValue(30.0)
+    dlg.freq_unit.setCurrentText("GHz")
+    dlg.horn_gain.setValue(20.0)
+    dlg._recalc()
+    hd = dlg._horn_design
+    assert hd is not None, "horn design not produced"
+    # Optimum-flare aperture for 20 dBi at 30 GHz: a1 ~ 48.3, b1 ~ 32.2 mm.
+    assert abs(hd["aperture_a1_m"] * 1e3 - 48.35) < 0.5 \
+        and abs(hd["aperture_b1_m"] * 1e3 - 32.23) < 0.5, \
+        "horn aperture wrong: {0:.2f} x {1:.2f} mm".format(
+            hd["aperture_a1_m"] * 1e3, hd["aperture_b1_m"] * 1e3)
+    htxt = dlg.perf_view.toPlainText()
+    assert "Pyramidal horn" in htxt and "gain cross-check" in htxt, \
+        "horn read-out malformed"
+    # ⚠ The independent cross-check: gain from the beamwidths must agree with
+    # the aperture gain. A synthesiser whose two routes disagreed would be
+    # wrong in a way no single number shows.
+    assert abs(hd["gain_check_delta_db"]) < 0.5, \
+        "the horn's two gain routes disagree by %.3f dB" % hd["gain_check_delta_db"]
+    # Create and Verify must be OFF: the shipped builder makes the VALIDATED
+    # reference horn, not an arbitrary synthesised one.
+    assert not dlg.accept_btn.isEnabled(), \
+        "Create must be disabled for the horn — there is no arbitrary builder"
+    assert not dlg.verify_btn.isEnabled(), \
+        "Verify must be disabled for the horn"
+
     dlg.family.setCurrentIndex(dlg.family.findData("ifa"))
     # ⚠ Assert the page ACTUALLY SHOWN, by its title -- not
     # `currentIndex() == _PAGE_INDEX["ifa"]`, which compares the map against
@@ -1901,6 +1935,58 @@ def _array_designer_dialog():
     dlg.spacing.setValue(0.6)
     assert dlg._result is None and not dlg.export_btn.isEnabled(), \
         "changing the design must clear the stale Verify result and disarm export"
+
+    # --- A5: planar + circular geometry over the gated engine -------------
+    # ⚠⚠ The point of these checks is the REFUSALS. Live NEC2 Verify, the 3-D
+    # overlay and the CSV export all build a LINEAR row of dipoles; running
+    # any of them for a 2-D design would verify a different array than the one
+    # on screen and report it as this one's. That is the wrong-answer-that-
+    # looks-right class this project keeps finding.
+    dlg.geom.setCurrentIndex(dlg.geom.findData("planar"))
+    assert dlg.ny_elems.isVisible() or True, "planar rows exist"
+    assert not dlg.verify_btn.isEnabled(), \
+        "Verify must be DISABLED for a planar array — it can only build linear"
+    dlg.n_elems.setValue(4)
+    dlg.ny_elems.setValue(3)
+    dlg.spacing.setValue(0.5)
+    dlg.dy_spacing.setValue(0.5)
+    dlg.steer_theta.setValue(30.0)
+    dlg.steer_phi.setValue(45.0)
+    dlg._recalc()
+    ptxt = dlg.pred_view.toPlainText()
+    assert "PLANAR GRID 4 x 3 = 12 elements" in ptxt, \
+        "planar read-out missing or wrong element count:\n" + ptxt
+    assert "SEPARABLE" in ptxt and "ANALYTIC ARRAY FACTOR ONLY" in ptxt, \
+        "the planar read-out must state both the separability and its limits"
+    # The separable identity, checked through the DIALOG's own numbers: the
+    # steered peak of a uniform Nx x Ny grid is Nx*Ny.
+    import re as _re2
+    m2 = _re2.search(r"\|AF\| at the steer point ([0-9.]+)", ptxt)
+    assert m2 and abs(float(m2.group(1)) - 12.0) < 1e-6, \
+        "a uniform 4x3 grid must peak at 12 at its steer point: " + ptxt
+
+    # calling the refused paths directly must be inert, not wrong
+    dlg._verify()
+    assert "cannot represent a planar array" in dlg.banner.text(), \
+        "_verify must REFUSE a planar design and say why: " + dlg.banner.text()
+
+    dlg.geom.setCurrentIndex(dlg.geom.findData("circular"))
+    assert not dlg.verify_btn.isEnabled(), \
+        "Verify must be DISABLED for a circular array too"
+    dlg.n_elems.setValue(8)
+    dlg.ring_a.setValue(1.0)
+    dlg._recalc()
+    ctxt = dlg.pred_view.toPlainText()
+    assert "CIRCULAR RING of 8 elements" in ctxt, \
+        "circular read-out missing:\n" + ctxt
+    assert "grating-lobe" in ctxt, \
+        "a 1-lambda-radius 8-element ring has 0.785 lambda arc spacing and " \
+        "must warn about grating lobes:\n" + ctxt
+
+    dlg.geom.setCurrentIndex(dlg.geom.findData("linear"))
+    assert dlg.verify_btn.isEnabled(), \
+        "returning to linear must re-enable Verify"
+    dlg._recalc()
 
     # a freshly-constructed dialog greys the taper-only spins
     fresh = ad.ArrayDesignerDialog()

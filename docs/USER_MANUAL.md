@@ -900,8 +900,10 @@ end — a second S-parameter method alongside the waveguide wave ports.
 The coax must be a true annulus (a tube: an outer cylinder with an inner cylinder
 cut out), coaxial with the Z axis; the inner/outer **radii are read from the
 cylindrical surfaces**, so they stay exact under the GUI. *Honest limits:*
-straight coax for now; microstrip/CPW lumped ports and general 3-D geometry are
-the next Palace slices.
+straight coax for now. Microstrip/CPW lumped ports and general 3-D geometry are
+**deferred, not next** — they sit in the deferred tier of the roadmap with no
+scheduled release. (This manual said "the next Palace slices" until 2026-08-26;
+"next" should not stand in a shipped manual for work that is not scheduled.)
 
 ## 6i². Tool: Element Designer (requirements → a dimensioned element)
 

@@ -1,0 +1,43 @@
+name: Feature request
+description: Something you need that EMStudio does not do yet.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before writing: `docs/ROADMAP.md` and `docs/CAPABILITIES.md` say what is
+        planned, what is deliberately **not** planned, and what is shipped but
+        not yet validated. If your request is already there, saying so — and
+        saying why it matters to you — is more useful than a new description,
+        because demand is what moves the order.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >
+        The engineering problem, not the feature. "I need the pattern of a
+        handset antenna on a real chassis" tells me more than "add a chassis
+        option", and sometimes there is already a way.
+    validations:
+      required: true
+  - type: textarea
+    id: anchor
+    attributes:
+      label: Is there a published reference this could be checked against?
+      description: >
+        This project does not ship a number it cannot check. A measurement, a
+        textbook case or a vendor curve with full dimensions is often the
+        difference between "planned" and "shipped" — and if you know of one,
+        that is the single most valuable thing you can put in this box.
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Which part of EMStudio?
+      options:
+        - Elements / antennas
+        - Solvers (openEMS / Palace / Elmer / NEC2)
+        - Thermal or CFD
+        - Propagation / coverage
+        - Cables and magnetics
+        - Pro (matching, filters, arrays, direction finding)
+        - Something else / not sure

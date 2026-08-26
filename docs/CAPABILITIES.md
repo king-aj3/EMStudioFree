@@ -470,7 +470,7 @@ Rodi 1993).
 | **Transient heating curve T(t)** | ✅ validated | vs lumped-capacitance exponential: 0.9% of local rise, final +0.45% |
 | **Parametric k-vs-gap sweep (WPT)** | ✅ validated | swept k(gap) vs Maxwell: within 0.24%, monotonic 8–55 mm |
 | **Nonlinear B-H materials + Static (DC) mode** | ✅ validated (v0.54.0) | Material BHCurveB/H table (B-then-H, guarded against silent column-swap/coarse sampling); Static (DC): exact — gapped pot-core λ(1/6/15 A) vs an independent nonlinear ladder MEC +2.0…+3.8% (fringing-limited), L(I) droop 15.3→8.0 mH, linear control 1.93× above saturated λ; Harmonic (AC): peak-\|B\| secant effective-µ — equals static bit-exactly at σ=0, droop 0.520, linear-as-table == RelPermeability at 2e-9. NOT waveform-accurate in AC (no harmonic distortion) |
-| Nonlinear B-H waveform accuracy (AC), hysteresis | ⛔ planned | harmonic B-H is amplitude-approximation only; transient B-H verified working (BDF2 probe) — exposure is a small future slice; hysteresis (TEAM 32 class) not planned |
+| Nonlinear B-H waveform accuracy (AC), hysteresis | ⛔ planned | harmonic B-H is amplitude-approximation only; transient B-H verified working (BDF2 probe). ⚠ **Sized 2026-08-26, since a public soft commitment should not float unsized**: exposing it is a solver-writer switch plus a dialog rung plus one gate — a day's work — and it is **deferred, not scheduled**, because nothing gates transient B-H against a measured waveform yet and this project does not ship an un-anchored number. **Re-open trigger: a published measured AC B-H waveform for a named material.** Hysteresis (TEAM 32 class) remains not planned |
 
 ## Full-wave FEM (Phase 4 — Palace)
 
@@ -603,6 +603,13 @@ them would be selling the assistant on plumbing it does not have.
    linkage-probed libCEED backend, and the CPU-vs-GPU agreement enforced by
    `palace_gpu_agreement`. (Fast frequency sweep, adaptive mesh refinement,
    and general-BREP driven wave ports all shipped earlier.)
+   ~~Far-field extraction~~ **READING HALF SHIPPED (UNRELEASED)** — Palace's
+   `farfield-rE.csv` becomes a `FarFieldResult` like every other backend's
+   pattern, checked against the closed form for a half-wave dipole.
+   ⚠ **Still open, and it is the visible half**: no shipped template produces a
+   radiating Palace domain, so there is no click-path — the plumbing works and
+   nothing in the Templates menu exercises it. That needs an open-box mesh with
+   an antenna and a lumped port.
 3. **Magnetics depth** (v0.51–0.55: radiation BC, k(T), σ(T)-coupled Joule,
    nonlinear B-H + Static-DC, and the general 3-D WhitneyAV ENGINE with the
    TEAM-7 measured gate all shipped): next — 3-D GUI wiring (FreeCAD-solid

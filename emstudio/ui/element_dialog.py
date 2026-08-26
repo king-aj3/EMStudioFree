@@ -130,6 +130,7 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         self._yagi_design = None
         self._patch_design = None
         self._lpda_design = None
+        self._horn_design = None
         self._ifa_design = None
         self._pifa_design = None
         self._rec = None
@@ -146,6 +147,7 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         self.family.addItem("Yagi-Uda (NBS TN-688)", "yagi")
         self.family.addItem("Microstrip patch", "patch")
         self.family.addItem("LPDA (log-periodic, Carrel)", "lpda")
+        self.family.addItem("Pyramidal horn (waveguide-fed)", "horn")
         self.family.addItem("Inverted-F, printed (IFA — PCB/handset)", "ifa")
         self.family.addItem("PIFA (planar inverted-F, elevated plate)", "pifa")
         self.family.addItem("Small antenna (VLF/LF/MF)", "small")
@@ -282,8 +284,9 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         self.pages.addWidget(self._build_patch_page())    # index 2
         self.pages.addWidget(self._build_lpda_page())     # index 3
         self.pages.addWidget(self._build_small_page())    # index 4
-        self.pages.addWidget(self._build_ifa_page())      # index 5
-        self.pages.addWidget(self._build_pifa_page())     # index 6
+        self.pages.addWidget(self._build_horn_page())     # index 5
+        self.pages.addWidget(self._build_ifa_page())      # index 6
+        self.pages.addWidget(self._build_pifa_page())     # index 7
         left.addWidget(self.pages)
 
         # ---- actions ----
@@ -550,6 +553,36 @@ class ElementDesignerDialog(QtWidgets.QDialog):
             if er is not None:
                 self.patch_er.setValue(er)
                 self.patch_h.setValue(h)  # → _recalc via valueChanged
+
+    def _build_horn_page(self):
+        page = QtWidgets.QGroupBox(
+            "Pyramidal horn (optimum-gain aperture synthesis)")
+        form = QtWidgets.QFormLayout(page)
+
+        self.horn_gain = QtWidgets.QDoubleSpinBox()
+        self.horn_gain.setDecimals(2)
+        self.horn_gain.setRange(6.0, 35.0)
+        self.horn_gain.setValue(20.0)
+        self.horn_gain.setSuffix(" dBi")
+        self.horn_gain.setToolTip(
+            "Target gain. The synthesiser returns the OPTIMUM-flare aperture "
+            "for it — the shortest horn that reaches that gain.")
+        form.addRow("Target gain", self.horn_gain)
+
+        note = QtWidgets.QLabel(
+            "Uses the shared Frequency (left). Standard public aperture "
+            "theory, good to roughly \u00b10.3 dB on gain and a few percent on "
+            "beamwidth against full-wave. \u26a0 Aperture efficiency is fixed "
+            "at the 0.51 optimum-flare value: a SHORTER horn trades gain for "
+            "length and this model does not cover it. \u26a0 Create builds the "
+            "VALIDATED Mi-Wave reference horn (Templates / tutorial 33), not "
+            "an arbitrary synthesised one — the builder for arbitrary "
+            "dimensions does not exist yet, and this page says so rather than "
+            "quietly building something else.")
+        note.setWordWrap(True)
+        note.setStyleSheet("QLabel { color: #888; }")
+        form.addRow(note)
+        return page
 
     def _build_ifa_page(self):
         page = QtWidgets.QGroupBox(
@@ -848,12 +881,12 @@ class ElementDesignerDialog(QtWidgets.QDialog):
     #: forgetting its index is a KeyError naming the family rather than a
     #: silently wrong page.
     _PAGE_INDEX = {"wire": 0, "yagi": 1, "patch": 2, "lpda": 3, "small": 4,
-                   "ifa": 5, "pifa": 6}
+                   "horn": 5, "ifa": 6, "pifa": 7}
 
     #: recommender family key -> dialog family-selector data key (available fams)
     _FAMILY_PAGE = {"wire": "wire", "yagi": "yagi", "patch": "patch",
                     "lpda": "lpda", "small_antenna": "small",
-                    "ifa": "ifa", "pifa": "pifa"}
+                    "horn": "horn", "ifa": "ifa", "pifa": "pifa"}
 
     def _use_recommended(self):
         if not self._rec or not self._rec["candidates"]:
@@ -881,7 +914,7 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                 "alongside the page widget".format(fam))
         self.pages.setCurrentIndex(page)
         can_solve = fam in ("wire", "yagi", "patch", "lpda", "ifa", "pifa")
-        if fam in ("patch", "ifa", "pifa"):
+        if fam in ("patch", "ifa", "pifa", "horn"):
             solver_ok, missing, solver = self._openems_found, "openEMS", "openEMS"
         else:
             solver_ok, missing, solver = self._nec2_found, "nec2c", "NEC2"
@@ -980,6 +1013,9 @@ class ElementDesignerDialog(QtWidgets.QDialog):
             return
         if fam == "lpda":
             self._recalc_lpda()
+            return
+        if fam == "horn":
+            self._recalc_horn()
             return
         if fam == "ifa":
             self._recalc_ifa()
@@ -1497,6 +1533,98 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         ax.set_title("Microstrip patch on er {0:g} / {1:.3g} mm — {2:.1f} dBi "
                      "est. (feed along L)".format(
                          d["er"], d["h_m"] * 1e3, d["gain_dbi"]), fontsize=8)
+        self.canvas_sketch.draw_idle()
+
+    def _recalc_horn(self):
+        from emstudio.antenna import band_picker
+        from emstudio.antenna import horn as horn_eng
+
+        f = self._freq_hz()
+        try:
+            design = horn_eng.design_pyramidal(f, self.horn_gain.value())
+        except Exception as exc:  # noqa: BLE001 — surfaced in the read-out
+            self._horn_design = None
+            self.verify_btn.setEnabled(False)
+            self.accept_btn.setEnabled(False)
+            self.perf_view.setPlainText("Invalid horn inputs: {0}".format(exc))
+            self.fig_sketch.clear()
+            self.canvas_sketch.draw_idle()
+            return
+        self._horn_design = design
+        # ⚠ Verify and Create are LINEAR/NEC2 and fixed-geometry respectively;
+        # neither can take an arbitrary synthesised horn. Disabled rather than
+        # left live — the A2/A5 lesson: a button that quietly does something
+        # else is worse than one that is off.
+        self.verify_btn.setEnabled(False)
+        self.accept_btn.setEnabled(False)
+        rec = band_picker.recommend_method(
+            f, max_dim_m=design["aperture_a1_m"], wire_structure=False)
+        self.banner.setText("Band {0} ({1}) — recommended: {2}".format(
+            rec["band"], band_picker._fmt_freq(f), rec["primary_label"]))
+        self._refresh_predicted_horn()
+        self._draw_schematic_horn()
+
+    def _refresh_predicted_horn(self):
+        from emstudio.antenna import band_picker
+
+        d = self._horn_design
+        if not d:
+            return
+        L = ["PREDICTED PERFORMANCE — Pyramidal horn"]
+        L.append("=" * 40)
+        L.append("frequency        : {0}".format(
+            band_picker._fmt_freq(d["f_hz"])))
+        L.append("target gain      : {0:.2f} dBi".format(d["target_gain_dbi"]))
+        L.append("aperture a1 x b1 : {0:.2f} x {1:.2f} mm".format(
+            d["aperture_a1_m"] * 1e3, d["aperture_b1_m"] * 1e3))
+        L.append("flare rho_e/rho_h: {0:.2f} / {1:.2f} mm".format(
+            d["flare_rho_e_m"] * 1e3, d["flare_rho_h_m"] * 1e3))
+        L.append("HPBW E / H       : {0:.2f} / {1:.2f} deg".format(
+            d["hpbw_e_deg"], d["hpbw_h_deg"]))
+        L.append("gain cross-check : {0:.3f} dBi from the beamwidths "
+                 "(delta {1:+.3f} dB)".format(
+                     d["gain_dbi_from_beamwidths"], d["gain_check_delta_db"]))
+        L.append("aperture eff.    : {0:.2f} (optimum-flare value)".format(
+            d["eps_ap"]))
+        for w in d.get("warnings", []):
+            L.append("")
+            L.append("warning: {0}".format(w))
+        L.append("")
+        L.append("source: {0}".format(d.get("source_note", "")))
+        self.perf_view.setPlainText("\n".join(L))
+
+    def _draw_schematic_horn(self):
+        d = self._horn_design
+        if not d:
+            return
+        from matplotlib.patches import Polygon as _Poly
+
+        self.fig_sketch.clear()
+        ax = self.fig_sketch.add_subplot(111)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        a1 = d["aperture_a1_m"] * 1e3
+        rho = d["flare_rho_h_m"] * 1e3
+        throat = a1 * 0.18
+        # side view: the H-plane flare from throat to aperture
+        ax.add_patch(_Poly([(0.0, throat / 2), (rho, a1 / 2),
+                            (rho, -a1 / 2), (0.0, -throat / 2)],
+                           closed=True, facecolor="#c87533",
+                           edgecolor="#e0a060", lw=1.4, alpha=0.85))
+        ax.annotate("", xy=(rho, a1 / 2 * 1.18), xytext=(0.0, a1 / 2 * 1.18),
+                    arrowprops=dict(arrowstyle="<->", color="#2b8cff"))
+        ax.text(rho / 2, a1 / 2 * 1.28, "flare {0:.1f} mm".format(rho),
+                ha="center", color="#2b8cff", fontsize=8)
+        ax.annotate("", xy=(rho * 1.12, a1 / 2), xytext=(rho * 1.12, -a1 / 2),
+                    arrowprops=dict(arrowstyle="<->", color="#2b8cff"))
+        ax.text(rho * 1.2, 0.0, "a1 = {0:.1f} mm".format(a1), rotation=90,
+                va="center", color="#2b8cff", fontsize=8)
+        ax.set_xlim(-rho * 0.15, rho * 1.45)
+        ax.set_ylim(-a1 * 0.8, a1 * 0.8)
+        ax.set_title("Pyramidal horn, H-plane — {0:.1f} dBi target, "
+                     "HPBW {1:.1f}/{2:.1f} deg".format(
+                         d["target_gain_dbi"], d["hpbw_e_deg"],
+                         d["hpbw_h_deg"]), fontsize=8)
         self.canvas_sketch.draw_idle()
 
     def _recalc_ifa(self):
@@ -2231,6 +2359,8 @@ class ElementDesignerDialog(QtWidgets.QDialog):
             d = self._patch_design
         elif fam == "lpda":
             d = self._lpda_design
+        elif fam == "horn":
+            d = self._horn_design
         elif fam == "ifa":
             d = self._ifa_design
         elif fam == "pifa":

@@ -1,0 +1,77 @@
+name: Bug report
+description: Something behaves differently from what the docs or a gate say it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. One person maintains this, so a report that
+        lets me reproduce the problem is worth several that describe it.
+
+        **If a number looks wrong**, the most useful thing you can include is the
+        validation gate that covers it and what it printed on your machine — every
+        claim in the docs names one. `python3 tests/validation/run_battery.py`
+        runs the fast tier and needs no solver installed.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+      description: If a documented number came out different, quote both.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce it
+      description: >
+        The clicks, or the script. If it involves a document, saying which
+        example in `examples/` it started from is usually enough.
+      placeholder: |
+        1. Open examples/patch_2p4GHz.FCStd
+        2. Run Solver
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: EMStudio version
+      description: "Help ▸ About, or the `version` field in package.xml."
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, Windows, macOS, Other]
+    validations:
+      required: true
+  - type: input
+    id: freecad
+    attributes:
+      label: FreeCAD version
+      description: "Help ▸ About FreeCAD. 0.21.2 and 1.1.x are both supported."
+    validations:
+      required: true
+  - type: textarea
+    id: solver
+    attributes:
+      label: Which solver, and how it was installed
+      description: >
+        openEMS / Palace / Elmer / NEC2 / OpenFOAM / FastHenry, or "none — this
+        is an analytic tool". **Setup ▸ Detect / Install Solvers** prints
+        versions and paths; pasting that panel answers most of this.
+  - type: textarea
+    id: gate
+    attributes:
+      label: Validation-gate output, if the problem is a wrong number
+      description: >
+        `python3 tests/validation/run_battery.py` (fast tier, no solver), or the
+        specific gate the doc named. Paste the failing lines.
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Report view / console output
+      description: FreeCAD's Report view often carries the solver's own message.
+      render: text

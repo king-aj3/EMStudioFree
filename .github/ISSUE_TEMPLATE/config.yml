@@ -1,0 +1,13 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Does a gate already answer this?
+    url: https://github.com/king-aj3/EMStudioFree/blob/master/docs/TUTORIALS.md
+    about: >
+      Every tutorial ends in a number and names the automated test that pins it.
+      If a documented figure disagrees with yours, that gate's output is the
+      fastest possible bug report.
+  - name: What is deliberately not planned
+    url: https://github.com/king-aj3/EMStudioFree/blob/master/docs/ROADMAP.md
+    about: >
+      Some things are recorded as not-planned with the reason and a re-open
+      trigger. Worth a look before writing a request.

@@ -129,6 +129,48 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
     lossless ladder it always was, without the extra arrays, and the dialog
     says so out loud rather than implying a build number it cannot know.
 
+* **A5 (Pro): the Array Designer is no longer linear-only.** A Geometry
+  selector adds **Planar** (rectangular Nx x Ny grid) and **Circular** (N on a
+  ring), driving the `planar_array_factor` / `circular_array_factor` that have
+  been shipped and gated since S5 — UI over a gated engine, no new physics, as
+  scoped. Both take 2-D steering (theta0, phi0); the grid tapers per axis and
+  the ring around itself; a ring whose arc spacing exceeds lambda/2 says so.
+  * ⚠⚠ **The live NEC2 Verify, the 3-D overlay and the pattern export all build
+    a LINEAR row of dipoles.** All three are disabled for the 2-D geometries
+    AND refuse if called anyway, because a slot is still reachable from a
+    script or a shortcut. Verifying a linear array and reporting it as the
+    planar one on screen is exactly the wrong-answer-that-looks-right class
+    found in the Element Designer's family dispatchers. gui_smoke calls the
+    refused paths directly; mutation-proven — dropping the refusal makes the
+    smoke run launch a real solve and hang, which is the defect made visible.
+  * The read-out states its own limits: analytic array factor, isotropic
+    elements, no mutual coupling, no element pattern.
+
+* **A6 — the polish day: all seven items.**
+  * **GitHub issue templates** (`.github/ISSUE_TEMPLATE/`) — the bug form asks
+    for the validation-gate output, because every documented number names a
+    gate and that output is the fastest possible bug report; the feature form
+    asks whether a published reference exists, because that is usually the
+    difference between "planned" and "shipped".
+  * **The shipped Ka-band horn is FINDABLE.** `horn.py` had a gate, a template
+    and tutorial 33 since v1.5.0, yet `element_picker` and the Element Designer
+    contained zero horn references — a validated capability nobody could reach
+    from the designer. It is now a family: frequency + target gain in, the
+    optimum-flare aperture out, with the two independent gain routes
+    cross-checked on screen. ⚠ Create and Verify are OFF for it and say why —
+    the shipped builder makes the VALIDATED reference horn, not an arbitrary
+    one.
+  * **Four stale or over-promising doc claims fixed.** ROADMAP §4's "Work to
+    add" described work that had SHIPPED, in the future tense, contradicting
+    its own header 40 lines above. The ROADMAP no longer sells Pro on "the
+    optimizer (the real value)" — that is deferred and unbuilt, and selling a
+    shipped tier on an unbuilt feature is the one marketing error this project
+    cannot afford. The USER_MANUAL no longer calls deferred Palace work "the
+    next Palace slices". CAPABILITIES' gap roadmap is synced.
+  * **The B-H "small future slice" promise is SIZED** rather than left floating:
+    a day's work, deferred not scheduled, because nothing gates transient B-H
+    against a measured waveform — with an explicit re-open trigger.
+
 ### Fixed
 
 * **Tutorial 3 named a button that does not do what it said.** Its "design
