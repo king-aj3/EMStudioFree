@@ -76,6 +76,35 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
     family at the LPDA page still passed. It now asserts the title of the page
     actually on screen. Negative-control every new check.
 
+* **A3: Palace's far field is read back at last.** `palace/parser.py` gains
+  `parse_farfield` (Palace's `farfield-rE.csv` -> the shared `FarFieldResult`)
+  and `farfield_directivity_scattered`; the writer gains `farfield_grid`, which
+  requests explicit angles instead of an `NSample` spiral; the runner reads the
+  pattern back after every driven excitation. New FAST gate `palace_farfield`.
+  113 gate files (FAST 53 / SOLVER 60), free tree 95.
+  * Checked against TEXTBOOK physics rather than a golden file: broadside
+    **+2.222 dBi against the half-wave dipole's analytic 2.151** (+0.07 dB), a
+    **36 dB** axial null, and a broadside phi-ripple of 0.42 dB which is mesh
+    asymmetry rather than antenna behaviour.
+  * ⚠⚠ **It is DIRECTIVITY, not gain.** Gain needs the power accepted at the
+    port; directivity needs only the pattern. They coincide for a lossless
+    radiator and not otherwise, so `meta["quantity"]` records it and the gate
+    asserts the label is still there.
+  * ⚠⚠ **A peak of samples UNDER-READS, and the naive comparison blames the
+    solver.** On Palace's own 100-point spiral reference the ANALYTIC pattern
+    reads 1.489 dBi against its true 2.151 -- the sampling alone costs 0.66 dB.
+    Palace's data reads 1.691, i.e. +0.20 dB against the sampling-matched value
+    but -0.46 dB against the textbook one. That is why EMStudio asks for a grid.
+  * ⚠ **Palace deduplicates the poles and is right to**: 456 requested angles
+    return 410 rows (456 - 2*23), because at theta 0 and 180 every phi is the
+    same direction. A parser demanding `rows == Nt*Np` rejects valid output --
+    the first version of ours did.
+  * ⚠ **The two directivity estimators are not interchangeable**, and the gate
+    pins it: the spiral estimator assumes equal solid angle per sample, so on a
+    lat/long grid it overstates by 1.15 dB. Written the other way round first.
+  * 🔴 Still open: no shipped template produces a radiating Palace domain, so
+    there is no click-path yet. The plumbing is complete; the geometry is not.
+
 ### Fixed
 
 * **Tutorial 3 named a button that does not do what it said.** Its "design

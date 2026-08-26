@@ -58,6 +58,7 @@ FAST = {
     "p452": "itu_maps:P452.npz",
     "pattern_vtu": None,
     "pattern_sweep": None,
+    "palace_farfield": None,
     "palace_gpu_plan": None,
     "propagation": None,
     "small_antenna": None,

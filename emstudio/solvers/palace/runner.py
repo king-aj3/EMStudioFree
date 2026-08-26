@@ -273,6 +273,7 @@ def _solve_excitations(info, workdir, build_cfg, ports, line_callback,
     from emstudio.post.sparams import merge_excitations
 
     runs = []
+    farfields = []
     n = max(1, len(ports))
     for k, ep in enumerate(ports):
         out = "postpro_e%d" % int(ep)

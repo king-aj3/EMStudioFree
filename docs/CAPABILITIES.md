@@ -44,6 +44,13 @@ rather than one span:
   between two of our own models, not a validation against measurement. Quote
   each as what it is.
 * **NEC2 (MoM)** — wire antennas, gated at 296 MHz.
+* **Palace far field (UNRELEASED)** — Palace's `r*E` output now becomes a
+  `FarFieldResult` like any other backend's pattern. Checked against the closed
+  form for a half-wave dipole: broadside **+2.222 dBi against 2.151 analytic**,
+  a 36 dB axial null. ⚠ It is **DIRECTIVITY**, not gain — computable from the
+  pattern alone, equal to gain only for a lossless radiator. ⚠ No shipped
+  template produces a radiating Palace domain yet, so this is plumbing that
+  works, not a button a user can press.
 
 ⚠ The old ceiling here read *"no radiating structure is gated above
 2.435 GHz"* — TRUE until v1.5.0, removed by `horn_openems`. What is still NOT

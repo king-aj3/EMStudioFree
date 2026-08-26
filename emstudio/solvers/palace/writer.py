@@ -84,6 +84,43 @@ def _apply_refinement(config, mesh_refinement, refinement_tol):
     return config
 
 
+#: Default far-field angle grid: theta every 10 deg, phi every 15 deg.
+#: Chosen from a measurement, not taste -- see :func:`farfield_grid`.
+FARFIELD_DTHETA_DEG = 10.0
+FARFIELD_DPHI_DEG = 15.0
+
+
+def farfield_grid(dtheta_deg=FARFIELD_DTHETA_DEG, dphi_deg=FARFIELD_DPHI_DEG):
+    """Explicit (theta, phi) pairs covering the sphere on a REGULAR grid.
+
+    WHY EMSTUDIO ASKS FOR EXPLICIT ANGLES INSTEAD OF USING ``NSample``
+    ------------------------------------------------------------------
+    ``NSample`` scatters points uniformly over the sphere -- a spiral. That is
+    the right thing for integrating and the wrong thing for a pattern array:
+    :class:`emstudio.post.farfield.FarFieldResult` holds gain on a
+    ``(theta, phi)`` grid, and a spiral is not one. Since we write the deck, we
+    can simply ask for the angles the container needs.
+
+    ⚠⚠ **And a peak taken from a spiral UNDER-READS.** Measured on Palace's own
+    regression data for a half-wave dipole: the ANALYTIC pattern evaluated at
+    the reference's own 100 spiral points reads **1.489 dBi** against its true
+    **2.151 dBi** -- the sampling alone costs **0.66 dB**, before any solver is
+    involved. On this 10x15 degree grid the same antenna reads **+2.47 dBi**
+    peak and **+2.22 dBi** averaged around broadside, against 2.151 analytic.
+    A pattern is only as good as the angles you asked for.
+
+    ⚠ Palace DEDUPLICATES the poles, and it is right to: at theta 0 and 180
+    every phi names the same direction. Asking for 19 x 24 returns 410 rows,
+    not 456. The parser broadcasts the pole sample across its row; a reader
+    that demands ``rows == Nt*Np`` will reject correct output.
+    """
+    import numpy as np
+
+    thetas = np.arange(0.0, 180.0 + 1e-9, float(dtheta_deg))
+    phis = np.arange(0.0, 360.0 - 1e-9, float(dphi_deg))
+    return [(float(t), float(p)) for t in thetas for p in phis]
+
+
 def radiation_boundaries(attr, nsample=64, order=2, theta_phis=None):
     """Boundaries block for an OPEN (radiating) domain.
 
