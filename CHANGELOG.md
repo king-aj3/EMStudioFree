@@ -105,6 +105,30 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   * 🔴 Still open: no shipped template produces a radiating Palace domain, so
     there is no click-path yet. The plumbing is complete; the geometry is not.
 
+* **A4 (Pro): the Filter & Diplexer Designer costs the BUILD, not just the
+  ideal.** `filters.response` takes `q_ind` / `q_cap`, rebuilds the ladder from
+  physical elements carrying series `R = |X|/Q_u`, and returns
+  `dissipation_loss_db` and `reflective_loss_db` beside the total. The Pro
+  dialog gained both Q inputs and reports how much of the insertion loss is
+  actually burnt in the parts — a different failure, with a different fix, from
+  mismatch. 43 checks in `system_filters`, mutation-proven.
+  * Anchored to the standard midband estimate `IL ≈ 4.343·Σg/(Q_res·FBW)`:
+    **0.7 % at Q 100, 0.08 % at Q 1000, 0.02 % at Q 5000**. The gate asserts the
+    agreement IMPROVES with Q — the convergence signature of a first-order
+    formula, which a fitted constant would not have.
+  * ⚠⚠ **The Q in that formula is the RESONATOR Q, not the component Q**, and
+    the difference is exactly a factor of two. Every band-pass arm holds both an
+    inductor and a capacitor, so equal component Qs give
+    `1/Q_res = 1/Q_L + 1/Q_C`. Our loss came out at precisely 2.000x the
+    estimate until that was understood; both halves are now gated.
+  * ⚠⚠ **Finite Q abolishes infinite rejection.** A lossless parallel-LC is an
+    ideal open at its own resonance, which is why an ideal bandstop reports ∞ dB
+    at the notch centre. Any real part makes it finite, so a real notch has a
+    DEPTH. Gated both ways.
+  * ⛳ Opt-in and byte-identical: with no Q given the response is exactly the
+    lossless ladder it always was, without the extra arrays, and the dialog
+    says so out loud rather than implying a build number it cannot know.
+
 ### Fixed
 
 * **Tutorial 3 named a button that does not do what it said.** Its "design

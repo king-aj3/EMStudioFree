@@ -281,7 +281,16 @@ it splits spectrum rather than combining transmitters. Elements are ideal
 (no finite-Q path yet). **Reachable from the GUI since 2026-08-20** —
 **System ▸ Filter & Diplexer Designer** (Pro) drives both pages and reports the
 component schedule in real part values; the free build shows a teaser in its
-place. Gates: `tests/validation/system_filters.py` (35 checks, pure python3,
+⭐ **Finite-Q loss (UNRELEASED)**: the ladder's elements are no longer forced
+ideal. Give the designer a component Q and it builds the same filter from
+physical parts carrying series `R = |X|/Q_u`, and reports the DISSIPATED loss
+separately from the reflective part. Anchored to the standard midband estimate
+`IL ≈ 4.343·Σg/(Q_res·FBW)` — agreement 0.7 % at Q 100 improving to 0.02 % at
+Q 5000, which is the convergence signature of a first-order formula.
+⚠ `Q_res` is the RESONATOR Q, not the component Q: every band-pass arm holds
+both an L and a C, so equal component Qs halve it and double the loss.
+⚠ Finite Q also abolishes infinite rejection — a real notch has a depth.
+place. Gates: `tests/validation/system_filters.py` (43 checks, pure python3,
 mutation-tested 8/8) reproduces the Phase-B anchors to the digit, and a
 `_filter_designer_dialog` gui_smoke check drives the dialog itself.
 

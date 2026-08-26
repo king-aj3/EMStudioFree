@@ -2513,6 +2513,43 @@ def _filter_designer_dialog():
     assert dlg.table.rowCount() > rows, \
         "band-pass transform should add elements, got %d" % dlg.table.rowCount()
 
+    # --- A4: finite-Q loss must be OPT-IN, and must be real when opted in --
+    # The designer reported IDEAL elements only until 2026-08-26, so its
+    # implied insertion loss was purely reflective. These checks pin both
+    # halves: silence when no Q is given, and a real dissipated number when
+    # one is.
+    dlg.f_shape.setCurrentIndex(2)             # band-pass
+    dlg.f_q_ind.setValue(0.0)
+    dlg.f_q_cap.setValue(0.0)
+    dlg._synth_filter()
+    ideal_txt = dlg.out.toPlainText()
+    assert "IDEAL (infinite Q)" in ideal_txt and "REFLECTIVE only" in ideal_txt, \
+        "with no Q entered the read-out must SAY its loss is reflective only"
+    assert "FINITE-Q PREDICTION" not in ideal_txt, \
+        "no Q was entered, so no finite-Q prediction may be shown"
+
+    dlg.f_q_ind.setValue(120.0)
+    dlg.f_q_cap.setValue(800.0)
+    dlg._synth_filter()
+    q_txt = dlg.out.toPlainText()
+    assert "FINITE-Q PREDICTION" in q_txt, "finite-Q block missing"
+    assert "dissipated in the parts" in q_txt, \
+        "the DISSIPATED part must be reported separately from the total"
+    # The number must be real and non-trivial: a band-pass on Q 120 coils
+    # loses a decibel or so, and reporting 0.000 dB would mean the Q never
+    # reached the engine.
+    import re as _re
+    m = _re.search(r"of which burnt\s*:\s*([0-9.]+) dB", q_txt)
+    assert m, "no dissipated-loss figure in the read-out:\n" + q_txt
+    burnt = float(m.group(1))
+    assert 0.05 < burnt < 20.0, \
+        "dissipated loss %.3f dB is not physical for Q 120/800" % burnt
+    # ⚠ The resonator-Q note: every band-pass arm holds BOTH an L and a C, so
+    # the resonator Q is the parallel combination and NOT the smaller of the
+    # two. Getting that wrong is worth a factor of two.
+    assert "RESONATOR Q is" in q_txt, \
+        "the read-out must state the resonator Q, not just the component Qs"
+
     # --- diplexer page: contiguous, and its composite impedance ------------
     dlg.d_kind.setCurrentIndex(0)
     dlg.d_n.setValue(3)

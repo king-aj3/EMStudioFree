@@ -1290,13 +1290,30 @@ schedule in real part values**, not normalised prototype numbers. It also
 designs both diplexer families for splitting one feed into two bands without
 either arm detuning the other.
 
+⭐ **It now costs the build, not just the ideal.** Enter the unloaded **Q** of
+your inductors and capacitors and the designer rebuilds the same ladder out of
+physical parts — series `R = |X|/Q_u` — and tells you how much of the insertion
+loss is actually **burnt in the components** and how much is still just
+mismatch. Those are different failures with different fixes.
+
 **What it measured.** The contiguous constant-R diplexer holds its composite
 input impedance to **under 1e-6 Ω at every order n = 1…7**. The non-contiguous
 design assembles to **0.112 dB insertion loss, VSWR 1.38 and 34.8 dB of port
-isolation**.
+isolation**. The finite-Q path is anchored to the standard midband estimate
+`IL ≈ 4.343·Σg/(Q_res·FBW)`: **0.7 % agreement at Q 100, improving to 0.02 % at
+Q 5000** — the convergence signature of a first-order formula rather than a
+fitted constant.
+
+⚠⚠ **Two things about Q that cost a factor of two and a null.** First, the Q in
+that formula is the **resonator** Q, not the component Q: every band-pass arm
+holds *both* an inductor and a capacitor, so equal component Qs give
+`1/Q_res = 1/Q_L + 1/Q_C` — half — and double the predicted loss. Second,
+**finite Q abolishes infinite rejection**: a lossless parallel-LC is an ideal
+open at resonance, so an ideal notch reports ∞ dB, while any real part gives it
+a finite *depth*. Both are gated.
 
 ⚠ **This capability was validated for months before anyone could run it.** The
-engine and its 35-check gate shipped in v0.66.0; the dialog and menu command
+engine and its gate shipped in v0.66.0; the dialog and menu command
 did not exist until 2026-08-20, so none of it was reachable. A validated
 capability with no way in is, from the user's side, indistinguishable from one
 that was never built.
