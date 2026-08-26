@@ -36,6 +36,24 @@ import math
 import os
 import sys
 
+def _trapz(y, x):
+    """Trapezoidal integral, independent of the numpy version.
+
+    ⚠ ``np.trapz`` was REMOVED in numpy 2.0 (renamed ``np.trapezoid``), and
+    ``np.trapezoid`` does not exist in numpy 1.x. This project runs on both:
+    the dev box here is numpy 1.26, CI and the Windows VM are numpy 2.x. Using
+    either name directly means the gate passes on one machine and dies with
+    AttributeError on the other -- which is exactly what happened on
+    2026-08-26, green locally and red on CI and Windows within the same commit.
+    The rule is written out rather than shimmed to a name because three lines of
+    trapezoid beats a compatibility branch nobody re-reads.
+    """
+    import numpy as np
+
+    y = np.asarray(y, dtype=float)
+    x = np.asarray(x, dtype=float)
+    return float(np.sum((y[1:] + y[:-1]) * 0.5 * np.diff(x)))
+
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
@@ -147,7 +165,7 @@ def _plate_drop(phi, mu_r=None):
 
     rr = np.linspace(R_POST, R_SHELL_MID, 120)
     hh = np.array([_h_of_b(phi / (2 * math.pi * r * T_PLATE), mu_r) for r in rr])
-    return float(np.trapz(hh, rr))
+    return float(_trapz(hh, rr))
 
 
 def ladder_mec(amps, fringe=0.001, mu_r=None):
@@ -192,9 +210,9 @@ def ladder_mec(amps, fringe=0.001, mu_r=None):
         for rt in turn_radii:
             rr = np.linspace(R_POST, rt, 25)
             hz = hp + (hs - hp) * np.log(rr / R_POST) / math.log(R_SHELL_IN / R_POST)
-            add += float(np.trapz(MU0 * hz * 2 * math.pi * rr, rr))
+            add += float(_trapz(MU0 * hz * 2 * math.pi * rr, rr))
         extra += add / len(turn_radii)
-    return TURNS / H_COIL * float(np.trapz(phis, zz)) + TURNS * extra / len(zz)
+    return TURNS / H_COIL * float(_trapz(phis, zz)) + TURNS * extra / len(zz)
 
 
 # ---------------------------------------------------------------------------

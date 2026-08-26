@@ -63,6 +63,26 @@ FIXTURE = os.path.join(_DATA, "halfwave_dipole_grid-rE.csv")
 #: D = 4*pi*U_max / integral(U dOmega) with U ∝ [cos(pi/2 cos t)/sin t]^2.
 HALFWAVE_DIPOLE_DBI = 2.151
 
+
+def _trapz(y, x):
+    """Trapezoidal integral, independent of the numpy version.
+
+    ⚠ ``np.trapz`` was REMOVED in numpy 2.0 (renamed ``np.trapezoid``), and
+    ``np.trapezoid`` does not exist in numpy 1.x. This project runs on both:
+    the dev box here is numpy 1.26, CI and the Windows VM are numpy 2.x. Using
+    either name directly means the gate passes on one machine and dies with
+    AttributeError on the other -- which is exactly what happened on
+    2026-08-26, green locally and red on CI and Windows within the same commit.
+    The rule is written out rather than shimmed to a name because three lines of
+    trapezoid beats a compatibility branch nobody re-reads.
+    """
+    import numpy as np
+
+    y = np.asarray(y, dtype=float)
+    x = np.asarray(x, dtype=float)
+    return float(np.sum((y[1:] + y[:-1]) * 0.5 * np.diff(x)))
+
+
 FAILURES = []
 
 
@@ -157,7 +177,7 @@ def main():
     u_dense = u_analytic(t_dense)
     d_true = 10.0 * np.log10(
         4.0 * np.pi * u_dense.max()
-        / (np.trapz(u_dense * np.sin(t_dense), t_dense) * 2.0 * np.pi))
+        / (_trapz(u_dense * np.sin(t_dense), t_dense) * 2.0 * np.pi))
     check("the closed form really is 2.151 dBi (computed here, not quoted)",
           abs(d_true - HALFWAVE_DIPOLE_DBI) < 0.005,
           "{0:+.4f} dBi".format(d_true))
