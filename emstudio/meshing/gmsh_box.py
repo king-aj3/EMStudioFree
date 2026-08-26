@@ -33,6 +33,13 @@ WALL_ATTR = 2
 #: construction — a closed metal box cannot have a far field. That, not any
 #: Palace limitation, is why nothing radiating had ever been gated on Palace.
 RADIATION_ATTR = 3
+#: A radiating DIPOLE inside an open domain: the two PEC arms and the flat
+#: gap rectangle that carries the lumped port. Numbered above RADIATION_ATTR
+#: so an open box and an open dipole can never collide, and kept distinct from
+#: WALL_ATTR because these conductors are the ANTENNA, not the enclosure.
+DIPOLE_PEC_ATTR = 4
+DIPOLE_PORT_ATTR = 5
+
 #: waveguide (driven) attributes. The interior is always 1 and the ports run
 #: consecutively from :data:`WG_PORT_ATTR_BASE`; the side walls take whatever
 #: number is left after the ports, so the numbering DERIVES from the port count
@@ -159,6 +166,132 @@ def write_geo_open(size_mm, path, elem_mm=None, origin_mm=(0.0, 0.0, 0.0)):
         "outer() = Boundary{ Volume{1}; };",
         'Physical Surface("radiation", {0}) = {{ outer() }};'.format(
             RADIATION_ATTR),
+    ]
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return path
+
+
+def write_geo_dipole_open(path, wavelength_mm, arm_len_mm=None,
+                          arm_radius_mm=None, gap_mm=None,
+                          outer_radius_mm=None, elem_mm=None,
+                          gap_elem_mm=None):
+    """Write an OPEN (radiating) domain containing a centre-fed DIPOLE.
+
+    ⭐ **This is the geometry the far-field path was missing.** EMStudio could
+    hand Palace an absorbing boundary and a ``Postprocessing.FarField`` block
+    (v1.5.0), and could read the answer back (the far-field parser) — but
+    nothing ever BUILT a radiating Palace domain, so the whole capability had
+    no click-path. This writes one.
+
+    The arrangement follows Palace's own antenna example
+    (``examples/antenna/mesh/mesh.jl``, Copyright Amazon.com Inc., Apache-2.0),
+    because it is the one its lumped port is known to accept: two cylinder arms
+    on the Z axis separated by a thin gap, **a flat rectangle filling that gap
+    as the port surface**, and a large sphere tagged as the single absorbing /
+    far-field group.
+
+    ⚠⚠ **The port rectangle is the part that is not obvious, and the order of
+    operations is what makes it mesh.** A lumped port needs a SURFACE to drive
+    across; a bare gap between two solids is not one. Three constructions were
+    tried before one meshed:
+
+    * embedding the rectangle with ``Surface{} In Volume{}`` → *"Could not
+      recover boundary mesh"*;
+    * fragmenting arms, rectangle and sphere all together → *"Invalid boundary
+      mesh (overlapping facets)"*;
+    * **what works**: cut the arms out of the sphere FIRST
+      (``BooleanDifference``), then fragment the rectangle into the resulting
+      air volume. The gap stays air, and the port face becomes a shared
+      internal facet rather than something floating in a volume.
+
+    ⚠ Surfaces are selected as SETS, not by clever bounding boxes: the port by
+    its own thin slab, the conductors as everything inside the dipole's
+    bounding box minus the port, and the sphere as everything else. The first
+    attempt picked the sphere with a bounding box and silently tagged **zero**
+    elements — a physical group can exist and be empty, and Palace will happily
+    run with no absorbing boundary at all.
+
+    ⚠ **Do not add a graded mesh field over the whole antenna.** It was tried:
+    refining the full arm length ran past ten minutes without finishing. The
+    two scales here (a gap ~1/400 of a wavelength inside a domain three
+    wavelengths across) are handled by a plain min/max size instead.
+
+    Defaults reproduce the reference: arms of a quarter wavelength each (a
+    half-wave dipole), radius arm/20, gap arm/100, sphere at 1.5 wavelengths.
+
+    ⚠ The outer boundary is a SPHERE, not the box :func:`write_geo_open`
+    writes: a sphere presents the same angle of incidence everywhere, so an
+    absorbing condition performs uniformly on it, while a box absorbs worst at
+    its corners. For a resonator the shape does not matter and a box meshes
+    more cheaply, which is why both exist.
+
+    Returns the path written.
+    """
+    lam = float(wavelength_mm)
+    if lam <= 0:
+        raise BoxMeshError("wavelength must be positive")
+    arm = float(arm_len_mm) if arm_len_mm else lam / 4.0
+    rad = float(arm_radius_mm) if arm_radius_mm else arm / 20.0
+    gap = float(gap_mm) if gap_mm else arm / 100.0
+    outer = float(outer_radius_mm) if outer_radius_mm else 1.5 * lam
+    if min(arm, rad, gap) <= 0:
+        raise BoxMeshError("arm length, radius and gap must all be positive")
+    if outer <= arm + gap / 2.0:
+        raise BoxMeshError(
+            "the outer boundary ({0:.4g} mm) must enclose the dipole "
+            "({1:.4g} mm half-length)".format(outer, arm + gap / 2.0))
+    if elem_mm is None:
+        elem_mm = lam / 10.0
+    if gap_elem_mm is None:
+        gap_elem_mm = max(gap / 3.0, rad / 20.0)
+
+    lines = [
+        "// EMStudio OPEN radiating domain: a centre-fed dipole inside an",
+        "// absorbing sphere. Units mm; Palace L0 = 1e-3.",
+        "// Arrangement follows Palace's own examples/antenna/mesh/mesh.jl.",
+        "// rerun: gmsh -3 -format msh22 <this file> -o out.msh",
+        'SetFactory("OpenCASCADE");',
+        "arm = {0:.9g}; rad = {1:.9g}; gap = {2:.9g};".format(arm, rad, gap),
+        "outer = {0:.9g}; eps = {1:.9g};".format(outer, min(gap, rad) * 1e-3),
+        "",
+        "// the two arms, +Z and -Z, separated by the feed gap",
+        "Cylinder(1) = {0,0, gap/2, 0,0, arm, rad};",
+        "Cylinder(2) = {0,0,-gap/2, 0,0,-arm, rad};",
+        "Sphere(3) = {0,0,0, outer};",
+        "",
+        "// ⚠ ORDER MATTERS: cut the conductors out FIRST, then fragment the",
+        "// port face into the air. Fragmenting all three together produces",
+        "// overlapping facets; embedding the face fails to recover the mesh.",
+        "BooleanDifference(4) = { Volume{3}; Delete; }{ Volume{1,2}; Delete; };",
+        "",
+        "// the flat gap rectangle: THE LUMPED PORT SURFACE",
+        "Rectangle(1000) = {-rad, -gap/2, 0, 2*rad, gap, 0};",
+        "Rotate { {1,0,0}, {0,0,0}, Pi/2 } { Surface{1000}; }",
+        "BooleanFragments{ Volume{4}; Delete; }{ Surface{1000}; Delete; }",
+        "",
+        'Physical Volume("interior", {0}) = {{ Volume{{:}} }};'.format(
+            VOLUME_ATTR),
+        "",
+        "// Set arithmetic, NOT bounding-box cleverness: an empty physical",
+        "// group is silently legal and Palace would run with no absorber.",
+        "all() = Surface{:};",
+        "port() = Surface In BoundingBox "
+        "{ -rad-eps,-eps,-gap/2-eps, rad+eps, eps, gap/2+eps };",
+        "dip()  = Surface In BoundingBox "
+        "{ -rad-eps,-rad-eps,-arm-gap, rad+eps, rad+eps, arm+gap };",
+        "pec() = dip();",
+        "pec() -= port();",
+        "sph() = all();",
+        "sph() -= dip();",
+        'Physical Surface("radiation", {0}) = {{ sph() }};'.format(
+            RADIATION_ATTR),
+        'Physical Surface("pec", {0}) = {{ pec() }};'.format(DIPOLE_PEC_ATTR),
+        'Physical Surface("port", {0}) = {{ port() }};'.format(
+            DIPOLE_PORT_ATTR),
+        "",
+        "Mesh.MeshSizeMin = {0:.9g};".format(gap_elem_mm),
+        "Mesh.MeshSizeMax = {0:.9g};".format(elem_mm),
     ]
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")

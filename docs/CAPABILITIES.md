@@ -606,10 +606,12 @@ them would be selling the assistant on plumbing it does not have.
    ~~Far-field extraction~~ **READING HALF SHIPPED (UNRELEASED)** — Palace's
    `farfield-rE.csv` becomes a `FarFieldResult` like every other backend's
    pattern, checked against the closed form for a half-wave dipole.
-   ⚠ **Still open, and it is the visible half**: no shipped template produces a
-   radiating Palace domain, so there is no click-path — the plumbing works and
-   nothing in the Templates menu exercises it. That needs an open-box mesh with
-   an antenna and a lumped port.
+    ✅ **AND THE GEOMETRY EXISTS NOW (UNRELEASED)**: `write_geo_dipole_open`
+   builds a radiating domain (two arms, a flat gap rectangle as the lumped
+   port, an absorbing sphere), and `palace_dipole_farfield` runs mesh → config
+   → Palace → parser against the closed form: broadside **+1.821 dBi vs 2.151
+   analytic**, a 19.4 dB axial null, 0.083 dB of φ ripple. Palace radiates, end
+   to end, from geometry this project builds itself.
 3. **Magnetics depth** (v0.51–0.55: radiation BC, k(T), σ(T)-coupled Joule,
    nonlinear B-H + Static-DC, and the general 3-D WhitneyAV ENGINE with the
    TEAM-7 measured gate all shipped): next — 3-D GUI wiring (FreeCAD-solid

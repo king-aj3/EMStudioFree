@@ -171,6 +171,30 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
     a day's work, deferred not scheduled, because nothing gates transient B-H
     against a measured waveform — with an explicit re-open trigger.
 
+* **A3 is fully closed: Palace radiates, end to end, from our own geometry.**
+  `gmsh_box.write_geo_dipole_open` builds an open radiating domain — two
+  cylinder arms on the Z axis, a flat rectangle filling the feed gap as the
+  lumped-port surface, and an absorbing sphere as the single far-field group.
+  New SOLVER gate `palace_dipole_farfield` runs the entire chain (our mesh, our
+  config, Palace, our parser) and checks it against the closed form for a
+  half-wave dipole: broadside **+1.821 dBi against 2.151 analytic (−0.33 dB)**,
+  a **19.4 dB** null on the dipole axis, and **0.083 dB** of phi ripple.
+  114 gate files (FAST 53 / SOLVER 61), free tree 96.
+  * ⚠ **Three mesh constructions failed before one worked**, and all three are
+    recorded in the source so they are not re-attempted: embedding the port
+    face with `Surface{} In Volume{}` fails to recover the boundary mesh;
+    fragmenting arms, port and sphere together gives overlapping facets; only
+    cutting the conductors out FIRST and then fragmenting the port into the
+    resulting air volume meshes.
+  * ⚠⚠ **The first surface tagging produced a zero-element `radiation`
+    group.** An empty physical group is silently legal in gmsh, and Palace
+    would have run happily with NO absorbing boundary — a closed metal box that
+    cannot radiate, reported as a successful solve. The gate counts elements in
+    every group rather than trusting that the groups exist.
+  * ⚠ A graded mesh field over the whole antenna was tried and ran past ten
+    minutes without finishing; the two scales (a gap ~1/400 of a wavelength in
+    a domain three wavelengths across) are handled by a plain min/max instead.
+
 ### Fixed
 
 * **Tutorial 3 named a button that does not do what it said.** Its "design

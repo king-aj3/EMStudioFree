@@ -99,7 +99,8 @@ SOLVER = [
     "ifa_openems",
     "pifa_openems",
     "isolation_patch_openems", "lpda_nec2", "mmwave_palace", "monopole_nec2",
-    "msl_notch_openems", "open_coil_elmer", "palace_gpu_agreement",
+    "msl_notch_openems", "open_coil_elmer",
+    "palace_dipole_farfield", "palace_gpu_agreement",
     "patch_auto_openems",
     "patch_n78_openems",
     "patch_openems",
@@ -164,6 +165,7 @@ def _tier_audit():
 #: fails loudly when the backend is absent — correct, because you asked for it.
 SOLVER_REQS = {
     "n_port_live_palace": "palace",
+    "palace_dipole_farfield": "palace",
     # ⚠ Needs a GPU-LINKED Palace *and* a matching GPU — which on the
     # reference box is the side build at ~/opt/palace-hip, NOT the resolved
     # ~/opt/palace. find_gpu_palace() probes for it; a skip here on a
