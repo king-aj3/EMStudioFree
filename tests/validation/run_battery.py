@@ -203,6 +203,48 @@ SOLVER_REQS = {
 }
 
 
+def freecad_v11_mod_dir():
+    """FreeCAD 1.1's user ``Mod`` directory on THIS platform, or None.
+
+    ⚠⚠ THREE branches, because ``os.name`` is ``"posix"`` on macOS AND Linux —
+    the trap this project has already shipped once (Solver Setup told macOS
+    users to run ``sudo apt install``). Getting it wrong here is quieter and
+    worse: the gate that reads the customer's install simply SKIPS, and an
+    install rots unwatched. It did: the Windows work box's copy sat at v1.0.0,
+    **ten releases** behind, with every gate on the box green, because this
+    path was hard-coded to the Linux layout (found 2026-08-27).
+
+    ⛳ Ground truth, not memory: the Windows root is what FreeCAD 1.1's own
+    ``getUserAppDataDir()`` returned on the work box —
+    ``C:\\Users\\<user>\\AppData\\Roaming\\FreeCAD\\v1-1\\``. The Linux root is
+    the documented split install this repo's CLAUDE.md describes and the home
+    box runs. **The macOS root is FreeCAD's documented location but has NOT
+    been verified on a Mac from here** — which is exactly why this returns the
+    first candidate that EXISTS rather than asserting one: a wrong guess makes
+    the gate skip honestly, never fail confusingly or read the wrong tree.
+
+    Callers: the ``freecad_mod:`` requirement kind below, the
+    ``installed_copy`` gate, and ``tools/check_installed.py`` — all three
+    resolve through THIS function so a layout change moves one line, not
+    three. (``installed_copy`` is Pro-only and cannot be imported from here;
+    the dependency deliberately points this way.)
+    """
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        roots = [os.path.join(home, "Library", "Application Support", "FreeCAD")]
+    elif os.name == "nt":
+        roots = [os.path.join(os.environ.get("APPDATA")
+                              or os.path.join(home, "AppData", "Roaming"),
+                              "FreeCAD")]
+    else:
+        roots = [os.path.join(home, ".local", "share", "FreeCAD")]
+    for root in roots:
+        cand = os.path.join(root, "v1-1", "Mod")
+        if os.path.isdir(cand):
+            return cand
+    return None
+
+
 def _requirement_missing(req):
     """Return a skip reason if the requirement is unavailable, else None."""
     if req is None:
@@ -232,6 +274,22 @@ def _requirement_missing(req):
                     info.describe(), _of.status_note() or "probe unhappy"))
         finally:
             sys.path.pop(0)
+        return None
+    if kind == "freecad_mod":
+        # A subdirectory of FreeCAD 1.1's user Mod dir, resolved PER PLATFORM
+        # (see freecad_v11_mod_dir). Replaces a hard-coded Linux `path:` that
+        # made installed_copy skip silently on Windows and macOS — the reason
+        # a ten-releases-stale install went unnoticed. The gate resolves
+        # through the same function, so the requirement and the gate cannot
+        # disagree about where the install is.
+        mod = freecad_v11_mod_dir()
+        if mod is None:
+            return ("no FreeCAD 1.1 user Mod directory for this platform "
+                    "({0}) — the split install is not set up on this box"
+                    .format(sys.platform))
+        target = os.path.join(mod, arg)
+        if not os.path.isdir(target):
+            return "no {0} on this box".format(target)
         return None
     if kind == "path":
         # Generic filesystem prerequisite (first user: installed_copy, which

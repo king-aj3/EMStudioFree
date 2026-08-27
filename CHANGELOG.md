@@ -5,6 +5,39 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+* **The installed-copy gate (C14) could not see a Windows or macOS install —
+  the one platform-blind spot in a gate written to watch installs.** Its
+  `INSTALL_DIR`/`OVERLAY_DIR` and its battery requirement both hard-coded
+  `~/.local/share/FreeCAD/v1-1/Mod/...`, so on any non-Linux box the
+  `path:` prerequisite never matched and the gate SKIPPED — silently, and
+  exit 0. Measured on the Windows work box 2026-08-27: the Add-on-Manager
+  copy was at **v1.0.0, ten releases behind**, and the Pro overlay at
+  **0.99.0**, with every gate on that box green. C14 exists precisely
+  because an install rotted unwatched; it was still rotting, one platform
+  over.
+  Fixed by resolving the Mod directory PER PLATFORM in
+  `run_battery.freecad_v11_mod_dir()` — three branches, because `os.name`
+  is `"posix"` on macOS AND Linux — with a new `freecad_mod:` requirement
+  kind. The gate, the requirement and `tools/check_installed.py` all call
+  that ONE function, so the layout lives in a single line and the
+  requirement cannot disagree with the gate about where the install is.
+  ⛳ The Windows root is ground truth (FreeCAD 1.1's own
+  `getUserAppDataDir()` on the work box); the macOS root is the documented
+  bundle layout and is **unverified from here**, so the resolver returns the
+  first candidate that EXISTS — a wrong guess makes the gate skip honestly
+  rather than read the wrong tree. The gate now prints the layout it matched.
+  3/3 mutations caught, including a faithful revert to the hard-coded Linux
+  path (which reproduces the original silent skip) and removal of the
+  Windows branch alone.
+* **`tools/check_installed.py --run-smoke` returned a hard FAIL on Windows
+  and macOS** for the non-reason that they do not use AppImages — it globbed
+  `~/Downloads/*.AppImage` on every platform. A false red claiming the
+  customer copy is broken when nothing was looked for. `find_appimage()` is
+  now `find_customer_runtime()` with all three platforms, and an absent
+  runtime is a SKIP, not a failure. Verified live: the deep run now executes
+  the installed tree's own smoke under Windows FreeCAD 1.1 and passes.
+
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 > ⚠ Before tagging, grep `docs/CAPABILITIES.md` for **UNRELEASED** and replace
