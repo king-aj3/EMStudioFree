@@ -4,8 +4,8 @@
 Deterministic, rule-based scoring over a requirements dict → ranked
 ``(family, score, rationale)`` candidates, band_picker style: every rule
 carries a one-line printable rationale (the "AI" transparency requirement,
-ELEMENT_DESIGNER_PLAN §1.3). This is the stable API the future §3 AI
-assistant and the optional LLM intent parser both target.
+ELEMENT_DESIGNER_PLAN §1.3). This is the stable API the §3 AI assistant
+(shipped v0.71-v0.73) and the optional LLM intent parser both target.
 
 Requirements schema (plain dict; every key optional except a frequency):
 
@@ -20,9 +20,11 @@ Requirements schema (plain dict; every key optional except a frequency):
         "er": None, "h_m": None,    # substrate (signals a planar/patch intent)
     }
 
-Family availability is honest: wire, small-antenna and Yagi are shipped;
-patch/LPDA are recommended when the rules say so but flagged with the slice
-that ships them (E4/E5) until their engine + page land. The Chu-Q guardrail
+Family availability is honest, and as of v1.10.0 **every family in
+``FAMILIES`` is shipped** — wire, small-antenna, Yagi, patch, LPDA, pyramidal
+horn, printed inverted-F and PIFA all carry ``avail=True`` with no ships-in
+flag, which the picker gate asserts. (The ships-in machinery is kept for the
+next family that is recommended before its page lands.) The Chu-Q guardrail
 is the shipped ``small_antenna`` machinery, reused verbatim; the boom-length
 hint for the Yagi rule uses the NBS TN-688 boom/gain columns (the full
 verified table lives in ``emstudio.antenna.yagi``).

@@ -241,8 +241,11 @@ class SolverInfo:
 
 
 # --- Backend registry ------------------------------------------------------
-# Phase 1 ships openEMS + NEC2; Elmer/Palace are declared now so the preferences
-# page and installer enumerate the full roadmap, even before their writers exist.
+# Written when Phase 1 shipped openEMS + NEC2 and Elmer/Palace were declared
+# ahead of their writers so the preferences page and installer could enumerate
+# the full roadmap. All of those writers exist now (emstudio/solvers/elmer/
+# writer.py + writer3d.py, emstudio/solvers/palace/writer.py), each driven by a
+# full runner, and OpenFOAM/FastHenry/Gmsh have since joined the registry.
 
 BACKENDS = {
     "openems": Backend(
@@ -1269,19 +1272,25 @@ WINDOWS_HINTS = {
              "and EMStudio detects it automatically. Manual alternative: the "
              "official installer at https://www.elmerfem.org/.",
     "palace": "No native Windows support (Linux/macOS only) — use WSL2.",
-    # ESI's native mingw Windows binary is advertised in their own wiki and
-    # its download 404s at every path (measured 2026-08-06, reported
-    # upstream) — so the guided route is the vendor-preferred WSL2 one, and
-    # it is honest about the single admin step no installer can skip.
-    "openfoam": "Guided install available — the Install button creates "
-                "EMStudio's own WSL2 distro ('{0}': Ubuntu rootfs, "
-                "SHA256-verified, no Microsoft Store) and installs the "
-                "official ESI OpenFOAM packages inside it, all per-user. "
-                "ONE-TIME prerequisite that does need Administrator + a "
-                "reboot: enabling WSL2 itself (wsl --install "
-                "--no-distribution) — the button explains this when needed "
-                "instead of failing. Uninstall: wsl --unregister {0}."
-                .format(_openfoam.WSL_DISTRO),
+    # ⚠ SUPERSEDED 2026-08-08, and this hint said otherwise until 2026-08-26.
+    # The 2026-08-06 measurement found ESI's native mingw binary 404ing and
+    # concluded WSL2 was the only route. It 404s only at the wiki's
+    # UNVERSIONED /source/latest/ name; the VERSIONED path exists, and the
+    # native build was then measured end-to-end on the VM — silent, per-user,
+    # NO admin. It is now the RECOMMENDED route and the dialog's default
+    # button, with WSL2 offered beside it as the fuller one.
+    "openfoam": "Two guided installs, and the Install button offers both. "
+                "RECOMMENDED — ESI's native Windows build ({1}): silent, "
+                "per-user, NO admin rights, and it ships its own MSYS2 bash. "
+                "FULLER — EMStudio's own WSL2 distro ('{0}': Ubuntu rootfs, "
+                "SHA256-verified, no Microsoft Store) with the official ESI "
+                "packages inside it, which adds parallel runs and "
+                "runtime-compiled code; that route alone has a ONE-TIME "
+                "prerequisite needing Administrator + a reboot (enabling WSL2 "
+                "itself, wsl --install --no-distribution) — the button "
+                "explains it when needed instead of failing. Uninstall the "
+                "WSL route with: wsl --unregister {0}."
+                .format(_openfoam.WSL_DISTRO, _openfoam.WIN_NATIVE_VERSION),
     "gmsh": "One-click guided install available — the Install button downloads the "
             "official gmsh Windows zip (~37 MB, per-user, no admin rights). "
             "Manual alternative: https://gmsh.info/.",

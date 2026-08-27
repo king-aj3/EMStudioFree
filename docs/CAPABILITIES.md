@@ -24,15 +24,15 @@ rather than one span:
   **30 GHz** standard-gain horn (v1.5.0: 19.29 dBi vs the vendor's published
   19.70, −0.41 dB inside the citable ±0.5 dB, with a second λ/40 solve gating
   the mesh spread to 0.5 dB); below it the **3.5 GHz** 5G NR n78 patch
-  (UNRELEASED: FDTD 3.3950 GHz inside the synthesiser's own ±5 % window and inside
+  (v1.10.0: FDTD 3.3950 GHz inside the synthesiser's own ±5 % window and inside
   n78) and the **2.435 GHz** patch; highest gated guided point is the
   **3.68 GHz** microstrip notch filter.
   ⭐ **1.892 GHz — a PIFA against a published anechoic-chamber MEASUREMENT,
-  reproduced to +0.22 % (UNRELEASED).** This is the project's only radiating
+  reproduced to +0.22 % (v1.10.0).** This is the project's only radiating
   anchor checked against real measured hardware rather than against a
   computation, and it is the strongest radiating claim available here.
   ⛳ Also **2.45 GHz — a printed inverted-F rebuilt from openEMS's own published
-  example** (UNRELEASED); external geometry, but that example publishes no
+  example** (v1.10.0); external geometry, but that example publishes no
   numbers, so the window comes from a quarter-wave rule.
   ⚠ The radiating rungs are **not equally strong, and the difference matters
   more than the frequency does**. Ranked honestly: 1.892 GHz is against a
@@ -44,13 +44,16 @@ rather than one span:
   between two of our own models, not a validation against measurement. Quote
   each as what it is.
 * **NEC2 (MoM)** — wire antennas, gated at 296 MHz.
-* **Palace far field (UNRELEASED)** — Palace's `r*E` output now becomes a
+* **Palace far field (v1.10.0)** — Palace's `r*E` output now becomes a
   `FarFieldResult` like any other backend's pattern. Checked against the closed
   form for a half-wave dipole: broadside **+2.222 dBi against 2.151 analytic**,
   a 36 dB axial null. ⚠ It is **DIRECTIVITY**, not gain — computable from the
-  pattern alone, equal to gain only for a lossless radiator. ⚠ No shipped
-  template produces a radiating Palace domain yet, so this is plumbing that
-  works, not a button a user can press.
+  pattern alone, equal to gain only for a lossless radiator. The chain is gated
+  end to end on geometry this project builds itself — `write_geo_dipole_open`
+  feeds `palace_dipole_farfield`, broadside **+1.821 dBi against 2.151
+  analytic** with a 19.4 dB axial null. ⚠ There is still **no menu entry** that
+  builds a radiating Palace domain: it is reachable from the API and from the
+  gate, not from Templates.
 
 ⚠ The old ceiling here read *"no radiating structure is gated above
 2.435 GHz"* — TRUE until v1.5.0, removed by `horn_openems`. What is still NOT
@@ -65,7 +68,7 @@ quasi-static validity — that is the one hard limitation to know.
 | Engine | Method | Validated / usable range | Upper-limit cause | Lower-limit cause |
 |---|---|---|---|---|
 | **Palace** | full-wave FEM | **validated to 57 GHz** (cavity TE101 +0.002 % @ 56.9 GHz, +0.003 % @ 39.0 GHz; WR-22 driven 38–42 GHz, |S11| −106 dB) | mesh element size ∝ λ → memory/time (no physics break) | driven/eigenmode are f > 0; true DC statics is a different formulation |
-| **openEMS** | EC-FDTD | broadband in one run; **validated radiating points 2.435 GHz (patch), 3.5 GHz (5G NR n78 patch, UNRELEASED — ⚠ consistency against our own synthesis, NOT an external anchor) and 30 GHz (standard-gain horn, v1.5.0, −0.41 dB vs the vendor curve + λ/40 mesh-spread gate)** — ⚠ between and above those points is *feasible*, not *validated*; Palace remains the validated route for closed structures above 6 GHz | grid cell < ~λ/20 → memory/time | very low f needs long settling (~MHz practical floor) |
+| **openEMS** | EC-FDTD | broadband in one run; **validated radiating points 1.892 GHz (PIFA, v1.10.0, +0.22 % vs a published anechoic-chamber MEASUREMENT — the only measured anchor here), 2.435 GHz (patch), 2.45 GHz (printed inverted-F, v1.10.0, rebuilt from openEMS's own published example), 3.5 GHz (5G NR n78 patch, v1.10.0 — ⚠ consistency against our own synthesis, NOT an external anchor) and 30 GHz (standard-gain horn, v1.5.0, −0.41 dB vs the vendor curve + λ/40 mesh-spread gate)** — ⚠ between and above those points is *feasible*, not *validated*; Palace remains the validated route for closed structures above 6 GHz | grid cell < ~λ/20 → memory/time | very low f needs long settling (~MHz practical floor) |
 | **NEC2** | MoM (wire) | validated **100 kHz VLF/LF (monopole over ground)** → 296 MHz (dipole); HF→low-microwave in practice | segments must be < ~λ/10 **and** obey radius/length ratios → sub-mm wires above ~a few GHz are impractical (not a solver break) | none (thin-wire quasi-static kernel valid to low f; ground image via GN card) |
 | **Elmer** | magneto-quasi-static | **DC → ~few MHz** (validated: induction 0.03 %, WPT k <0.5 % @ 100 kHz) | **hard**: eddy-current/A-V formulation assumes the object is electrically small and displacement current is negligible — **not full-wave; do not use for radiating/electrically-large problems** | true DC magnetostatics is a sub-case |
 | **FastHenry** | PEEC (quasi-static R/L) | DC → ~low-GHz for per-unit-length R(f)/L(f) of electrically-small conductors | quasi-static: no radiation/full-wave; valid while the structure ≪ λ | DC (Rdc) is the f→0 limit |
@@ -278,10 +281,11 @@ the doubly-terminated construction is retained under `prototype="doubly"` but
 assembles to 1.67 dB at VSWR 3.6, and a **branch evaluated alone is never the
 diplexer's loss**. Contiguous isolation collapses to ~6 dB at the crossover, so
 it splits spectrum rather than combining transmitters. Elements are ideal
-(no finite-Q path yet). **Reachable from the GUI since 2026-08-20** —
-**System ▸ Filter & Diplexer Designer** (Pro) drives both pages and reports the
-component schedule in real part values; the free build shows a teaser in its
-⭐ **Finite-Q loss (UNRELEASED)**: the ladder's elements are no longer forced
+unless you give them a Q (see below). **Reachable from the GUI since
+2026-08-20** — **System ▸ Filter & Diplexer Designer** (Pro) drives both pages
+and reports the component schedule in real part values; the free build shows a
+teaser in its place.
+⭐ **Finite-Q loss (v1.10.0)**: the ladder's elements are no longer forced
 ideal. Give the designer a component Q and it builds the same filter from
 physical parts carrying series `R = |X|/Q_u`, and reports the DISSIPATED loss
 separately from the reflective part. Anchored to the standard midband estimate
@@ -290,7 +294,9 @@ Q 5000, which is the convergence signature of a first-order formula.
 ⚠ `Q_res` is the RESONATOR Q, not the component Q: every band-pass arm holds
 both an L and a C, so equal component Qs halve it and double the loss.
 ⚠ Finite Q also abolishes infinite rejection — a real notch has a depth.
-place. Gates: `tests/validation/system_filters.py` (43 checks, pure python3,
+⛳ Opt-in: with no Q given the response is byte-identical to the lossless
+ladder it always was.
+Gates: `tests/validation/system_filters.py` (43 checks, pure python3,
 mutation-tested 8/8) reproduces the Phase-B anchors to the digit, and a
 `_filter_designer_dialog` gui_smoke check drives the dialog itself.
 
@@ -317,13 +323,22 @@ numeric peak — the |Σaₙ|² shortcut is 81× wrong for a scanned array), exa
 HPBW, Hansen-Woodyard `−(kd + 2.94/N)` (D = 17.9565 at N=10, d=λ/4 — the
 printed 17.89 is low), grating-lobe guard, first-sidelobe level, induced-EMF
 mutual impedance, pattern multiplication. The **Array Designer** dialog
-(command `EMStudio_ArrayDesigner`): N parallel dipoles, named drive
+(command `EMStudio_ArrayDesigner`): N parallel dipoles in **linear**,
+**planar** (Nx×Ny grid) or **circular** (ring) geometry — the 2-D pair added in
+v1.10.0 over the `planar_array_factor` / `circular_array_factor` engines gated
+since S5, with 2-D steering (θ₀, φ₀), per-axis or around-the-ring tapering and
+a grating-lobe warning when the ring's arc spacing exceeds λ/2 — named drive
 distributions (broadside · end-fire · Hansen-Woodyard · scanned · cardioid
 pair), derived target-current table, predicted read-outs, and a live Verify
 (N+1 NEC2 runs off-thread) overlaying the achieved azimuth cut with the drive
 table — EX voltages, per-element ACTIVE impedance and power, with warnings on
 a negative driving-point resistance (superdirective, not passively
-realizable) and negative per-element power. Honest behaviour: per-element
+realizable) and negative per-element power. ⚠⚠ The live NEC2 Verify, the 3-D
+overlay and the pattern CSV export each build a LINEAR row of dipoles, so all
+three are disabled **and refuse if called anyway** for the planar and circular
+geometries — verifying a linear array and reporting it as the planar one on
+screen is the wrong-answer-that-looks-right class, and a slot stays reachable
+from a script even when its button is grey. Honest behaviour: per-element
 tapers are the S5 slice; TransmissionLine feeds are refused (a corporate/TL
 feed is a different feed model); deep nulls beyond −60 dBi are read from the
 raw NEC2 output. Gates: `tests/validation/system_arrays.py` (FAST battery,
@@ -379,7 +394,7 @@ Matching / Array / RFDF are Pro.
 | Input impedance R+jX | ✅ validated | openEMS, NEC2 | dipole 71.9 Ω at resonance |
 | Resonance detection | ✅ | derived | dipole 296 MHz |
 | Touchstone (`.sNp`) export | ✅ validated | order follows what was SOLVED; refuses an order it cannot support, naming the missing terms | `touchstone_export` + `n_port_smatrix`: 1/2/3/5-port layouts, row-major wrap, S11 S21 S12 S22 quirk order |
-| **Far-field radiation pattern** | ✅ validated | openEMS NF2FF, NEC2 RP | dipole 2.13 dBi + axial null; patch 6.6 dBi; full sphere 37×72 |
+| **Far-field radiation pattern** | ✅ validated | openEMS NF2FF, NEC2 RP, **Palace `r*E` (v1.10.0)** | dipole 2.13 dBi + axial null; patch 6.6 dBi; full sphere 37×72; Palace's own radiating dipole +1.821 dBi vs 2.151 analytic (⚠ directivity, not gain) |
 | **3-D pattern balloon (rotate/zoom/pan)** | ✅ validated (v0.72.0) | mplot3d tab + FreeCAD viewport object; reachable from Results, Element Designer and Array Designer | `pattern_vtu.py`: 43 checks — radius follows the gain law pointwise, phase-centre registration, closed-phi wrap, read back by our own VTU parser; mutation-tested 7/7 |
 | **3-D currents / field plane in viewport** | ✅ validated (v0.72.0) | FemPostPipeline VTU | `pattern_vtu.py`: polyline cell + m→mm + mA conversion; quad cells, fixed-axis offset, dB self-normalisation |
 | **Pattern per swept frequency + picker** | ✅ validated (v0.90.0–0.91.0), openEMS added 2026-08-22 | NEC2 multi-frequency `FR`+`RP`; **openEMS from one broadband NF2FF recording — no extra solve at all**; **Pattern Frequencies…** dialog with editable band + a recommended step landing on S11 sample points; both pattern tabs and the 3-D export share one selection | `pattern_sweep.py`: 88 checks — N patterns from ONE run (201 in 7.18 s), per-frequency gains pinned, band round-trip, the far-field sort proven on a DESCENDING file, and the flat-band pattern-frequency guard now shared by BOTH backends (NEC2 had a bare argmin until 2026-08-24; one constant in `emstudio.post.sparams`); 11/11 + 5/5 + 3/3 + 2/2 mutations caught |
@@ -424,7 +439,7 @@ Matching / Array / RFDF are Pro.
 | **Cable thermal / ampacity (§2 thermal)** | ✅ validated (v0.50.0) | IEC 60287-2-1 radial ladder (worked examples to 1e-9) + Churchill-Chu free convection on the printed AHTT air table (Cengel Ex 9-1 / AHTT Ex 8.4 to the digit, ±25 % of Morgan) + radiation; ρ(T) loss with runaway detection; ampacity vs NEC 310.17 / Multicable / MIL-W-5088L bands (AWG-10 105 °C: 66.6 A vs the 58 A ±25 % row); IEC 60949 adiabatic (J0 143.08/94.48, 630 mm² rows 0.15 %, BS 7671 k ±0.5); NEC 310.15(C)(1) derating exact; transient τ = C/G lump |
 | **Coax RF average power (§2 thermal)** | ✅ validated (v0.50.0) | Exact dissipation identity p′ = (ln10/10)·A·P and the exact ½-dielectric-heat factor (TEM 1/r²); Rs/a-vs-Rs/b split with per-conductor σ; **Times LMR-240 catalog table reproduced within 90-125 % (worst 1.092, 30-5800 MHz)** with the datasheet attenuation split; Belden 8262 / RG-142 one-sided (smooth-conductor loss ⇒ optimistic rating, stated) |
 | **Thermal cross-section + heat-rise view (§2 thermal)** | ✅ validated (v0.50.0) | Exterior 2-D field: exact interior ladder → flux-preserving film δ = k_f/h = D/Nu → laminar plane-plume similarity above (GPS/Liñán, Pr 0.7 pins re-derived in-gate by an independent RK4 shoot incl. the Pr = 2 closed form √5/4); enthalpy closure 0.23 % worst, power-law exponents exact, bitwise mirror symmetry, bounded monotone decay; honestly labeled illustrative outside the film |
-| **SOLVED convection on a SELECTED solid — open air (§8a)** | ✅ validated (unreleased) | Any document solid, tessellated as-is (gravity −z), dissipated power as surface flux, open-air far-wall box; returns surface ΔT + mean h + the field in the 3-D view. Sphere anchors, live at cells_bg 32 (re-measured 2026-08-23 on the T1 layered mesh): conduction Nu_D 2.5613 inside the EXACT sandwich [2.3374, 2.6667] (two-sided, citation-free); free convection Nu_D 17.9709 vs Churchill 17.4656 (**+2.9 %**, was +4.3 % unlayered) at the resulting Ra_D 1.35e6. The SOLVER gate self-pins its own cells_bg 24 fidelity (2.5548 / 17.8471, re-pinned 2026-08-23 on the T1 layered mesh — the layers moved convection −2.7 % and took its Churchill agreement from +4.9 % to +2.0 %). ⚠ laminar, constant film-T properties (dialog warns on drift), no enclosure geometry read yet, no radiation. **Laminar-ONLY: unvalidated above Ra_D ≈ 1e8** — from the product's own air table that is crossed near D ≈ 0.5 m at ΔT = 30 K (Ra_D 1.8e7 at 0.2 m, 2.2e9 at 1 m); the dialog computes Ra and says so |
+| **SOLVED convection on a SELECTED solid — open air (§8a)** | ✅ validated (v1.1.0) | Any document solid, tessellated as-is (gravity −z), dissipated power as surface flux, open-air far-wall box; returns surface ΔT + mean h + the field in the 3-D view. Sphere anchors, live at cells_bg 32 (re-measured 2026-08-23 on the T1 layered mesh): conduction Nu_D 2.5613 inside the EXACT sandwich [2.3374, 2.6667] (two-sided, citation-free); free convection Nu_D 17.9709 vs Churchill 17.4656 (**+2.9 %**, was +4.3 % unlayered) at the resulting Ra_D 1.35e6. The SOLVER gate self-pins its own cells_bg 24 fidelity (2.5548 / 17.8471, re-pinned 2026-08-23 on the T1 layered mesh — the layers moved convection −2.7 % and took its Churchill agreement from +4.9 % to +2.0 %). ⚠ laminar, constant film-T properties (dialog warns on drift), no enclosure geometry read yet, no radiation. **Laminar-ONLY: unvalidated above Ra_D ≈ 1e8** — from the product's own air table that is crossed near D ≈ 0.5 m at ΔT = 30 K (Ra_D 1.8e7 at 0.2 m, 2.2e9 at 1 m); the dialog computes Ra and says so |
 | **SOLVED bundle convection — CFD replaces the correlation (§2 thermal)** | ✅ validated (v0.97.0; re-measured 2026-08-23 on the T1 layered mesh, every rung moved < 0.11 %) | Ladder, each rung changing ONE variable, on the native ESI v2512: 1 cable/0.40 m box Nu 3.9787 and 1 cable/0.20 m Nu 3.8651 both INSIDE the Churchill-Chu/Morgan envelope (this is what validates snappyHexMesh + the flux BC + the patch reader), then 3 cables/0.20 m Nu 3.1563 — **Churchill-Chu over-predicts a trefoil's film coefficient by 19.66 %, in the UNSAFE direction** (confinement 3 %, bundling a further 18 %). Feeds `surface_h`/`solve_steady` as a dimensionless `bundle_factor` (default 1.0 = bit-identical to the correlation); a 40 A cable moves 56.55 → 59.75 °C (worked with the pre-T1 factor; the T1 move is < 0.05 K, far under the solver's own ~2 K run-to-run floor). ⚠ 2-D, laminar, no radiation, one operating point; Ra is an OUTPUT (flux BC), so every comparison is made at the Ra that resulted |
 | **Mixed LOADING within one diameter — one factor per (size, load) (§2 thermal)** | ✅ validated (v0.98.0) | A group is one diameter at one wall flux, because that is what one snappy patch carries; the result is keyed by PATCH, so two same-size cables on different losses get their own factors instead of one silently overwriting the other. Measured (2 × 20 mm, 0.20 m box, 400 vs 100 K/m; re-measured 2026-08-23 on the T1 layered mesh at the same recorded configuration, cells_x 50 / 1500 it): **Nu 3.8112 / 2.6886 → factors 1.0134 / 0.9018, 12.4 % apart — as large an effect as the diameter mix**, and the LIGHTLY loaded cable is still the worse cooled (small driving dT, sitting in its neighbour's warm field; the heavily loaded one now reads a hair ABOVE the correlation at this cheap fidelity). ⚠ dT ratio **2.82 for a 4:1 flux ratio** — neither the 1.0 of a shared BC nor the ~3.0 of two uncoupled cables, which is the gate's proof that this is ONE coupled solve. Face counts are an exact equality (928 == 928) since the geometry is identical. Reachable from the UI since v0.99.0 via the bundle table's per-member **Current (A)** column — resistance from the CONDUCTOR Ø, flux over the ENVELOPE Ø, all-or-nothing so a part-filled column falls back rather than inventing a load |
 | **Mixed-diameter bundles — one Nusselt number PER SIZE (§2 thermal)** | ✅ validated (v0.97.0) | Nu_D is built on a diameter, so unlike cables are never averaged: each size is its own STL solid → its own snappy geometry entry → its own **patch**, solved together in one enclosure because the sizes cool each other. Measured (1 × 20 mm + 2 × 10 mm, 0.20 m box, 400 K/m; re-measured 2026-08-23 on the T1 layered mesh at full fidelity — moves +0.06 % / +0.18 %): **Nu 3.6119 / 2.0033 → factors 0.9486 / 0.8456, 12.2 % apart**, both below their OWN Churchill-Chu (−5.14 % / −15.44 %); the 20 mm recovers Nu 3.1563 → 3.6119 (+14.4 %) when its neighbours shrink. Uniform bundles are byte-identical to the single-patch writer (sha256 over all 14 files) so the ladder above still describes what runs; smaller cables get ceil(log2(d_max/d)) extra refinement levels so their Nu is not a mesh artifact. ⚠ Mixed DIAMETERS only — mixed LOADING within one diameter is refused, not merged |
@@ -484,6 +499,7 @@ Rodi 1993).
 | **Adaptive fast frequency sweep** | ✅ validated | WR-90 dense 41-pt sweep from 6 full solves; matches TE10 at every point (`SolverPalace.FastSweep`) |
 | **Adaptive mesh refinement (AMR)** | ✅ validated | Order-1 cavity: coarse 0.32% → AMR 0.074% vs TE101 (4.3× closer), mesh grown 2039→30151 elements; works eigenmode + driven (`SolverPalace.MeshRefinement`) |
 | **Driven S-parameters, general 3-D (BREP)** | ✅ validated | wave ports on ANY closed solid: WR-90-as-BREP reproduces TE10 (|S11| −68.9 dB); circular waveguide evanescent below the TE11 cutoff (2.928 GHz), lossless above (Circular Waveguide template) |
+| **Far field from a driven solve** | ✅ validated (v1.10.0) | Palace's `farfield-rE.csv` parsed into the same `FarFieldResult` every other backend returns, on an explicit angle GRID rather than an `NSample` spiral; and `write_geo_dipole_open` meshes the radiating domain that feeds it (two arms, a flat gap rectangle as the lumped port, an absorbing sphere). Checked against the closed form for a half-wave dipole: broadside **+1.821 dBi vs 2.151 analytic**, a 19.4 dB axial null, 0.083 dB φ ripple (`palace_dipole_farfield`). ⚠ **DIRECTIVITY**, not gain. ⚠ API and gate only — no Templates entry builds one |
 | Geometry class | ✅ box + coax + general BREP (eigenmode **and driven**) | every closed solid works for eigenmode and driven wave-port analyses |
 
 ## Co-site interference / EMC (systems — §5)
@@ -603,19 +619,24 @@ them would be selling the assistant on plumbing it does not have.
    linkage-probed libCEED backend, and the CPU-vs-GPU agreement enforced by
    `palace_gpu_agreement`. (Fast frequency sweep, adaptive mesh refinement,
    and general-BREP driven wave ports all shipped earlier.)
-   ~~Far-field extraction~~ **READING HALF SHIPPED (UNRELEASED)** — Palace's
+   ~~Far-field extraction~~ **SHIPPED v1.10.0, END TO END** — Palace's
    `farfield-rE.csv` becomes a `FarFieldResult` like every other backend's
-   pattern, checked against the closed form for a half-wave dipole.
-    ✅ **AND THE GEOMETRY EXISTS NOW (UNRELEASED)**: `write_geo_dipole_open`
-   builds a radiating domain (two arms, a flat gap rectangle as the lumped
-   port, an absorbing sphere), and `palace_dipole_farfield` runs mesh → config
-   → Palace → parser against the closed form: broadside **+1.821 dBi vs 2.151
-   analytic**, a 19.4 dB axial null, 0.083 dB of φ ripple. Palace radiates, end
-   to end, from geometry this project builds itself.
+   pattern, checked against the closed form for a half-wave dipole, and
+   `write_geo_dipole_open` builds the radiating domain that feeds it (two arms,
+   a flat gap rectangle as the lumped port, an absorbing sphere).
+   `palace_dipole_farfield` runs mesh → config → Palace → parser against the
+   closed form: broadside **+1.821 dBi vs 2.151 analytic**, a 19.4 dB axial
+   null, 0.083 dB of φ ripple. Palace radiates, end to end, from geometry this
+   project builds itself. ⚠ API and gate only — no Templates entry builds one,
+   so this is not yet a button a user can press.
 3. **Magnetics depth** (v0.51–0.55: radiation BC, k(T), σ(T)-coupled Joule,
    nonlinear B-H + Static-DC, and the general 3-D WhitneyAV ENGINE with the
-   TEAM-7 measured gate all shipped): next — 3-D GUI wiring (FreeCAD-solid
-   import via BREP, template + command), transient-B-H exposure,
+   TEAM-7 measured gate all shipped; ~~3-D GUI wiring~~ **SHIPPED v0.56.0** —
+   `AnalysisType = "3-D Magnetostatic (DC)"` exports every referenced solid as
+   a BREP and meshes it conformally, with a **Template: 3-D Solenoid** command
+   landing −1.26 % against the exact thick-solenoid closed form): next —
+   transient-B-H exposure (sized in v1.10.0 as a day's work, deferred not
+   scheduled — nothing gates transient B-H against a measured waveform yet),
    ferrite/shield WPT variants.
 4. Near-field at the resonant frequency (currently the sweep center); 3-D field
    volumes; animated fields.

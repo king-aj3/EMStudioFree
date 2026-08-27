@@ -6,8 +6,12 @@ contact_links:
       Every tutorial ends in a number and names the automated test that pins it.
       If a documented figure disagrees with yours, that gate's output is the
       fastest possible bug report.
+  # ⚠ This pointed at docs/ROADMAP.md until 2026-08-26 — a 404 for every user
+  # who clicked it, because ROADMAP.md is Pro-side and is NOT exported (see
+  # tools/free_manifest.toml). CAPABILITIES.md IS exported and carries the
+  # not-planned rows, each with its reason and its re-open trigger.
   - name: What is deliberately not planned
-    url: https://github.com/king-aj3/EMStudioFree/blob/master/docs/ROADMAP.md
+    url: https://github.com/king-aj3/EMStudioFree/blob/master/docs/CAPABILITIES.md
     about: >
       Some things are recorded as not-planned with the reason and a re-open
       trigger. Worth a look before writing a request.

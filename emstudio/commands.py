@@ -1844,8 +1844,10 @@ class _ElementDesigner:
                        "recommended family with rationale, wire synthesis "
                        "(dipole/monopole/folded/fraction verticals, measured "
                        "K curve), predicted Z/gain, NEC2 verify, and "
-                       "Accept -> Generate a runnable analysis (ROADMAP "
-                       "section 1; Yagi/patch/LPDA families follow)",
+                       "Accept -> Generate a runnable analysis. Eight "
+                       "families: wire, Yagi-Uda, microstrip patch, LPDA, "
+                       "small antenna, pyramidal horn, printed inverted-F "
+                       "and PIFA (ROADMAP section 1)",
         }
 
     def IsActive(self):
@@ -1966,9 +1968,10 @@ class _DetectSolvers:
         return {
             "Pixmap": icon_path("emstudio_solverdetect.svg"),
             "MenuText": "Detect / Install Solvers",
-            "ToolTip": "Solver setup wizard: detect openEMS / NEC2 / FastHenry / "
-                       "Elmer / Palace / Gmsh, one-line apt command, guided "
-                       "no-sudo source builds",
+            "ToolTip": "Solver setup wizard: detect openEMS / NEC2 / "
+                       "FastHenry / Elmer / Palace / Gmsh / OpenFOAM, "
+                       "one-line apt command, guided no-sudo source builds, "
+                       "and one-click Install buttons on Windows",
         }
 
     def IsActive(self):

@@ -10,7 +10,8 @@
 #     decays — same reason the tutorial counts were removed from HELP.md and
 #     the public README. p452/p2001 SKIP here because the ITU digital maps
 #     are integral products that are never bundled and not downloaded in CI)
-# The SOLVER tier (nec2c/openEMS/Elmer/Palace/FastHenry, minutes each) stays a
+# The SOLVER tier (nec2c/openEMS/Elmer/Palace/FastHenry/OpenFOAM — eleven of
+# its gates are OpenFOAM CFD, and those run in hours, not minutes) stays a
 # local pre-release step: python3 tests/validation/run_battery.py --all
 #
 # Linux runners only — free for public repos. Do NOT add macOS jobs (the

@@ -230,15 +230,22 @@ class AboutDialog(QtWidgets.QDialog):
             vb.addWidget(p)
             vb.addSpacing(8)
 
+        # ⚠ TIER-ACCURATE, and this file ships BYTE-IDENTICAL to the free
+        # tree — so every noun in the free sentence must be something a free
+        # user can actually open. It listed array design, matching and filters
+        # as part of "a free, open-source workbench" until 2026-08-26; all
+        # three are §7 (Pro), denied by tools/free_manifest.toml, and the free
+        # build opens a teaser on those menu entries.
         section("What it is",
                 "A free, open-source workbench that wraps best-of-breed "
                 "open-source electromagnetic solvers behind one guided "
                 "workflow: geometry → materials → ports → mesh "
                 "→ solve → results. Alongside the field solvers it "
                 "carries system-level engineering tools — antenna element "
-                "and array design, impedance matching, filters, cable and "
-                "litz-wire design, co-site interference, and geographic "
-                "coverage — each with its own validated regime.")
+                "design, cable and litz-wire design, co-site interference, "
+                "and geographic coverage — each with its own validated "
+                "regime. Array, matching, filter and direction-finding "
+                "design are the §7 System Designer, in EMStudio Pro.")
         section("Why it exists",
                 "To make RF / antenna / PCB / wire analysis as approachable as "
                 "possible — real calculations, clear visualization, "

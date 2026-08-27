@@ -910,9 +910,10 @@ scheduled release. (This manual said "the next Palace slices" until 2026-08-26;
 The Element Designer turns stated requirements into **one dimensioned radiating
 element** — it reports the element's feed impedance, gain and geometry, and
 stops there. Impedance **matching** now ships as its own step: the §7 **System
-Matching Designer** (§6i³ below) takes that feed Z and synthesizes the network —
-while combiners, arrays and direction-finding remain future §7 slices. Open
-**Element Designer** from the toolbar.
+Matching Designer** (§6i³ below) takes that feed Z and synthesizes the network,
+and the rest of §7 has shipped alongside it — the **Array Designer** (§6i⁴),
+the **Filter & Diplexer Designer** and **RF Direction Finding** (both Pro, on
+the System toolbar). Open **Element Designer** from the toolbar.
 
 1. Fill the **Requirements** — or pick a **Service preset** first: 20
    verified bands (FM/AM broadcast, airband, marine VHF, NOAA weather, the
@@ -928,9 +929,10 @@ while combiners, arrays and direction-finding remain future §7 slices. Open
    diameter.
 2. **Recommend family** ranks the element families with a printed one-line
    rationale per rule — e.g. "12 dBd → NBS TN-688 2.2-λ boom class (boom fits
-   the 3 m envelope)". All five core families (wire, Yagi, patch, LPDA, small
-   antenna) are available; requests that are electrically small get the **Chu
-   bandwidth guardrail** up front. **Use top family** switches to the best
+   the 3 m envelope)". All eight families (wire, Yagi, patch, LPDA, small
+   antenna, pyramidal horn, printed inverted-F and PIFA) are available;
+   requests that are electrically small get the **Chu bandwidth guardrail** up
+   front. **Use top family** switches to the best
    available page.
 3. On the **Wire** page pick the type — half-wave dipole, quarter-wave monopole,
    folded dipole, or the 5/8- / 3/4- / full-wave verticals — and the **K
@@ -990,7 +992,7 @@ while combiners, arrays and direction-finding remain future §7 slices. Open
    The standard EMStudio engineering disclaimer travels on every page, so the
    document is safe to hand to a build house or supplier as-is.
 
-Note on tiers: the Element Designer as shipped — all five families, service
+Note on tiers: the Element Designer as shipped — all eight families, service
 presets, Verify, PDF reports — is part of the **free** EMStudio core and
 stays free. **EMStudio Pro ($149, available now) does not change this dialog**;
 it adds the §7 System Designer and the AI assistant. Separately, ideas still
@@ -1038,10 +1040,12 @@ it to your system impedance. Open **System Matching Designer** from the toolbar.
    predicted curves, the schematic, and the component / section schedule — with
    the standard EMStudio engineering disclaimer on every page.
 
-Scope, stated honestly: this slice delivers impedance **matching** only, and it
-is part of the **free** EMStudio core. Filter/diplexer synthesis ships as an
-engine (S3); the Array Designer ships below (S4); RF direction-finding remains
-a future §7 slice.
+Scope, stated honestly: this slice delivers impedance **matching** only.
+***EMStudio Pro** — §7 is the paid tier; the free workbench does not include
+this dialog*. The rest of §7 has shipped too: the **Filter & Diplexer
+Designer** (S3 — and since v1.10.0 it prices the real build, with finite-Q
+components), the **Array Designer** below (S4 — linear, planar and circular
+since v1.10.0) and **RF Direction Finding** (S6).
 
 ## 6i⁴. Tool: Array Designer (§7 — a phased array driven by CURRENTS)
 
@@ -1060,7 +1064,8 @@ the second thing, live. Open it from the toolbar.
    **Scanned** (enter the angle from broadside), or the **Cardioid pair**
    (N = 2, quadrature). The derived per-element target currents are shown as a
    read-only table; per-element amplitude **tapers** (binomial /
-   Dolph-Chebyshev / Taylor n̄) arrive with the S5 slice.
+   Dolph-Chebyshev / Taylor n̄) shipped with the S5 slice and are step 5
+   below.
 3. **Predicted** read-outs come from the gated analytic engine: **exact**
    array-factor directivity (numeric visible-region peak — not the textbook
    shortcuts, which fail off-broadside), exact half-power beamwidth, the
@@ -1093,11 +1098,16 @@ the second thing, live. Open it from the toolbar.
    drives the coverage map (grounded arrays: pick a take-off elevation above
    the horizon).
 
-Honest scope: linear geometry, named distributions, dipole elements. Planar
-and circular array factors ship as engine functions (gated) — a 2-D dialog is
-future work. TL/corporate feeds are a **different feed model** (one driven
-port plus transmission lines — the LPDA pattern) and are refused in the array
-chain rather than silently mixed. Part of the **free** EMStudio core.
+Honest scope: named distributions and dipole elements, in **linear**,
+**planar** (rectangular Nx × Ny grid) or **circular** (N equispaced on a ring)
+geometry — the planar and circular array factors had shipped as gated engine
+functions since S5, and v1.10.0 wires them into the dialog with 2-D steering
+(θ₀, φ₀). ⚠ NEC2 Verify, the 3-D overlay and the pattern export each build a
+LINEAR row of dipoles, so all three are disabled — and refuse if called anyway
+— for the 2-D geometries. TL/corporate feeds are a **different feed model**
+(one driven port plus transmission lines — the LPDA pattern) and are refused in
+the array chain rather than silently mixed. ***EMStudio Pro** — §7 is the
+paid tier; the free workbench does not include this dialog*.
 
 ## 6j. Tool: Small-Antenna Designer (VLF / LF / MF)
 

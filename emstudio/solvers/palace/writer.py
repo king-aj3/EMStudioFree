@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""AWS Palace config-file writer (JSON) for eigenmode cavity analyses.
+"""AWS Palace config-file writer (JSON) — eigenmode AND driven analyses.
 
-Writes the ``config.json`` that drives a Palace eigenmode solve of a
-PEC-walled dielectric cavity. Verified against Palace (built from source)
-on 2026-07-06.
+Writes the ``config.json`` that drives a Palace solve. The first case was an
+eigenmode solve of a PEC-walled dielectric cavity, verified against Palace
+(built from source) on 2026-07-06; the writer has since grown the driven
+sweep configs (waveguide and coax), the adaptive-mesh ``Model.Refinement``
+block, the adaptive fast sweep, and — v1.10.0 — ``farfield_grid``, which asks
+for an explicit angle GRID rather than an ``NSample`` spiral.
 
 Config conventions this writer encodes (from the working recipe):
 

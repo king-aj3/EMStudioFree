@@ -5,9 +5,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before writing: `docs/ROADMAP.md` and `docs/CAPABILITIES.md` say what is
-        planned, what is deliberately **not** planned, and what is shipped but
-        not yet validated. If your request is already there, saying so — and
+        Before writing: `docs/CAPABILITIES.md` says what is planned, what is
+        deliberately **not** planned (each with its reason and its re-open
+        trigger), and what is shipped but not yet validated. ⚠ It names
+        CAPABILITIES and not ROADMAP because ROADMAP.md is not part of this
+        repository — a link to it 404s here. If your request is already there,
+        saying so — and
         saying why it matters to you — is more useful than a new description,
         because demand is what moves the order.
   - type: textarea

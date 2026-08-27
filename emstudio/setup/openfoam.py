@@ -19,10 +19,16 @@ which is why it gets its own module rather than another ``Backend`` tuple:
   and on the 1-cell probe below, 2026-08-06). That is a packaging defect, not
   a version boundary — so there is NO version floor in this module; usability
   is PROBED at runtime instead (docs/OPENFOAM_INSTALL.md §1);
-* on native Windows there is no install at all: ESI's own wiki advertises a
-  mingw binary whose download 404s (measured 2026-08-06, reported upstream),
-  so the vendor-preferred route is WSL2 — a different kind of install from
-  every other backend, with one honest elevation step.
+* on native Windows there are TWO installs. ⚠ This paragraph said "there is
+  no install at all" until 2026-08-26, on a 2026-08-06 measurement that was
+  superseded two days later: ESI's mingw binary 404s only at the wiki's
+  UNVERSIONED ``/source/latest/`` name — the VERSIONED path exists, and the
+  native build was measured end-to-end on the VM 2026-08-08 (silent,
+  per-user, NO admin, its own MSYS2 bash, probe green). It is the RECOMMENDED
+  route (``run_windows_native_install``, WIN_NATIVE_URL below). WSL2
+  (``run_windows_install``) remains offered as the fuller route — parallel
+  runs and runtime-compiled code — and is the only one carrying an elevation
+  step.
 
 Discovery therefore answers four questions, not one: WHERE is an install
 (bashrc path), WHICH fork/version is it, does it have the REQUIRED tools, and
@@ -945,21 +951,30 @@ def windows_wsl_state():
 def windows_guidance(detail=""):
     """Honest, build-aware text for the one step EMStudio cannot do itself.
 
-    Every other Windows backend unpacks into %LOCALAPPDATA% with no admin
-    at all. OpenFOAM cannot: ESI's native Windows binary is advertised but
-    its download 404s (measured 2026-08-06, reported upstream), so the
-    vendor-preferred WSL2 route is the guided path — and ENABLING WSL2 is
-    an Administrator step with a reboot. EMStudio never elevates itself
-    (the same rule as never running sudo): it states the command and the
-    user runs it. Everything after that step is per-user, no admin.
+    ⚠ THIS IS THE **WSL2** ROUTE'S GUIDANCE ONLY, and it is reached only after
+    the user has declined the recommended native install — so it must not
+    imply WSL2 is the only way. It said exactly that until 2026-08-26, on the
+    strength of a 2026-08-06 measurement that found ESI's native binary
+    404ing. That measurement was superseded two days later: only the wiki's
+    UNVERSIONED ``/source/latest/`` name 404s, the versioned one exists, and
+    :func:`run_windows_native_install` was then measured end-to-end on the VM
+    — silent, per-user, NO admin (see WIN_NATIVE_URL above).
+
+    Every other Windows backend unpacks into %LOCALAPPDATA% with no admin, and
+    so does OpenFOAM's native build. WSL2 is the fuller route (parallel runs,
+    runtime-compiled code) and ENABLING WSL2 is an Administrator step with a
+    reboot. EMStudio never elevates itself (the same rule as never running
+    sudo): it states the command and the user runs it. Everything after that
+    step is per-user, no admin.
     """
     try:
         build = sys.getwindowsversion().build
     except Exception:
         build = 0
-    lines = ["OpenFOAM on Windows runs inside WSL2 (the vendor's preferred "
-             "route; their native Windows download is currently missing "
-             "upstream)."]
+    lines = ["This is the WSL2 route, which adds parallel runs and "
+             "runtime-compiled code. If you would rather not enable WSL2, "
+             "press Install again and choose the recommended NATIVE build "
+             "instead — it is silent, per-user and needs no admin at all."]
     if build >= 19041:
         lines += [
             "One-time setup (Administrator + one reboot):",

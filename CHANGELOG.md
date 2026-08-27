@@ -7,8 +7,28 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
-> ⚠ `docs/CAPABILITIES.md` carries two **UNRELEASED** markers for the n78 rung
-> below — replace both with the real version at release.
+> ⚠ Before tagging, grep `docs/CAPABILITIES.md` for **UNRELEASED** and replace
+> every marker with the real version — 1.10.0 carried six of them.
+
+## [1.10.0] — 2026-08-26
+
+> Pre-tag proof: the FULL `--all` battery ran complete on this release's code —
+> **114 ok / 0 failed / 0 skipped in 21,789.9 s** (6.05 h) — the first complete
+> run at 114 gates, and the first with **nothing skipped**. Slowest rungs:
+> `openfoam_bundle` 4,148 s, `openfoam_ras_solid` 3,412 s, `openfoam_wind_ras`
+> 2,945 s, `openfoam_cht_convection` 2,564 s, `openfoam_solid` 2,450 s,
+> `palace_dipole_farfield` 1,645 s, `horn_openems` 1,297 s.
+>
+> ⚠ Work continued while it ran, so that tree is not byte-identical to the tag.
+> The difference was measured rather than asserted: an AST comparison with
+> docstrings stripped and string constants blanked shows **no executable logic
+> changed in any solver path**. What moved is documentation, docstrings,
+> comments and UI/guidance string literals, plus two test/tooling files
+> (`tests/validation/pro_teaser.py`, `tools/release.py`). The only two
+> executable deltas anywhere in `emstudio/` are one extra `.format()` argument
+> in a Windows install hint and one teaser bullet split into two — neither on a
+> path any SOLVER gate walks, and both re-covered by the FAST battery and
+> `gui_smoke`, re-run green afterwards.
 
 ### Added
 
@@ -206,10 +226,99 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 * **Tutorial 6 still called 2.435 GHz "the real ceiling"** for gated radiating
   structures — true until v1.5.0 and retired by `horn_openems` at 30 GHz;
   `docs/CAPABILITIES.md` had already been corrected and the tutorial had not.
-  Both of its ceiling passages now name the actual ladder (2.435 / 3.5 /
-  30 GHz) and, more importantly, say that the three rungs are **not equally
-  strong**: two reach outside this project for their reference and the n78 one
-  does not.
+  Both of its ceiling passages now name the actual ladder — which A2 has since
+  grown to **five** rungs (1.892 / 2.435 / 2.45 / 3.5 / 30 GHz) — and, more
+  importantly, say that the rungs are **not equally strong**: the PIFA is
+  against a MEASUREMENT, two reach outside this project for their reference,
+  and the n78 one does not.
+
+* ⭐⭐ **TWO TIER ERRORS in the manual the free tier ships.**
+  `docs/USER_MANUAL.md` is exported to the public repo, and it described the
+  **System Matching Designer** and the **Array Designer** as "part of the
+  **free** EMStudio core". Both are Pro — `tools/free_manifest.toml` denies
+  `matching_dialog.py` and `array_dialog.py`, neither file exists in the free
+  checkout, and `HELP.md` marked both Pro three rows apart. `docs/ROADMAP.md`
+  carried a third copy ("FREE-CORE tier like the rest of §7 so far"). A free
+  user reading their own manual would have concluded a documented dialog was
+  missing from their install. All three now carry the house Pro marker.
+* **A sentence in `docs/CAPABILITIES.md` was cut in half.** A4's finite-Q block
+  had been spliced into the middle of "the free build shows a teaser in its …
+  place", leaving ten lines of orphaned text in both repos. No gate could see
+  it: every gate here checks numbers, not prose continuity.
+* **The public issue template's second link 404'd.** A6's
+  `.github/ISSUE_TEMPLATE/config.yml` pointed "what is deliberately not
+  planned" at `docs/ROADMAP.md`, which is Pro-side and not exported — dead for
+  every user who clicked it, in the repo it was written for. Repointed at
+  `docs/CAPABILITIES.md`, which is exported and carries the not-planned rows.
+* **A ninth `UNRELEASED` marker, missed because it was lower-case.** The §8a
+  solved-convection row in a PUBLIC capability matrix had read
+  "✅ validated (unreleased)" since v1.1.0. Stamped `v1.1.0`.
+* **"openEMS has no one-click install on any platform" — false since v1.8.0**,
+  and repeated in four places, one of them written last session and one of them
+  a `TUTORIALS.md` editorial note holding the claim up as good practice.
+  Windows has had the one-click Install button for three releases; Linux is a
+  source build and macOS is Homebrew, and the docs now say exactly that.
+* ⭐⭐ **A FALSE NUMBER IN THE PAID PITCH.** `emstudio/ui/pro_teaser.py` told
+  buyers "the plausibility gate is **131 checks**", in a box headed *"Measured,
+  not claimed"*. The gate produces **164**. `tests/validation/pro_teaser.py`
+  asserts the `proof` key EXISTS and never reads the number inside it, so a
+  gate that checks the claim's shape did not check the claim.
+* **The About box carried the tier error too**, in a file that ships
+  byte-identical to the free tree: "a free, open-source workbench … carries
+  array design, impedance matching, filters". Now names those as the §7 System
+  Designer, in Pro.
+* **The second public issue form 404'd as well.** `feature_request.yml` also
+  pointed readers at `docs/ROADMAP.md`; fixing `config.yml` did not fix it.
+* **Windows OpenFOAM guidance was a superseded measurement.** Four strings
+  still said native Windows had "no install at all" and routed users to WSL2
+  and its Administrator step — the native build has been the RECOMMENDED,
+  no-admin, per-user route since 2026-08-08.
+* **Stale UI strings**: the Element Designer's window title and the Element
+  Designer / Array Designer / Solver Setup tooltips, plus six package
+  docstrings (Palace's "eigenmode only", `templates` as "placeholder",
+  `system` as "slice S1, GUI in later slices") and the addon-publishing guide,
+  which told a reader to paste the **private** repo's URL into the Add-on
+  Manager and still said EMStudio was "not submitted".
+* **Counts that had drifted and were checked by nothing**: the Element
+  Designer's family list said **five** in six places (it is **eight**); the
+  site said **fifteen** example documents (**nineteen**); the site's quoted
+  battery transcript was a **v1.2.0** run; the site deploy artifact was called
+  **51 entries** in four files (it is **46**, and has been since the release
+  tool started deriving it from `git ls-files`); `package.xml` carried a
+  `<date>` of 2026-08-10 that nothing bumps; and four `OUTSTANDING_SWEEP`
+  items and four `ROADMAP` items still described A5/A6 work as future.
+
+### Gated, so it cannot rot again
+
+Three surfaces quoted numbers that a gate DERIVES while nothing bumped or
+checked them. That class produced the false 131 above, so all three are closed
+rather than merely corrected (AJ's call, 2026-08-26).
+
+* **`tests/validation/pro_teaser.py` now checks the NUMBERS, not just the
+  keys.** Any `"N checks"` in a `proof` string must equal
+  `capability_counts._check_sites()` on the gate file that produces it — the
+  same derivation `doc_counts` uses, so the pitch and CLAUDE.md cannot drift
+  apart while agreeing with neither. It carries an **anti-vacuity half**: a
+  counted claim on a feature that is NOT in `COUNTED_CLAIMS` fails and names
+  the key to add, and a stale key in `COUNTED_CLAIMS` fails the coverage
+  check — because a table that silently stops matching is how a check passes
+  while testing nothing. Mutation-proven three ways: restoring the 131 fails;
+  adding `"the direction-finding gate is 99 checks"` to another feature fails;
+  a stale key fails.
+* **`tools/release.py` stamps SEVEN surfaces, not five.** `package.xml`'s
+  `<date>` (which read 2026-08-10 while 1.10.0 shipped on the 26th) and
+  **CLAUDE.md's Status line** (gated by `doc_counts`, written by nothing, so
+  every release opened red until somebody remembered) are now stamped with the
+  version and date together. ⚠ **The date is not a flag** — it is read from the
+  `## [X.Y.Z] — YYYY-MM-DD` heading the tool already refuses to proceed
+  without, so a release cannot be stamped with a date its own notes disagree
+  with, and a missing CHANGELOG section skips the stamps rather than guessing
+  one. Mutation-proven four ways, including moving the CHANGELOG's own date
+  and watching both stamps follow it.
+* ⚠ The teaser's array claim **"Scanning and 2-D arrays, with pattern CSV
+  export"** was split in two. CSV export builds a LINEAR row and refuses for
+  planar/circular, so the single sentence read as though the export covered
+  the 2-D geometries it explicitly declines.
 
 ### Measured, and worth recording
 

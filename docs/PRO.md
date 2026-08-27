@@ -37,7 +37,13 @@ Live-verified end to end: the shipped 71.9 Ω dipole matched to **VSWR 1.010**.
 transforms, and both diplexer families. The contiguous constant-R diplexer holds
 its composite input impedance to **under 1e-6 Ω at every order n = 1…7**; the
 non-contiguous design assembles to **0.112 dB insertion loss, VSWR 1.38 and
-34.8 dB port isolation**.
+34.8 dB port isolation**. Since v1.10.0 the designer prices the **build**, not
+just the ideal: give it a component Q and it rebuilds the ladder from real
+parts carrying series `R = |X|/Q_u`, reporting the loss **burnt in the
+components** apart from the loss merely **reflected** — within **0.7 %** of the
+standard midband estimate at Q 100, improving to 0.02 % at Q 5000. ⚠ The Q in
+that estimate is the RESONATOR Q, not the component Q, and the difference is
+exactly a factor of two.
 
 **Phased arrays that actually steer.** Arrays specify element *currents*, but
 NEC2 drives *voltages* — Pro solves V = Z·I through the real mutual-impedance
@@ -47,7 +53,12 @@ equal-voltage drive on the same wires. With amplitude tapers (binomial,
 Dolph-Chebyshev, Taylor n̄), a steered 8-element Dolph array reproduces its
 **−26.02 dB Chebyshev sidelobe floor to 0.04 dB on real coupled dipoles**,
 against −12.7 dB for the uniform control — **13.4 dB of measured suppression
-for 0.58 dB of peak gain.**
+for 0.58 dB of peak gain.** Geometry is no longer linear-only: v1.10.0 adds
+**planar** (Nx×Ny grid) and **circular** (ring) arrays with 2-D steering
+(θ₀, φ₀), per-axis or around-the-ring tapering, and a grating-lobe warning when
+a ring's arc spacing exceeds λ/2. ⚠ The live NEC2 Verify, the 3-D overlay and
+the pattern CSV export each build a LINEAR row, so all three are disabled — and
+refuse if called anyway — for the 2-D geometries.
 
 **RF direction finding.** Watson-Watt/Adcock with the octantal spacing error
 *computed* from the exact crossed-pair response rather than assumed away;

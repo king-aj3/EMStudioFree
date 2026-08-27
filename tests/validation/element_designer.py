@@ -313,7 +313,7 @@ def gate_picker():
           "1." in txt and "why:" in txt and "Yagi" in txt)
     txt_lpda = ep.summary_text(ep.recommend_element(
         {"f_lo_hz": 54e6, "f_hi_hz": 216e6}))
-    check("picker: the LPDA renders available (all five families shipped — "
+    check("picker: the LPDA renders available (every core family shipped — "
           "no ships-in flag anywhere)", "LPDA" in txt_lpda
           and "ships in slice" not in txt_lpda)
 

@@ -7,7 +7,7 @@ docs/CAPABILITIES.md "Frequency range & validity" and docs/ROADMAP.md §4). This
 module routes a frequency (and, optionally, the antenna's physical size) to the
 EMStudio method that is actually valid there, with a one-line rationale and the
 validity caveat stated up front. It is the deterministic core that both the
-small-antenna dialog and (later) the §3 AI assistant call.
+small-antenna dialog and the §3 AI assistant (shipped v0.71-v0.73) call.
 
 Pure-python, Qt-free and FreeCAD-free (importable headless). Frequencies in Hz.
 """

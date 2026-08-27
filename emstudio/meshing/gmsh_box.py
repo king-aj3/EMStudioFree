@@ -1,9 +1,13 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""Gmsh 3-D meshing for box/cavity FEM analyses (Palace backend).
+"""Gmsh 3-D meshing for FEM analyses (Palace backend) — closed AND open.
 
-Meshes an axis-aligned rectangular box (a cavity interior) into 3-D
-tetrahedra with one physical volume (the dielectric interior) and one
-physical surface group (the PEC walls). Output is gmsh ``.msh`` version
+Four geometries now, not one: :func:`write_geo` (a closed PEC cavity),
+:func:`write_geo_open` (an open box with an absorbing far-field shell),
+:func:`write_geo_dipole_open` (a centre-fed dipole in a radiating domain —
+v1.10.0) and the coax writer. The original and simplest case meshes an
+axis-aligned rectangular box (a cavity interior) into 3-D tetrahedra with one
+physical volume (the dielectric interior) and one physical surface group (the
+PEC walls). Output is gmsh ``.msh`` version
 2.2 ASCII — the format AWS Palace / MFEM reads most reliably (verified
 with Palace on 2026-07-06). Physical tags become MFEM attributes: the
 volume is attribute 1, the walls attribute 2.
@@ -181,8 +185,14 @@ def write_geo_dipole_open(path, wavelength_mm, arm_len_mm=None,
     ⭐ **This is the geometry the far-field path was missing.** EMStudio could
     hand Palace an absorbing boundary and a ``Postprocessing.FarField`` block
     (v1.5.0), and could read the answer back (the far-field parser) — but
-    nothing ever BUILT a radiating Palace domain, so the whole capability had
-    no click-path. This writes one.
+    nothing ever BUILT a radiating Palace domain. This writes one.
+
+    ⚠ **There is still no GUI click-path.** The only caller is
+    ``tests/validation/palace_dipole_farfield.py``; no Templates entry and no
+    command builds this. "The capability had no click-path" was the reason it
+    was written, and writing it did not by itself create one — a Templates
+    entry is separate, unstarted work. Do not read this function's existence
+    as a button a user can press.
 
     The arrangement follows Palace's own antenna example
     (``examples/antenna/mesh/mesh.jl``, Copyright Amazon.com Inc., Apache-2.0),

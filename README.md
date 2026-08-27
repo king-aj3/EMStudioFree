@@ -5,7 +5,7 @@ engineering approachable**: guided workflows, real calculations, automatic
 meshing, validated solvers, and professional outputs (Touchstone, radiation
 patterns, build specs and BOMs).
 
-> **Status:** v1.9.0 — this line is checked against `package.xml` by the smoke
+> **Status:** v1.10.0 — this line is checked against `package.xml` by the smoke
 > test, so it cannot silently go stale.
 
 > 🎓 **For educational, hobbyist and experimental use — and under active
@@ -49,9 +49,13 @@ rule-based family recommender with printed rationale, then synthesis for
 **wire** (dipole / monopole / folded / λ-fractions on an end-effect curve
 measured on our own NEC2), **Yagi-Uda** (NBS TN-688 — within ±0.25 dB of the
 paper's measured gains on live NEC2), **microstrip patch** (transmission-line
-synthesis, openEMS-verified to −2.8 % at 2.4 GHz) and **LPDA** (Carrel on the
+synthesis, openEMS-verified to −2.8 % at 2.4 GHz), **LPDA** (Carrel on the
 corrected Butson-Thompson contours, crossed feeder modeled with real NEC2 TL
-cards). Plus 20 source-verified service presets, an in-dialog
+cards), the **pyramidal horn** (optimum flare from frequency + target gain, the
+validated Ka-band reference), and — new in v1.10.0 — the handset pair, a
+printed **inverted-F** and a **PIFA** whose openEMS solve lands **+0.22 %** from
+a published anechoic-chamber measurement. Eight families in all.
+Plus 20 source-verified service presets, an in-dialog
 predicted-vs-achieved verify, Accept→Generate to a runnable analysis, and PDF
 build reports with a dimensioned sketch and element schedule.
 
@@ -124,10 +128,10 @@ without any solver installed; the analytic tools work regardless.
 
 Solver Setup is platform-aware: `apt` on Debian/Ubuntu/Mint, `brew` on macOS,
 and on **Windows a one-click Install… button** for the backends whose binaries
-can be distributed — **NEC2, Elmer and Gmsh**. Those download into
-`%LOCALAPPDATA%\EMStudio\solvers\`, per-user, with no admin rights and no
-shell, and are detected without touching `PATH`. openEMS and Palace still need
-WSL2; FastHenry is built from source — Solver Setup's **Build…** button
+can be distributed — **NEC2, Elmer, Gmsh and — since v1.8.0 — openEMS**. Those
+download into `%LOCALAPPDATA%\EMStudio\solvers\`, per-user, with no admin
+rights and no shell, and are detected without touching `PATH`. Palace still
+needs WSL2; FastHenry is built from source — Solver Setup's **Build…** button
 automates the compile when a MinGW toolchain is present (FastFieldSolvers'
 own Windows bundle ships a GUI/Automation FastHenry2 that EMStudio cannot
 drive as a subprocess). Its licensing is resolved — the 2003 M.I.T.

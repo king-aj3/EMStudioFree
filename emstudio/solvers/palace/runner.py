@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""Palace eigenmode pipeline: Prepare -> Mesh -> Solve -> Results.
+"""Palace pipeline: Prepare -> Mesh -> Solve -> Results.
+
+Eigenmode was the first analysis; the module also runs driven S-parameter
+sweeps (``run_waveguide``, ``run_waveguide_brep``, ``run_coax``) and, since
+v1.10.0, reads the far-field pattern back after every driven excitation.
 
 Pipeline::
 

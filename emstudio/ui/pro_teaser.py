@@ -84,7 +84,13 @@ FEATURES = {
             "Binomial / Dolph-Chebyshev / Taylor-n̄ amplitude tapers: the "
             "−26.02 dB Chebyshev sidelobe floor reproduced to 0.04 dB, against "
             "−12.7 dB uniform.",
-            "Scanning and 2-D arrays, with pattern CSV export.",
+            # ⚠ The two halves are deliberately separated. CSV export builds a
+            # LINEAR row and REFUSES for planar/circular, so "2-D arrays, with
+            # pattern CSV export" read as though the export covered them.
+            "Scanning, and planar (Nx x Ny) or circular array geometry "
+            "with 2-D steering.",
+            "Pattern CSV export to the coverage tools — linear geometry, "
+            "which is what the export and the live NEC2 verify build.",
         ],
     },
     "rfdf": {
@@ -111,8 +117,14 @@ FEATURES = {
                  "and explains the result in RF terms — is part of EMStudio "
                  "Pro, " + legal.PRO_PRICE + ". See ajj3.us.",
         "proof": [
+            # ⚠ A NUMBER IN A PAID PITCH. It read 131 until 2026-08-26, three
+            # months after the gate outgrew it — the module docstring warns
+            # about exactly this and nothing enforced it, because
+            # tests/validation/pro_teaser.py checks that the keys EXIST and
+            # never reads the numbers. Derive it the way doc_counts does:
+            #   capability_counts._check_sites('tests/validation/assistant.py')
             "Answers are checked against the model before you see them: the "
-            "plausibility gate is 131 checks, 16 of them proven by mutation.",
+            "plausibility gate is 164 checks, 16 of them proven by mutation.",
             "It reports measured quantities from YOUR run — front-to-back, "
             "HPBW, bandwidth — rather than generating prose about antennas.",
         ],

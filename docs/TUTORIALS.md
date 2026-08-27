@@ -104,9 +104,11 @@ wire, not the ends.
 
 **Needs:** **openEMS**. It installs separately — **Setup ▸ Detect / Install
 Solvers** tells you whether one is present and gives you the instructions if
-not (source build on Linux, prebuilt zip on Windows). There is no one-click
-path for openEMS on any platform yet; that is a real gap and it is being said
-out loud rather than discovered by you.
+not. **On Windows there is a one-click Install… button since v1.8.0** — it
+downloads a prebuilt openEMS plus a local Python venv into
+`%LOCALAPPDATA%\EMStudio\solvers\`, per-user, no admin rights. On Linux it is
+still a source build, and on macOS a Homebrew formula; those are said out loud
+rather than discovered by you.
 
 **Do**
 1. Open `examples/patch_2p4GHz.FCStd` — an inset-fed patch on 1.524 mm
@@ -216,8 +218,10 @@ whether one is present.
 EMStudio is validated to **57 GHz for CLOSED STRUCTURES** — waveguides and
 cavities. For *antennas* the gated ladder stops far lower: the highest-frequency
 radiating structure with a gate behind it is the **30 GHz standard-gain horn**
-of tutorial 33, and below that the **3.5 GHz n78 patch** of tutorial 34 and the
-**2.435 GHz patch** of tutorial 3. Full-wave Maxwell has no physics break at mmWave — the only real
+of tutorial 33, and below that the **3.5 GHz n78 patch** of tutorial 34, the
+**2.45 GHz printed inverted-F** of tutorial 35, the **2.435 GHz patch** of
+tutorial 3 and the **1.892 GHz PIFA** of tutorial 36 — the last of these being
+the only one anchored to a MEASUREMENT rather than to a computation. Full-wave Maxwell has no physics break at mmWave — the only real
 cost is a finer mesh — but "no reason it should fail" is not the same as
 "checked", and this project only claims the second. If you are here for a 28 GHz
 patch, this tutorial shows you the solver is sound at that frequency; it does
@@ -257,14 +261,18 @@ TE101 must match the closed form to better than 0.1 %: measured
 there specifically to prove headroom past 40 GHz.
 
 ⛳ **What is still missing, said plainly.** The gated radiating points are
-**2.435 GHz**, **3.5 GHz** and **30 GHz** — three rungs, not a continuum, and
-everything between them is *feasible* rather than *checked*. ⚠ They are also
-not equally strong: tutorial 3 reproduces an external published geometry and
-tutorial 33 an external published gain curve, while tutorial 34's n78 patch is
-checked against our own synthesis. So mmWave *antenna* work — 28 GHz patches,
-handset PIFAs, arrays — is still not something this project has earned the
-right to claim, and the gate being sought needs a published, *measured*
-reference to anchor to.
+**1.892 GHz**, **2.435 GHz**, **2.45 GHz**, **3.5 GHz** and **30 GHz** — five
+rungs, not a continuum, and everything between them is *feasible* rather than
+*checked*. ⚠ They are also not equally strong, and the ranking matters more
+than the frequency: tutorial 36's **PIFA is checked against a published
+anechoic-chamber MEASUREMENT** (+0.22 %), which is the strongest form of
+anchor here and the only one of that kind; tutorial 3 reproduces an external
+published geometry, tutorial 33 an external published gain curve, tutorial 35
+an external published example that prints no numbers, and tutorial 34's n78
+patch is checked only against our own synthesis. So **handset antennas now
+have their measured anchor** — but mmWave *antenna* work at 28 GHz (patches,
+arrays on substrate) still rests on one gated Ka-band horn, and one gated
+point is not a validated band.
 
 ## 7. Induction heating, against measured laboratory data
 
@@ -1187,7 +1195,7 @@ including what it got wrong and withdrew.
 
 # 🔒 The Pro capabilities — what they measure
 
-These four are **EMStudio Pro**. The stubs below say what each one does and the
+These five are **EMStudio Pro**. The stubs below say what each one does and the
 number it measured, so you can judge whether it is worth anything to you; the
 step-by-step walkthroughs ship with Pro.
 
@@ -1567,8 +1575,8 @@ tier gate and is deliberately **not** in the fast battery.
 
 ## 34. A 5G sub-6 patch, designed into band n78
 
-**Needs:** **openEMS** — the same install as tutorial 3, and the same warning:
-there is still no one-click path for openEMS on any platform.
+**Needs:** **openEMS** — the same install as tutorial 3: one click on Windows
+since v1.8.0, a source build on Linux, Homebrew on macOS.
 
 ⛳ **Why this one exists.** Tutorial 3 puts a patch at 2.4 GHz. This puts the
 *same patch, on the same board* at **3.5 GHz**, the centre of **5G NR band n78
@@ -1870,11 +1878,15 @@ Finite-chassis modelling is not something this project does yet.
 
 # Coverage — the standing order is met
 
-> ✅ **Tutorials are available for every capability.** Every solver and every
-> capability EMStudio ships is covered, and the four Pro ones carry public stubs
-> giving what they do and the number they measured, with the walkthrough
-> Pro-side. *"There is nothing showing how to use EMStudio"* is now factually
-> unavailable — which was the entire point.
+> ✅ **Tutorials are available for every capability a user can reach.** Every
+> solver and every capability EMStudio ships a click-path for is covered, and
+> the five Pro ones carry public stubs giving what they do and the number they
+> measured, with the walkthrough Pro-side. *"There is nothing showing how to
+> use EMStudio"* is now factually unavailable — which was the entire point.
+> ⚠ One v1.10.0 capability is deliberately uncovered: Palace's far field and
+> the radiating domain that feeds it are reachable from the API and their
+> gates, not from a menu, so there is nothing yet to walk a user through. It
+> earns a tutorial the day it earns a Templates entry.
 
 ⚠ **Do not quote a tutorial COUNT in prose anywhere** — not in a post, not in a
 README, not here. It goes stale the day the next one lands, and it already has:
@@ -1915,9 +1927,11 @@ a reason to write vaguer prose.
 "you will see 2.13 dBi" is wrong for everyone whose mesh differs. Say the
 window and put the reference inside it.
 
-⛳ **Name what does not work yet.** #3 says openEMS has no one-click install on
-any platform. A limitation the reader finds themselves costs far more than one
-you volunteered.
+⛳ **Name what does not work yet.** #3 names exactly which platforms have a
+one-click openEMS install and which do not. A limitation the reader finds
+themselves costs far more than one you volunteered — but so does a limitation
+you volunteered and then never withdrew: that line claimed "no one-click path
+on any platform" for three releases after Windows got one.
 
 ⛳ **Order by install burden.** Every tutorial that needs nothing installed
 should come before every tutorial that needs a backend.

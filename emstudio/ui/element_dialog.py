@@ -9,9 +9,13 @@ synthesis), **Yagi-Uda** (NBS TN-688 ``yagi`` synthesis, slice E3),
 **Microstrip patch** (``patch_tl`` transmission-line synthesis, openEMS Verify,
 slice E4), **LPDA** (Carrel ``lpda`` synthesis over the shared
 Frequency/Band-top band, crossed-TL feeder through the production writer,
-slice E5 — ALL FIVE core families shipped), and **Small antenna** (routes to
-the shipped VLF/LF/MF dialog). Verify runs NEC2 for wire/Yagi/LPDA and
-openEMS FDTD for the patch.
+slice E5 — ALL FIVE core families shipped), **Small antenna** (routes to
+the shipped VLF/LF/MF dialog), **Pyramidal horn** (the optimum-flare aperture
+from frequency + target gain; Create/Verify are OFF because the shipped builder
+makes the VALIDATED reference horn, not an arbitrary one), **Inverted-F,
+printed** and **PIFA** (the handset elements, ``ifa``/``pifa`` synthesis) —
+EIGHT families. Verify runs NEC2 for wire/Yagi/LPDA and openEMS FDTD for the
+patch, the IFA and the PIFA.
 
 * **Requirements → Recommend**: the left column captures the requirements
   schema (frequency, target gain dBd/dBi, pattern, polarization, size
@@ -21,8 +25,12 @@ openEMS FDTD for the patch.
 * **Synthesized geometry is editable**: the length spinbox carries a
   synthesized/edited badge + Reset (any synthesis input change
   re-synthesizes); "Length → f₀" is the cheap inverse.
-* **Verify with NEC2** runs the design through the PRODUCTION writer
-  off-thread (``run_generic_gui``) and reports predicted-vs-achieved.
+* **Verify** runs the design through the PRODUCTION writer off-thread
+  (``run_generic_gui``) and reports predicted-vs-achieved. The button renames
+  itself to the engine the current family actually uses — NEC2 for
+  wire/Yagi/LPDA, openEMS FDTD for the patch, the IFA and the PIFA — and is
+  OFF for the horn, whose shipped builder makes the VALIDATED reference horn
+  rather than an arbitrary one.
   Resonance is selected by an R-WINDOW (the E1 lesson: multi-wire/harmonic
   structures have several X = 0 crossings — never take the first blindly);
   the read-out formatter is a pure function so ``gui_smoke`` gates it
@@ -120,8 +128,8 @@ class ElementDesignerDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(
-            "EMStudio — Element Designer (Wire · Yagi · Patch · LPDA · "
-            "Small antenna)")
+            "EMStudio — Element Designer (Wire · Yagi · Patch · LPDA · Horn · "
+            "IFA · PIFA · Small antenna)")
         self.resize(1150, 700)
 
         self._updating = False
@@ -337,8 +345,12 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         self.verify_view = QtWidgets.QPlainTextEdit()
         self.verify_view.setReadOnly(True)
         self.verify_view.setFont(QtGui.QFont("Monospace"))
+        # Engine-neutral ON PURPOSE: the Verify button renames itself per
+        # family (NEC2 / openEMS), but this placeholder is set once at
+        # construction and nothing updates it — so naming one engine here
+        # would be wrong on five of the eight families.
         self.verify_view.setPlaceholderText(
-            "Run 'Verify with NEC2' for a predicted-vs-achieved read-out.")
+            "Run Verify for a predicted-vs-achieved read-out.")
         self.tabs.addTab(self.verify_view, "Verify")
         right.addWidget(self.tabs, 1)
         root.addLayout(right, 1)
