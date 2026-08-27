@@ -8,7 +8,59 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > ⚠ Rename this heading on release — the step that was missed through the whole
 > of 1.0.0 once already.
 > ⚠ Before tagging, grep `docs/CAPABILITIES.md` for **UNRELEASED** and replace
-> every marker with the real version — 1.10.0 carried six of them.
+> every marker with the real version — 1.10.0 carried six of them. ⚠ And grep
+> case-INSENSITIVELY: 1.10.0 also found a lower-case `(unreleased)` that had
+> been public since v1.1.0.
+
+### Added
+
+* ⭐⭐ **The measured radiating anchor is now a measured TREND** (bucket B, item
+  B-i, rung 1 — the epic's anchor, not the epic). `pifa_openems` solves the
+  published anchor PIFA on **four** ground-plane sizes and checks each against
+  the chamber column of Huynh's Table 5-1, plus the shift against our own 80 mm
+  solve:
+
+  | ground | ours | measured | error | shift ours | published | delta |
+  |---|---|---|---|---|---|---|
+  | 20 mm | 2458.3 MHz | 2440 | **+0.75 %** | +29.64 % | +28.96 % | +0.68 pp |
+  | 40 mm | 2023.6 MHz | 1987 | **+1.84 %** | +6.72 % | +5.02 % | +1.70 pp |
+  | 80 mm | 1896.2 MHz | 1892 | **+0.22 %** | — | — | — |
+  | 100 mm | 1873.7 MHz | 1886 | **−0.65 %** | −1.19 % | −0.32 % | −0.87 pp |
+
+  ⚠ The closed form returns **1873.7 MHz for every one of them** — it has no
+  ground-size term at all. "On a handset the chassis is part of the antenna"
+  stops being a warning printed beside a number and becomes a checked fact.
+  `makePIFA` gained a `ground_m` parameter; the engine gained
+  `GROUND_LADDER_MEAS_HZ`.
+
+* ⚠⚠ **Two corrections that only came from reading the source, and both would
+  have produced a WRONG gate.**
+  * The **+18.3 %** ground-plane shift this project has quoted since A2 is
+    Table 5-1's **COMPUTED (IE3D)** column, not its measured one — 2343 MHz at
+    L = 20 against 1980 MHz at infinite ground. `pifa-anchors.md` said "Table
+    5-1 MEASURES it" and then quoted three numbers, of which **none** came from
+    the measured column (the 2.4 : 1 bandwidth spread is computed too, and the
+    table publishes **no measured gain at all**). Gating against it would have
+    been a solver-vs-solver consistency check — exactly what tutorial 34 warns
+    about for the n78 patch. The measured pair is both stronger and larger:
+    **+29.0 %**.
+  * **The trend is NOT MONOTONIC.** Measured resonance falls as the ground
+    grows only to a minimum at **L = 100 mm**, then rises again (1899 MHz at
+    120, 1942 at 140). "Bigger ground, lower resonance" is the assertion a
+    reasonable person writes from the summary, and it is false. The gate pins
+    the honest form: the minimum has not been passed at 80 mm.
+
+* ⚠ **And the obvious cheap gate would have measured noise.** The 80 mm and
+  100 mm rows differ by **6 MHz** while this gate's own mesh spread across
+  MeshResolution 20–90 is about **30 MHz** — five times larger. The 20 mm rung
+  moves 548 MHz, roughly 18× the spread, which is why the ladder is anchored
+  there and why the gate carries an explicit floor.
+
+* ⚠ The ladder asserts **resonance only, never match depth**. The published rows
+  re-match the probe at every ground size (px 1.7 → 3.5 mm) and `makePIFA` holds
+  the feed fixed, so the 20 mm rung reaches only −9.55 dB. Comparing S11 across
+  the ladder would be comparing two different experiments. Mutation-proven four
+  ways.
 
 ## [1.10.0] — 2026-08-26
 

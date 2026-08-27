@@ -31,6 +31,16 @@ rather than one span:
   reproduced to +0.22 % (v1.10.0).** This is the project's only radiating
   anchor checked against real measured hardware rather than against a
   computation, and it is the strongest radiating claim available here.
+  ⭐⭐ **And since 2026-08-27 it is a measured TREND, not a single point.** The
+  same antenna is solved on **four** published ground-plane sizes and checked
+  against the chamber column of each: 20 mm **+0.75 %**, 40 mm **+1.84 %**,
+  80 mm **+0.22 %**, 100 mm **−0.65 %** — the resonance moving **+29 %** across
+  the shrink, and the measured **non-monotonic** turn at 100 mm reproduced.
+  ⚠ The closed form returns 1873.7 MHz for every one of those grounds, because
+  it has no ground-size term: this is the finite-chassis effect made checkable
+  rather than merely warned about. ⚠ It gates RESONANCE only — the published
+  rows re-match the probe at every ground size and we hold the feed fixed, so
+  match depth across the ladder is two different experiments.
   ⛳ Also **2.45 GHz — a printed inverted-F rebuilt from openEMS's own published
   example** (v1.10.0); external geometry, but that example publishes no
   numbers, so the window comes from a quarter-wave rule.

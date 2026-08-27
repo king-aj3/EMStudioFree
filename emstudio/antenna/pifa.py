@@ -92,6 +92,44 @@ ANCHOR = {
     "published_meas_100mm_hz": 1886e6,  # chamber, 100 mm square ground
 }
 
+#: Huynh Table 5-1's MEASURED column: this same antenna (G 20 / S 5 / H 10) on
+#: square ground planes of side L. Ground side in mm -> chamber resonance in Hz.
+#:
+#: ⭐ THIS IS A MEASURED TREND, NOT A SINGLE MEASURED POINT, and it is the
+#: strongest thing this project has: the closed form above returns 1873.7 MHz
+#: for EVERY row of it, because it has no ground-size term at all.
+#:
+#: ⚠⚠ IT IS NOT MONOTONIC. Resonance FALLS as the ground grows to 100 mm and
+#: then RISES again — the ground plane is a radiating structure in its own
+#: right, not a mirror. "Bigger ground, lower resonance" is true only up to the
+#: minimum at L = 100 mm, and a check asserting it in general would be
+#: asserting false physics.
+#:
+#: ⚠ The published rows RE-MATCH the feed at every ground size (probe px runs
+#: 1.7 mm at L = 20 to 3.5 mm at L = 140). We hold the feed fixed, so
+#: resonances stay comparable and MATCH DEPTH does not — do not compare S11 or
+#: bandwidth across this ladder.
+GROUND_LADDER_MEAS_HZ = {
+    20: 2440e6,
+    40: 1987e6,
+    60: 1905e6,
+    80: 1892e6,
+    100: 1886e6,
+    120: 1899e6,
+    140: 1942e6,
+}
+
+#: ⚠ The three ground-plane headline numbers this project quotes — "+18.3 %
+#: shift toward 0.156 lambda", "2.4 : 1 bandwidth spread", "3.7 dB gain spread"
+#: — all come from Table 5-1's **COMPUTED (IE3D)** column, not its measured
+#: one. Checked 2026-08-27 against the thesis: +18.3 % is computed 2343 MHz at
+#: L = 20 against computed 1980 MHz at INFINITE ground, and the table publishes
+#: no measured gain at all. The MEASURED shift over the same shrink is larger,
+#: **+29.0 %** (2440 vs 1892 MHz, 20 mm vs 80 mm). Prefer the measured pair:
+#: comparing our full-wave against IE3D would be a solver-vs-solver consistency
+#: check, which this project ranks BELOW an anchor against hardware.
+GROUND_SHIFT_MEAS_PCT = 28.96  # (2440 / 1892 - 1) * 100, both measured
+
 
 def branch_full_short(l2_m, h_m):
     """f1 — the full-width-short case (W = L1): a quarter-wave resonator."""

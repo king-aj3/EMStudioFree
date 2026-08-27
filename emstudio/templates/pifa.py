@@ -146,12 +146,26 @@ def _build(doc, d, label):
     return ana
 
 
-def makePIFA(doc=None):
+def makePIFA(doc=None, ground_m=None):
     """Build the PUBLISHED anchor PIFA verbatim (20 x 20 mm plate, W 5, H 10).
 
     Dimensions are the published ones, NOT synthesized -- this is the geometry
     whose resonance was measured in a chamber (1892 MHz on this 80 mm ground),
     so it must not drift with the engine.
+
+    :param ground_m: square ground-plane side in metres. ``None`` keeps the
+        anchor's own 80 mm, which is the ground the 1892 MHz measurement was
+        taken on. Pass another size to walk the GROUND-PLANE LADDER: Huynh's
+        Table 5-1 measured this same antenna on 20/40/60/80/100/120/140 mm
+        grounds, and the resonance moves by **29 %** across it. That is not
+        packaging tolerance -- on a handset the chassis is part of the radiator
+        -- and ``pifa_openems`` gates our agreement with that measured trend.
+        ⚠ Everything else stays FIXED when you change this, including the feed
+        offset. Huynh RE-MATCHED the probe at every ground size (px 1.7 mm at
+        L = 20 up to 3.5 mm at L = 140); we do not, so the resonance stays
+        comparable but the MATCH does not -- measured, the 20 mm ground reaches
+        only -9.55 dB here. Never gate S11 depth or bandwidth across this
+        ladder against Huynh's numbers.
     """
     if doc is None:
         doc = FreeCAD.ActiveDocument
@@ -159,6 +173,7 @@ def makePIFA(doc=None):
         doc = FreeCAD.newDocument()
 
     a = pifa_engine.ANCHOR
+    g = a["ground_m"] if ground_m is None else float(ground_m)
     d = {
         "f0_hz": pifa_engine.resonant_frequency(
             a["l1_m"], a["l2_m"], a["h_m"], a["w_m"]),
@@ -168,9 +183,12 @@ def makePIFA(doc=None):
         "short_width_m": a["w_m"],
         # A quarter of the way in from the short, the same seed the engine uses.
         "feed_offset_m": 0.25 * a["l2_m"],
-        "ground_m": a["ground_m"],
+        "ground_m": g,
     }
-    return _build(doc, d, "PIFA (published anchor, 20x20 mm plate)")
+    label = "PIFA (published anchor, 20x20 mm plate)"
+    if ground_m is not None:
+        label = "PIFA (published anchor, %g mm ground)" % (g * 1000.0)
+    return _build(doc, d, label)
 
 
 def makePIFADesign(doc=None, f0_hz=2.45e9, height_mm=None, l1_over_l2=1.0,
