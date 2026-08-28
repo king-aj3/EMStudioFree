@@ -47,6 +47,34 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+* **Every GUI command is now documented, and a gate keeps it that way.** Seven
+  of the fifty registered commands had no row in `HELP.md`'s command table —
+  the file a user opens to find out what a command does — and none was
+  described anywhere else in it either. Two were recent headline features:
+  **`Solve Wind Loading`, which v1.9.0 was NAMED for** (the file's five "wind"
+  hits were every one coil *winding*), and the **`Filter & Diplexer Designer`**
+  from v1.3.0, extended by A4 in this very release, which had only the word
+  "diplexers" in a Pro blurb and no `USER_MANUAL` section either. Also
+  `Show Convection Field in 3-D View`, `Wave Ports from Selection`,
+  `Show Results`, `Assistant` and `EMStudio Pro — install / activate`.
+  All seven now have rows.
+  * The class is closed by a check in `doc_counts`: every `"MenuText"` in
+    `commands.py` must be a HELP.md row or be named in `MERGED_HELP_ROWS`, the
+    declared allow-list for rows that deliberately cover several commands
+    (three rows cover eight commands between them — a merged row is good
+    documentation, not a gap). Mutation-proven three ways; renaming a merged
+    row fires TWO failures, the stale allow-list AND the commands it silently
+    stopped covering.
+  * ⭐ **Why two sweeps missed this.** v1.10.0 ran 157 subagents over the docs
+    and confirmed 97 findings, and none was this one. Both rounds hunted claims
+    that were **wrong** — stale versions, stale counts, tier errors, superseded
+    measurements. **A missing row makes no false claim**, so a staleness sweep
+    is structurally blind to it: absence is visible only against an INVENTORY,
+    never against a diff with reality.
+  * ⚠ It lives in `doc_counts` rather than a new gate file deliberately — a new
+    free-side gate would have moved the public gate count 96 → 97 and forced a
+    site redeploy to keep `artefact_versions` green. Gate count is unchanged.
+
 * ⭐⭐ **The measured radiating anchor is now a measured TREND** (bucket B, item
   B-i, rung 1 — the epic's anchor, not the epic). `pifa_openems` solves the
   published anchor PIFA on **four** ground-plane sizes and checks each against
