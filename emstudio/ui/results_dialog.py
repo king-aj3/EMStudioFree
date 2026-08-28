@@ -18,6 +18,7 @@ matplotlib.use("QtAgg", force=False)
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas  # noqa: E402
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
+from matplotlib.patches import Circle  # noqa: E402  (Smith-chart grid)
 
 import numpy as np  # noqa: E402
 
@@ -385,6 +386,7 @@ class SweepResultsDialog(QtWidgets.QDialog):
         tabs.addTab(self._plot_s11(), "S-Parameters")
         tabs.addTab(self._plot_vswr(), "VSWR")
         tabs.addTab(self._plot_z(), "Impedance")
+        tabs.addTab(self._plot_smith(), "Smith")
         if farfield is not None:
             tabs.addTab(self._pattern_tab(self._plot_pattern), "Pattern")
             if farfield.phi.size > 4:  # full-sphere data -> 3-D balloon
@@ -936,6 +938,94 @@ class SweepResultsDialog(QtWidgets.QDialog):
         self._add_freq_cursor(ax, canvas,
                               [("R", np.real(self.result.zin)),
                                ("X", np.imag(self.result.zin))], " Ω")
+        return canvas
+
+    def _plot_smith(self):
+        """The impedance locus on a Smith chart.
+
+        ⚠ Everything numeric here comes from ``emstudio.post.smith``, which is
+        Qt-free and gated (``tests/validation/smith.py``). This method decides
+        colours and nothing else — the same split every other tab uses, and the
+        reason a chart the user reads can be checked without opening a dialog.
+
+        ⚠⚠ THE CHART IS NORMALISED TO THE PORT, NOT TO 50 Ω. The centre means
+        "matched to this port's reference impedance", so the axes state z0
+        explicitly. A Smith chart without its z0 printed on it is half a number,
+        and on a 75 Ω or a 100 Ω port the unlabelled chart is actively
+        misleading.
+        """
+        from emstudio.post import smith as smith_mod
+
+        fig, canvas = self._canvas()
+        ax = fig.add_subplot(111)
+        ax.set_aspect("equal")
+        ax.axis("off")
+
+        # --- the grid: constant-R circles and constant-X arcs ---------------
+        # Clipped to the unit disc, because the parts of an X arc outside it
+        # correspond to negative resistance and are not on the chart at all.
+        disc = Circle((0.0, 0.0), 1.0, fill=False, linewidth=1.4, zorder=2)
+        ax.add_patch(disc)
+        for r in smith_mod.DEFAULT_R_GRID:
+            (cx, cy), rad = smith_mod.r_circle(r)
+            ax.add_patch(Circle((cx, cy), rad, fill=False, linewidth=0.6,
+                                alpha=0.45, zorder=1))
+        for x in smith_mod.DEFAULT_X_GRID:
+            for sign in (1.0, -1.0):
+                (cx, cy), rad = smith_mod.x_circle(sign * x)
+                arc = Circle((cx, cy), rad, fill=False, linewidth=0.6,
+                             alpha=0.45, zorder=1)
+                arc.set_clip_path(disc)
+                ax.add_patch(arc)
+        ax.plot([-1.0, 1.0], [0.0, 0.0], linewidth=0.6, alpha=0.45, zorder=1)
+
+        # --- VSWR rings: what the reader is usually looking for -------------
+        for s in smith_mod.DEFAULT_VSWR_RINGS:
+            rad = smith_mod.gamma_radius_for_vswr(s)
+            ax.add_patch(Circle((0.0, 0.0), rad, fill=False, linewidth=0.8,
+                                linestyle=":", alpha=0.8, zorder=3))
+            # ⚠ Stacked up the vertical axis, each with an OPAQUE backing.
+            # The rings are 0.33 / 0.20 / 0.09 from the centre, so vertically
+            # the labels clear each other easily — what they did NOT clear was
+            # the constant-X grid running underneath, which is what made the
+            # first version unreadable. Putting them on the horizontal axis
+            # instead was worse: there the same spacing is smaller than the
+            # label WIDTH and all three ran together.
+            ax.annotate("VSWR {0:g}".format(s), (0.0, rad), fontsize=6.5,
+                        ha="center", va="bottom", zorder=4,
+                        bbox=dict(boxstyle="round,pad=0.12", facecolor="white",
+                                  edgecolor="none", alpha=0.9))
+
+        # --- the locus ------------------------------------------------------
+        g = self.result.s11
+        ax.plot(np.real(g), np.imag(g), "-", linewidth=2, zorder=5,
+                label="Zin over the sweep")
+
+        # Mark the ends so the direction of increasing frequency is readable —
+        # a locus without that is a shape, not a measurement.
+        ax.plot(np.real(g[0]), np.imag(g[0]), "o", markersize=6, zorder=6,
+                label="{0:.4g} MHz (start)".format(self.result.freq[0] / 1e6))
+        ax.plot(np.real(g[-1]), np.imag(g[-1]), "s", markersize=6, zorder=6,
+                label="{0:.4g} MHz (end)".format(self.result.freq[-1] / 1e6))
+
+        i = int(np.argmin(self.result.s11_db()))
+        r = smith_mod.readout(self.result.zin[i], self.result.z0)
+        ax.plot(np.real(g[i]), np.imag(g[i]), "*", markersize=13, zorder=7,
+                label="best match {0:.4g} MHz".format(self.result.freq[i] / 1e6))
+        ax.plot([0.0], [0.0], "+", markersize=9, zorder=6)
+
+        ax.set_xlim(-1.15, 1.15)
+        ax.set_ylim(-1.15, 1.15)
+        ax.set_title(
+            "Smith chart, normalised to z0 = {0:g} Ω\n"
+            "best match {1:.4g} MHz: {2:.1f} {3} j{4:.1f} Ω  ·  VSWR {5:.2f}  ·  "
+            "return loss {6:.1f} dB  ·  {7}".format(
+                self.result.z0, self.result.freq[i] / 1e6,
+                r["z_ohm"].real, "+" if r["z_ohm"].imag >= 0 else "-",
+                abs(r["z_ohm"].imag), r["vswr"], r["return_loss_db"],
+                r["reactance"]),
+            fontsize=9)
+        ax.legend(loc="upper left", fontsize=7, framealpha=0.85)
         return canvas
 
     def _plot_pattern(self, ff):

@@ -1876,6 +1876,106 @@ quoted without a ground-plane size attached is not a number about a phone.
 Finite-chassis modelling is not something this project does yet.
 
 
+## 37. Reading a Smith chart — the one plot that answers "what do I add?"
+
+**Needs:** nothing extra. Any solved one-port already has everything the chart
+draws; NEC2 is the quickest way to get one (tutorial 1).
+
+⭐ **Why this tutorial exists.** The other plots tell you *whether* a match is
+bad. The Smith chart tells you *what to do about it*, and it is the only plot
+here that does. That is why it survived the slide rule, the calculator and the
+network analyser: it is a nomogram for a calculation you would otherwise do by
+hand every time.
+
+### What the chart actually is
+
+It is the impedance plane, folded onto a disc. Take your impedance, normalise it
+by the port's reference impedance, and apply one map:
+
+```
+z = Z / Z0                         (e.g. 73 + j43 Ω on a 50 Ω port -> 1.46 + j0.85)
+Γ = (z - 1) / (z + 1)              the reflection coefficient
+```
+
+Every point of the infinite right half-plane (every passive impedance) lands
+somewhere inside the unit circle. The map is conformal, which is the whole
+trick: the straight constant-R and constant-X lines of the impedance plane come
+out as **circles**, and circles are drawable.
+
+* **Centre** = Γ 0 = a perfect match. Not "50 Ω" — *matched to this port*.
+* **Right edge** = Γ +1 = open circuit. **Left edge** = Γ −1 = short circuit.
+* **The rim** = |Γ| 1 = a pure reactance, reflecting everything.
+* **Upper half** = inductive (+jX). **Lower half** = capacitive (−jX).
+* **Distance from the centre** = |Γ|, and therefore VSWR and return loss. The
+  dotted rings are drawn at VSWR 2, 1.5 and 1.2 so you can see at a glance
+  which one your locus fits inside.
+
+**Do**
+
+1. Solve any one-port — tutorial 1's dipole is fine — and open **Show Results**.
+2. Open the **Smith** tab, next to S-Parameters, VSWR and Impedance.
+3. Read the title bar first. It states the reference impedance the chart is
+   normalised to, then the best-match frequency and its Z, VSWR and return loss.
+4. Follow the locus from the ○ (sweep start) to the □ (sweep end). The ★ is the
+   best match.
+
+**You should see**
+
+A curve that starts somewhere near the rim, sweeps in toward the centre, and
+leaves again — the signature of a resonance. Where it comes closest to the
+centre is the ★, and it is the same frequency the S-Parameters tab dips at, and
+the same frequency the VSWR tab bottoms out at. Three tabs, one fact.
+
+**How to read it for an ACTION — the part worth learning**
+
+The chart's real use is that it converts "my antenna is 73 + j43 Ω" into "add
+this component". Two rules cover most of it:
+
+* **Which half tells you the sign of what to cancel.** Locus in the upper half
+  means the load is inductive, so it wants series capacitance — or a shorter
+  radiator. Lower half means capacitive, so it wants series inductance, or more
+  length. This is why a dipole that is slightly long sits above the axis and one
+  slightly short sits below.
+* **Crossing the real axis is resonance, not a match.** A locus that crosses the
+  horizontal line has zero reactance there — but it is only *matched* if it
+  crosses **at the centre**. Crossing far to the left is a resonant antenna with
+  a low resistance (a short monopole); crossing far to the right is a resonant
+  antenna with a high one. The distance along the axis is what a transformer or
+  a quarter-wave section fixes; the height above or below it is what a series or
+  shunt reactance fixes. ⚠ Confusing "resonant" with "matched" is the single
+  most common misreading of this chart, and every one of those cases plots
+  differently while looking equally "on tune" on the S11 dip.
+
+⚠⚠ **The chart is normalised, so a chart without its Z0 is half a number.** The
+centre is *your port*, not 50 Ω. On a 75 Ω video port or a 100 Ω differential
+pair, the identical locus means something completely different — which is why
+this tab prints the reference impedance in its title instead of assuming.
+
+⛳ **Return loss vs S11 — a sign, not a disagreement.** The Smith tab reports
+return loss as a **positive** dB number (8.6 dB), and the S-Parameters tab plots
+S11 as a **negative** one (−8.6 dB). Both conventions are standard and they are
+the same measurement; the gate below pins them to be exact negations of each
+other so the two tabs can never drift apart.
+
+**Prove it**
+
+`tests/validation/smith.py` — pure python3, no solver needed. It checks the map
+against the three landmarks every RF engineer knows (matched → centre, short →
+−1, open → +1), that a pure reactance lands exactly on the rim, and that the
+read-outs agree with the tabs the product already had: the chart's VSWR equals
+`SweepResult.vswr()` to 1e-12, and its return loss is the exact negation of
+`s11_db()`.
+
+⚠ The load-bearing checks in that gate are deliberately **not** identities. Most
+statements about a Smith chart are true by construction, and a check that cannot
+fail is worse than no check — so the circle geometry is verified by sampling
+thousands of real impedances, mapping each one through Γ, and confirming the
+images land on the circle the closed form independently predicts. Mutation-
+proven four ways: a sign error in the map, a wrong circle radius, a flipped
+return-loss convention and a drifted VSWR clip all turn it red, and the wrong
+radius is caught by *only* that cross-check.
+
+
 # Coverage — the standing order is met
 
 > ✅ **Tutorials are available for every capability a user can reach.** Every

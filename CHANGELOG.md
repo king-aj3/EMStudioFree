@@ -5,6 +5,28 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+> ⚠ Rename this heading on release — the step that was missed through the whole
+> of 1.0.0 once already.
+> ⚠ Before tagging, grep `docs/CAPABILITIES.md` for **UNRELEASED** and replace
+> every marker with the real version — 1.10.0 carried six of them. ⚠ And grep
+> case-INSENSITIVELY: 1.10.0 also found a lower-case `(unreleased)` that had
+> been public since v1.1.0.
+> ⚠ This reminder block was deleted once (between 1.10.0 and 1.10.1, when the
+> next entry was written straight under the heading). It is the release safety
+> net; put it back rather than letting it go.
+
+## [1.11.0] — 2026-08-27
+
+> Pre-tag proof: ⚠ PENDING — the FULL `--all` battery is running on this
+> release's code and this line is replaced with its verdict before the tag.
+>
+> ⛳ **Cut as 1.10.1 and renumbered to 1.11.0 when the Smith chart went in**,
+> because that is a new tab a user opens — a feature, not a patch. The rest of
+> the release would genuinely have been a patch: validation depth (a measured
+> ground-plane TREND where there had been one measured point), documentation
+> that should always have existed, and two gates watching less than they
+> claimed.
+
 ### Fixed
 * **The installed-copy gate (C14) could not see a Windows or macOS install —
   the one platform-blind spot in a gate written to watch installs.** Its
@@ -46,6 +68,45 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > been public since v1.1.0.
 
 ### Added
+
+* ⭐ **A Smith chart — Results ▸ the new "Smith" tab.** The impedance locus on
+  the unit disc with the constant-R/X grid, VSWR 2 / 1.5 / 1.2 rings, markers
+  for the sweep's start and end so the direction of increasing frequency is
+  readable, and a star on the best match. The title states Z, VSWR, return loss
+  and whether the load is inductive or capacitive. **Tutorial 37** teaches
+  reading it — including the distinction the chart exists to make and the S11
+  dip cannot: *resonant* (crosses the real axis) is not *matched* (crosses it
+  at the centre).
+  * **Hand-rolled, and deliberately no new dependency.** All three Smith
+    packages on PyPI (`pysmithchart`, `scikit-rf`, `mpl-smithchart`) are
+    **absent from FreeCAD's bundled Python**, so any of them becomes an
+    install-time dependency on three platforms whose bundles differ — the risk
+    `requirements.txt` already argues about for scipy — and scikit-rf pulls
+    **pandas** in to draw a chart. Against that, the mathematics is a Möbius
+    transform and two circle formulas. `docs/PLAN.md` named scikit-rf for
+    "S-params/Smith" at the start of this project and it was never adopted;
+    `emstudio/post/smith.py` now records why.
+  * ⚠ **The chart is normalised to the PORT and says so.** The centre means
+    "matched to this port's reference impedance", not "50 Ω" — on a 75 Ω or
+    100 Ω port an unlabelled chart is actively misleading, so z0 is printed in
+    the title and carried in every read-out.
+  * ⚠⚠ **The gate is built around the fact that almost every true statement
+    about a Smith chart is an identity**, and an identity satisfied by
+    construction cannot be the only check. So the load-bearing tests are cross
+    ones: the circle geometry is verified by sampling thousands of real
+    impedances, mapping each through Γ and confirming the images land on the
+    circle the closed form independently predicts (1e-12); VSWR is checked
+    against `SweepResult.vswr()`, the number the VSWR tab has shown since
+    v0.8.0; and return loss must be the exact negation of `s11_db()`, because
+    both sign conventions are in circulation. Mutation-proven four ways — and
+    the wrong-circle-radius mutation is caught by *only* the cross-check.
+  * ⚠ **A `gui_smoke` check that counts what was actually drawn**, because a
+    tab that constructs is not a tab that drew anything. Its first version was
+    itself vacuous: it read `ax.lines[0]`, which is the real-axis rule, and
+    reported "2 locus points, max |Γ| 1.000" for a 41-point sweep — green while
+    asserting nothing. It now finds the locus by label and asserts the point
+    count matches the sweep. **Caught only because the check prints its
+    coverage instead of just PASS.**
 
 * **Every GUI command is now documented, and a gate keeps it that way.** Seven
   of the fifty registered commands had no row in `HELP.md`'s command table —

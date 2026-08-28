@@ -1167,6 +1167,67 @@ def _pattern_frequencies_dialog():
         FreeCAD.closeDocument(doc.Name)
 
 
+def _smith_tab_builds():
+    """The Smith tab is BUILT, and the chart it builds is not empty.
+
+    ⚠ A tab that constructs is not a tab that drew anything — an exception
+    swallowed inside a plotting helper leaves a blank canvas that still passes
+    "the dialog opened". So this asserts the artefacts: the unit circle, the
+    constant-R and constant-X grid, the VSWR rings and the locus itself, by
+    COUNTING the patches and lines matplotlib actually holds, and it checks the
+    locus lies inside the unit disc, which is a physical fact about any passive
+    load rather than a property of the drawing code.
+    """
+    import numpy as np
+
+    from emstudio.post.sparams import SweepResult
+    from emstudio.post import smith as smith_mod
+    from emstudio.ui.results_dialog import SweepResultsDialog
+
+    freq = np.linspace(1.0e9, 2.0e9, 41)
+    zin = (30.0 + 40.0 * np.sin(np.linspace(0, 3, 41))
+           + 1j * 60.0 * np.cos(np.linspace(0, 3, 41)))
+    result = SweepResult(freq, zin, z0=50.0)
+
+    dlg = SweepResultsDialog(result)
+    from PySide import QtGui as QtWidgets  # noqa: N813
+    tabs = dlg.findChildren(QtWidgets.QTabWidget)
+    titles = [tabs[0].tabText(i) for i in range(tabs[0].count())] if tabs else []
+    assert "Smith" in titles, "no Smith tab among %r" % (titles,)
+
+    # _canvas() returns (figure, HOLDER) and the holder keeps the real
+    # FigureCanvas on ._canvas — the same reach line 951 uses for VSWR.
+    holder = dlg._plot_smith()
+    ax = holder._canvas.figure.axes[0]
+    circles = [p for p in ax.patches if type(p).__name__ == "Circle"]
+    # unit circle + 6 R circles + 2x5 X arcs + 3 VSWR rings
+    assert len(circles) >= 1 + len(smith_mod.DEFAULT_R_GRID) \
+        + 2 * len(smith_mod.DEFAULT_X_GRID) + len(smith_mod.DEFAULT_VSWR_RINGS), \
+        "Smith grid is thin: only %d circles drawn" % len(circles)
+    # ⚠⚠ FIND THE LOCUS BY ITS LABEL, never by index. The first line on these
+    # axes is the real-axis rule (2 points, both on the rim), so `ax.lines[0]`
+    # made this check green while asserting nothing about the data — it
+    # reported "2 locus points, max |Gamma| 1.000" for a 41-point sweep and
+    # passed. Caught only because the detail string prints the count.
+    locus = [ln for ln in ax.lines
+             if (ln.get_label() or "").startswith("Zin over the sweep")]
+    assert locus, "Smith chart drew no labelled locus at all (lines: %r)" % (
+        [ln.get_label() for ln in ax.lines],)
+    xs, ys = locus[0].get_data()
+    assert len(xs) == len(result.freq), (
+        "the locus has %d points for a %d-point sweep — it is not the sweep"
+        % (len(xs), len(result.freq)))
+    rad = np.hypot(np.asarray(xs), np.asarray(ys))
+    assert np.all(rad <= 1.0 + 1e-9), (
+        "the locus leaves the unit disc (max |Gamma| %.4f) — a passive load "
+        "cannot do that, so the chart is drawing something wrong" % rad.max())
+    assert "50" in ax.get_title(), \
+        "the Smith title must state the reference impedance"
+    dlg.close()
+    return "%d grid circles, %d locus points, max |Gamma| %.3f" % (
+        len(circles), len(xs), rad.max())
+
+
 def _dialogs_construct():
     """Every results dialog must import + construct under the GUI (not exec).
 
@@ -3566,6 +3627,8 @@ def main():
           _vswr_offscale_is_visible)
     check("Pattern Frequencies dialog (band + recommended step + round-trip)",
           _pattern_frequencies_dialog)
+    check("results dialog builds a Smith tab from a real sweep",
+          _smith_tab_builds)
     check("results dialogs construct", _dialogs_construct)
     check("About + Legal notice dialogs (intended use / liability / brand)",
           _about_and_legal_dialogs)

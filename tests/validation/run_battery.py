@@ -62,6 +62,7 @@ FAST = {
     "palace_gpu_plan": None,
     "propagation": None,
     "small_antenna": None,
+    "smith": None,
     "solid_setup": None,
     "solve_estimate": None,
     "solver_progress": None,
