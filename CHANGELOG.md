@@ -17,8 +17,26 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [1.11.0] — 2026-08-27
 
-> Pre-tag proof: ⚠ PENDING — the FULL `--all` battery is running on this
-> release's code and this line is replaced with its verdict before the tag.
+> Pre-tag proof: the FULL `--all` battery ran complete on this release's code
+> — **115 ok / 0 failed / 0 skipped in 22,007.2 s** (6.11 h), the first
+> complete run at 115 gates and again with nothing skipped. Slowest rungs:
+> `openfoam_bundle` 4,120 s, `openfoam_ras_solid` 3,416 s, `openfoam_wind_ras`
+> 2,982 s, `openfoam_cht_convection` 2,570 s, `openfoam_solid` 2,494 s,
+> `palace_dipole_farfield` 1,640 s, `horn_openems` 1,346 s.
+>
+> ⭐ **And for the first time the proved tree needs no AST argument.** The run
+> started on `4fb6771` and exactly one commit landed during it, 63 s in:
+> `b00b648`, whose ENTIRE diff is `docs/NEXT_SESSION.md` — one file, 12
+> insertions, 2 deletions, a handoff note saying the battery was running. No
+> gate reads that file: grep across `tests/`, `tools/` and `emstudio/` finds
+> only two prose mentions of the NAME, inside `wind_dialog.py` and
+> `wire_extract.py`, and neither opens it. Nothing in the battery could
+> observe the change, so every executable byte the run touched is a byte that
+> is tagged.
+> ⚠ v1.10.0 had to strip docstrings and blank string constants from both ASTs
+> to say something *weaker* than this. A one-file docs diff you can print in
+> full is the stronger evidence and the cheaper one — the difference is that
+> this run was started on the final tree instead of alongside the work.
 >
 > ⛳ **Cut as 1.10.1 and renumbered to 1.11.0 when the Smith chart went in**,
 > because that is a new tab a user opens — a feature, not a patch. The rest of
