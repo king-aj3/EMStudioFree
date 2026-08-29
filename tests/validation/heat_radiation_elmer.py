@@ -22,7 +22,11 @@ Two tiers:
   0.0004 %; gated here to sub-percent through the production writer.
 
 Pass: exit 0 and 'HEAT-RADIATION GATE PASSED'. The deck tier runs anywhere
-(python3); the live tier needs ElmerSolver and auto-skips if absent.
+(python3). The live tier needs ElmerSolver **and** gmsh, PROBED BEFORE the
+solve: with either binary absent it prints 'HEAT-RADIATION GATE SKIPPED' and
+returns 2 — never the PASS token, because a tier that was asked for and could
+not run has proven nothing. With the binaries present there is no skip path at
+all: any failure of the live solve is a FAILURE.
 """
 import math
 import os
@@ -35,6 +39,7 @@ if _ROOT not in sys.path:
 MU0 = 4.0e-7 * math.pi
 SIGMA_SB = 5.67e-8
 FAILURES = []
+SKIPPED = []      # tiers that were REQUESTED and could not run
 
 
 def check(name, ok, detail=""):
@@ -122,6 +127,31 @@ def gate_emission():
           "Radiation External Temperature = Real 293.15" in rad_def)
 
 
+def _missing_live_backends():
+    """Binaries ``run_model`` needs, probed BEFORE the solve is attempted.
+
+    Probing up front is what lets the live tier carry NO ``except`` at all.
+    "This box has no Elmer" is the only condition that may read as "could not
+    run"; everything else is a result. The bare ``except Exception`` this
+    replaces caught the gate's own subject matter — a radiating deck Elmer
+    REFUSES to solve (a Stefan-Boltzmann constant outside ``Constants`` is the
+    hard STOP this gate's deck tier exists to prevent) raises SolverError, and
+    the old skip branch turned that into a printed "skip" followed by
+    'HEAT-RADIATION GATE PASSED' and exit 0. Proven 2026-08-29 by moving that
+    one writer line into the Simulation section: every deck check stayed green
+    and the gate reported success on a solve that never happened.
+
+    Both keys matter: ``run_model`` meshes with gmsh (``gmsh_axi.run_gmsh``)
+    before ElmerSolver ever starts, so a box with Elmer and no gmsh cannot run
+    this tier either — and would otherwise fail here for a reason that is not
+    a regression.
+    """
+    from emstudio.setup import solvers as solver_setup
+
+    return [k for k in ("elmer", "gmsh")
+            if not solver_setup.find_backend(k).found]
+
+
 def gate_live():
     """Mixed convection+radiation billet vs the exact surface balance."""
     from emstudio.solvers.elmer import parser as eparser
@@ -131,11 +161,17 @@ def gate_live():
     k_th, h_conv, t_ext = 20.0, 5.0, 293.15
     emis, t_rad = 0.8, 300.0
     model = _billet_model(emissivity=emis, rad_t_ext=t_rad)
-    try:
-        res = run_model(model, [f], extract_coupling=False)
-    except Exception as exc:  # noqa: BLE001
-        print("  skip  live tier — Elmer run unavailable: {0}".format(exc))
+    missing = _missing_live_backends()
+    if missing:
+        note = "live tier — backend(s) not installed: {0}".format(
+            ", ".join(missing))
+        SKIPPED.append(note)
+        print("  SKIP  " + note)
         return
+    # No try/except: with both binaries resolved, a raise from here is Elmer
+    # rejecting OUR deck or the parser failing on OUR output — a failure, and
+    # it must surface as one.
+    res = run_model(model, [f], extract_coupling=False)
     case = res.sweep_cases()[0]
 
     # surface energy balance: h(Ts-Tamb) + eps*sigma(Ts^4-Trad^4) = P/A.
@@ -191,6 +227,15 @@ def main():
     if FAILURES:
         print("HEAT-RADIATION GATE FAILED: {0}".format(FAILURES))
         return 1
+    if SKIPPED:
+        # NOT the PASS token, and NOT exit 0. run_battery.py declares no
+        # requirement for this gate (it is in SOLVER, absent from
+        # SOLVER_REQS), so nothing upstream would translate a silent 0 into
+        # an honest "skip" — the caller would simply be told radiation is
+        # validated on a box that never ran a solver.
+        print("HEAT-RADIATION GATE SKIPPED (nothing proven): {0}".format(
+            "; ".join(SKIPPED)))
+        return 2
     print("HEAT-RADIATION GATE PASSED")
     return 0
 
@@ -206,6 +251,14 @@ if (__name__ == "__main__") or (_UNDER_FREECAD and not _UNDER_PYTEST):
         import traceback
         traceback.print_exc()
         raise SystemExit("validation failed: {0}".format(exc))
+    if rc == 2:
+        # Distinct from a failure on purpose: 2 = "could not run", 1 = "ran
+        # and was wrong". Both are non-zero, so no caller can read either as
+        # success. `SystemExit(int)` sets the code; the reason is printed
+        # above because SystemExit(str) would force the code back to 1.
+        print("heat-radiation validation SKIPPED — the live tier could not "
+              "run and nothing about the radiation BC was proven")
+        raise SystemExit(2)
     if rc != 0:
         raise SystemExit("heat-radiation validation failed")
     sys.exit(0)

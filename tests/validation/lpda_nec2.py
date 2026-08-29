@@ -12,6 +12,13 @@ UNCROSSED control collapses to F/B 5.7 dB — the negative-Z0 crossed-line
 convention is load-bearing and regression-guarded here.
 
 Needs freecadcmd + nec2c; ~1-2 min. Pass: exit 0 and 'LPDA-NEC2 GATE PASSED'.
+
+Exit codes — a run that tested NOTHING must never read as a pass:
+  0  every check ran and passed ('LPDA-NEC2 GATE PASSED')
+  1  a check failed, OR nec2c is absent so the solve could not run at all
+  2  FreeCAD itself is unavailable ('LPDA-NEC2 GATE SKIPPED') — the battery
+     declares this gate in run_battery.NEEDS_FREECAD and skips it BEFORE
+     spawning, so this code is only ever reached on a by-hand python3 run
 """
 import os
 import sys
@@ -23,6 +30,11 @@ if _ROOT not in sys.path:
 FAILURES = []
 
 R0 = 65.0
+
+#: Exit code for "the backend the BATTERY declares is absent". Distinct from 1
+#: (a real failure) so a caller can tell "nothing ran" from "physics moved",
+#: and non-zero so a by-hand run can never read as success.
+_RC_SKIPPED = 2
 
 
 def check(name, ok, detail=""):
@@ -57,14 +69,40 @@ def main():
     try:
         import FreeCAD  # noqa: F401
         import Part  # noqa: F401
-    except Exception:
-        print("  skip — needs freecadcmd (FreeCAD geometry)")
-        return 0
+    except ImportError:
+        # ImportError ONLY. A bare `except Exception` here would swallow a
+        # REAL regression raised during FreeCAD's own import (a broken .so, a
+        # bad user config, a half-installed Mod dir) and report it as "no
+        # FreeCAD on this box" — a regression laundered into a skip.
+        #
+        # run_battery.py DECLARES this gate in NEEDS_FREECAD, so on a box with
+        # no freecadcmd the battery skips it honestly before ever spawning it
+        # and never reaches this branch. The only way here is a BY-HAND
+        # python3 run — where the caller explicitly asked for the gate, so it
+        # must not read as success: print the SKIPPED token (never the PASS
+        # token) and return a distinct non-zero code.
+        print("LPDA-NEC2 GATE SKIPPED — needs freecadcmd (FreeCAD geometry); "
+              "nothing was tested, this is NOT a pass")
+        return _RC_SKIPPED
     import shutil
 
     if not shutil.which("nec2c"):
-        print("  skip — nec2c not installed")
-        return 0
+        # NOT a skip, and deliberately so. run_battery.SOLVER_REQS declares no
+        # requirement for this gate — there is no "nec2" requirement kind in
+        # the battery at all — so the battery cannot skip it honestly; it
+        # spawns the gate and reads ONLY the exit code. This branch used to
+        # `return 0`, so on a box without nec2c the battery printed "ok" for a
+        # gate that had solved nothing: the exact 2026-08-05 defect class that
+        # SOLVER_REQS exists to prevent. Fail loudly instead — a red battery on
+        # a nec2c-less box is an honest signal; a green one is a lie.
+        #
+        # TODO (run_battery.py, not editable from here): add a "nec2"
+        # requirement kind to _requirement_missing() and declare
+        # "lpda_nec2": "nec2" in SOLVER_REQS. After that the battery reports a
+        # true skip and this branch guards the by-hand path only.
+        print("LPDA-NEC2 GATE FAILED: nec2c is not on PATH — this gate solves "
+              "the Carrel LPDA on NEC2 and can test nothing without it")
+        return 1
     import FreeCAD
     import numpy as np
 
@@ -140,6 +178,11 @@ if (__name__ == "__main__") or (_UNDER_FREECAD and not _UNDER_PYTEST):
         import traceback
         traceback.print_exc()
         raise SystemExit("validation failed: {0}".format(exc))
+    if rc == _RC_SKIPPED:
+        # Preserve the distinct code. This branch fires only when FreeCAD is
+        # ABSENT, i.e. under plain python3, where sys.exit IS reliable — the
+        # freecadcmd caveat cannot apply, since freecadcmd always has FreeCAD.
+        sys.exit(_RC_SKIPPED)
     if rc != 0:
         raise SystemExit("lpda-nec2 validation failed")
     sys.exit(0)

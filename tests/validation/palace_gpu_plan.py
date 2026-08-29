@@ -21,10 +21,19 @@ them alike would ship a falsehood:
 | **macOS** | ❌ **never** | Palace declares only `PALACE_WITH_CUDA` / `PALACE_WITH_HIP`; Apple silicon has neither. Not a gap — a limit |
 | **Windows** | ⚠ WSL2 only | Palace has no native Windows build; CUDA-in-WSL2 is NVIDIA's route, ROCm-in-WSL2 is untested here |
 
-⛳ **The flags are compared against `docs/PALACE_GPU_BUILD.md`.** A recipe that
-lives in two places drifts; this makes the doc unable to be wrong without the
-gate going red. That is the rule this project adopted after a flag list drifted
-by three flags in an ungated README copy.
+⛳ **The flags are compared against `docs/PALACE_GPU_BUILD.md` — NAME *AND*
+VALUE.** A recipe that lives in two places drifts; this makes the doc unable to
+be wrong without the gate going red. That is the rule this project adopted
+after a flag list drifted by three flags in an ungated README copy.
+
+⚠ This comparison was NAME-ONLY until 2026-08-29 (`f.split("=")[0] not in doc`),
+which is a shape check wearing a value check's description: the doc could not
+be wrong about *which* flags exist and was free to be wrong about every value in
+them. `-DPALACE_WITH_MAGMA=ON` — the one whose wrong value breaks an RDNA3
+build, see (5) in the doc — read as "documented". Whole flag strings now, and
+scoped to the **recipe block a user copy-pastes**, both directions: a
+whole-file comparison let a drifted recipe hide behind the prose paragraph that
+explains the same flag (measured — see :func:`doc_recipe`).
 
 ⚠ **It must never claim CUDA is validated.** No machine this project owns has an
 NVIDIA card. The plan says so in its own reason string, and the gate asserts it
@@ -54,6 +63,90 @@ FAILURES = []
 AMD = [{"vendor": "AMD", "arch": "gfx1100", "name": "Navi 31"}]
 NVIDIA = [{"vendor": "NVIDIA", "arch": "sm_89", "name": "RTX 4090"}]
 INTEL = [{"vendor": "Intel", "arch": "xe", "name": "Arc"}]
+
+# ── section 6's doc-agreement machinery ───────────────────────────────────
+# One `-DNAME=VALUE` as the doc prints it. The value stops at whitespace, at a
+# line continuation, at a backtick or at a quote — or spans a whole <...>
+# placeholder, because one of the doc's values is deliberately not a fixed
+# string (the CUDA arch comes off the user's own card).
+_FLAG_RE = re.compile(r"-D([A-Za-z_][A-Za-z0-9_]*)=(<[^>]*>|[^\s\\`\"]+)")
+
+#: The doc writes the ROCm root as the shell variable it sets one line above
+#: the cmake call (`ROCM=/opt/rocm-6.4.2`); the code resolves that root for THIS
+#: box (`/opt/rocm-6.4.2` here, `/opt/rocm` as the fallback). ONLY that prefix
+#: is normalised away — everything after it is compared literally, so the
+#: lib/llvm defect that yields a silently CPU-only libCEED still reads as a
+#: mismatch rather than as agreement.
+_ROCM_ROOT_RE = re.compile(r"^/opt/rocm[^/]*")
+
+
+#: A fenced code block. The recipes are the only blocks that run `cmake -S`.
+_BLOCK_RE = re.compile(r"```[a-z]*\n(.*?)```", re.S)
+
+
+def doc_recipe(doc, backend_flag):
+    """The flag list of the doc's copy-pasteable recipe for ONE back end.
+
+    ⚠ Scoped to the recipe BLOCK on purpose, not to the whole file. The doc
+    spells most flags twice — once in the block a user copies, once in the
+    prose paragraph that explains why it is there — so a whole-file comparison
+    lets a drifted recipe hide behind its own explanation. Measured: flipping
+    the block's ``-DPALACE_WITH_MAGMA=OFF`` to ``ON`` left this gate green,
+    because paragraph (5) still spelled it the old way. What a user copies is
+    the block, so the block is what is compared.
+
+    The block is picked by the back end's own flag NAME (value ignored), so a
+    drifted VALUE is still reported as drift instead of losing the block.
+    """
+    for block in _BLOCK_RE.findall(doc):
+        if "cmake -S" not in block:
+            continue
+        flags = ["-D%s=%s" % (n, v) for n, v in _FLAG_RE.findall(block)]
+        if any(f.partition("=")[0] == backend_flag for f in flags):
+            return flags
+    return []
+
+
+def value_agrees(emitted, documented):
+    """Does an emitted flag VALUE agree with one the doc actually prints?"""
+    want = _ROCM_ROOT_RE.sub("$ROCM", emitted)
+    for d in documented:
+        if d == want:
+            return True
+        # `<your sm_XX, e.g. 89 for Ada>` — the doc cannot hard-code a value
+        # that comes off the user's own card, so it prints an example instead.
+        # Accept the emitted value only when it is one of that placeholder's
+        # WORDS: a token, never a substring, or "8" would pass on "89".
+        if (d.startswith("<") and d.endswith(">")
+                and want in [w.strip(",.;") for w in d[1:-1].split()]):
+            return True
+    return False
+
+
+def flag_drift(flags, recipe):
+    """[(flag, how it disagrees), ...] between emitted flags and the recipe.
+
+    BOTH directions. A flag the doc prints and the code does not emit is drift
+    too: the user who copy-pastes the recipe would then build something other
+    than what EMStudio told them to build.
+    """
+    documented = {}
+    for f in recipe:
+        name, _, value = f.partition("=")
+        documented.setdefault(name, []).append(value)
+    drift, emitted = [], set()
+    for f in flags:
+        name, _, value = f.partition("=")
+        emitted.add(name)
+        if name not in documented:
+            drift.append((f, "not in the doc's recipe"))
+        elif not value_agrees(value, documented[name]):
+            drift.append((f, "the recipe says " + " / ".join(
+                name + "=" + d for d in documented[name])))
+    for f in recipe:
+        if f.partition("=")[0] not in emitted:
+            drift.append((f, "in the doc's recipe, but the code never emits it"))
+    return drift
 
 
 def check(msg, ok, detail=""):
@@ -134,14 +227,22 @@ def main():
           os.path.isfile(doc_path), PALACE_GPU_DOC)
     if os.path.isfile(doc_path):
         doc = open(doc_path, encoding="utf-8").read()
-        missing = [f.split("=")[0] for f in amd["flags"]
-                   if f.split("=")[0] not in doc]
-        check("every AMD flag the code emits is documented",
-              not missing, "undocumented: %r" % (missing,) if missing else "")
-        missing_nv = [f.split("=")[0] for f in nv["flags"]
-                      if f.split("=")[0] not in doc]
-        check("every NVIDIA flag the code emits is documented",
-              not missing_nv, "undocumented: %r" % (missing_nv,) if missing_nv else "")
+        # ⚠ NAME **AND** VALUE. Comparing `f.split("=")[0]` — which is what this
+        # did until 2026-08-29 — cannot see a recipe drift, only a flag being
+        # renamed or dropped, and a drifted value is the failure mode that
+        # actually costs a 30-60 minute build.
+        amd_recipe = doc_recipe(doc, "-DPALACE_WITH_HIP")
+        drift = flag_drift(amd["flags"], amd_recipe)
+        check("the doc's AMD recipe IS the flag list the code emits",
+              not drift,
+              "; ".join("%s — %s" % d for d in drift) if drift
+              else "%d flags, value for value" % len(amd_recipe))
+        nv_recipe = doc_recipe(doc, "-DPALACE_WITH_CUDA")
+        drift_nv = flag_drift(nv["flags"], nv_recipe)
+        check("the doc's NVIDIA recipe IS the flag list the code emits",
+              not drift_nv,
+              "; ".join("%s — %s" % d for d in drift_nv) if drift_nv
+              else "%d flags, value for value" % len(nv_recipe))
         check("the doc records the artefact check, not just the build log",
               "nm -D" in doc and "libamdhip64" in doc,
               "a HIP build that succeeded can still be CPU-only")

@@ -23,12 +23,24 @@ So there are TWO properties here and they pull in opposite directions:
 
 Pure logic, no binary and no solver run — FAST tier. The bundle's real install
 directory is simulated with a temp dir, so this gate asserts the same thing on
-Linux CI as on the Windows box where the bug was found.
+Linux CI as on the Windows box where the bug was found. The Windows-only
+sections take that further and fake ``os.name`` (the technique gui_smoke
+already uses for the Solver Setup dialog), so nothing here is asserted on one
+platform and quietly unasserted on the others.
 """
 import os
+import pathlib
 import shutil
 import sys
 import tempfile
+# Imported HERE, at module scope, ON PURPOSE — before anything fakes os.name.
+# urllib.request chooses its url2pathname at IMPORT time from os.name, so a
+# FIRST import taken while os.name is faked to "nt" binds nturl2path, and the
+# pinning block's real /tmp/... file:// fixture is then read back as the UNC
+# path \\tmp\... and fails to open. Binding it against the REAL platform
+# first keeps the fixture readable while os.name is faked below. (Measured:
+# without this the download step raises before a single pin is checked.)
+import urllib.request  # noqa: F401  — imported for its import-time binding
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
@@ -248,112 +260,175 @@ def main():
         finally:
             sys.path.remove(os.path.dirname(tool_path))
 
-    # --- sha256 verification in run_win_install (nt-only, real pipeline) ----
+    # --- sha256 verification in run_win_install (real pipeline, faked nt) --
     # The staged plan is the first pinned one, so the pin must actually bind:
     # a wrong hash refuses BEFORE extraction and leaves nothing behind.
-    if os.name == "nt":
-        print(" download pinning (run_win_install):")
-        import zipfile as _zipfile
+    #
+    # ⚠ This whole block used to sit behind `if os.name == "nt":` with no
+    # else. Off Windows — which is CI, and every run on the box the gate is
+    # developed on — SEVEN checks silently did not execute, nothing printed to
+    # say so, and the gate still printed its PASS token. So os.name is FAKED
+    # instead, exactly as gui_smoke does for the Windows Solver Setup dialog,
+    # and the pinning contract is asserted on every platform. Faking the
+    # platform means neutering the ambient sources that only exist off it;
+    # each is spelled out at the point it is applied below.
+    print(" download pinning (run_win_install, simulated Windows):")
+    import dataclasses as _dc
+    import zipfile as _zipfile
 
-        tmp_root = tempfile.mkdtemp(prefix="fh_pin_")
-        fake_zip = os.path.join(tmp_root, "fake.zip")
-        with _zipfile.ZipFile(fake_zip, "w") as zf:
-            zf.writestr("bin/fasthenry.exe", "@echo off\r\n")
-        # ⚠ Computed INDEPENDENTLY of solvers._file_sha256 — an expectation
-        # produced by the function under test is circular: swap its hashlib
-        # algorithm and sha-vs-same-sha still matches, while in production
-        # every pinned install would refuse forever against the published
-        # 64-hex sha256 literal.
-        import hashlib as _hashlib
-        with open(fake_zip, "rb") as fh:
-            good_sha = _hashlib.sha256(fh.read()).hexdigest()
-        base_plan = {
-            "estimate": "test",
-            "url": "file:///" + fake_zip.replace("\\", "/"),
-            "proof": os.path.join("bin", "fasthenry.exe"),
-        }
-        orig_root = solvers.win_install_root
-        orig_pref = solvers._pref_path
-        orig_path = os.environ.get("PATH", "")
-        orig_env = os.environ.pop("EMSTUDIO_FASTHENRY", None)
+    tmp_root = tempfile.mkdtemp(prefix="fh_pin_")
+    fake_zip = os.path.join(tmp_root, "fake.zip")
+    with _zipfile.ZipFile(fake_zip, "w") as zf:
+        zf.writestr("bin/fasthenry.exe", "@echo off\r\n")
+    # ⚠ Computed INDEPENDENTLY of solvers._file_sha256 — an expectation
+    # produced by the function under test is circular: swap its hashlib
+    # algorithm and sha-vs-same-sha still matches, while in production
+    # every pinned install would refuse forever against the published
+    # 64-hex sha256 literal.
+    import hashlib as _hashlib
+    with open(fake_zip, "rb") as fh:
+        good_sha = _hashlib.sha256(fh.read()).hexdigest()
+    base_plan = {
+        "estimate": "test",
+        # pathlib builds the file:// form THIS platform's url2pathname
+        # reads back. Hand-rolling "file:///" + the path was fine on
+        # Windows (the path starts "C:") but yields FOUR slashes for a
+        # POSIX path, whose reading is platform-dependent — not something
+        # to leave to luck now that the block runs everywhere.
+        "url": pathlib.Path(fake_zip).as_uri(),
+        "proof": os.path.join("bin", "fasthenry.exe"),
+    }
+    orig_name = os.name
+    orig_access = os.access
+    orig_backend = solvers.BACKENDS["fasthenry"]
+    orig_root = solvers.win_install_root
+    orig_pref = solvers._pref_path
+    orig_path = os.environ.get("PATH", "")
+    orig_env = os.environ.pop("EMSTUDIO_FASTHENRY", None)
+    try:
+        managed = os.path.join(tmp_root, "managed")
+        os.name = "nt"
+        # Windows' os.access IGNORES X_OK — every existing file answers
+        # yes — while zipfile.extractall does NOT restore mode bits, so
+        # on POSIX the extracted proof lands at 0644 and detection's
+        # os.access(cand, X_OK) says no. The shim is that Windows rule
+        # and nothing else: drop X_OK, pass every other mode through. On
+        # real Windows it is the identity, so this is one code path.
+        os.access = lambda _p, _m, *a, **kw: orig_access(
+            _p, _m & ~os.X_OK, *a, **kw)
+        # The fourth ambient source, and the one that bites at home:
+        # extra_dirs is ~/opt/FastHenry2/bin, a REAL FastHenry on the
+        # dev box, and it is probed AHEAD of the managed dir — so
+        # "detection sees the managed install" would have been answered
+        # by a binary this gate never installed. That path cannot exist
+        # on Windows, where the tuple is inert, so emptying it here is
+        # the Windows condition, not a weakened one.
+        solvers.BACKENDS["fasthenry"] = _dc.replace(orig_backend,
+                                                    extra_dirs=())
+        solvers.win_install_root = lambda: managed
+        solvers._pref_path = lambda _key: ""
+        os.environ["PATH"] = ""
+
+        # (a) correct pin, UPPERCASE on purpose: comparison must normalise.
+        lines = []
+        plan = dict(base_plan, sha256=good_sha.upper())
+        info = solvers.run_win_install("fasthenry",
+                                       line_callback=lines.append,
+                                       _plan=plan)
+        check("correct pin installs and detection sees it",
+              info.found and info.path.startswith(managed),
+              repr(info))
+        check("the pin was actually checked",
+              any("verifying sha256" in ln for ln in lines))
+        # Positive anchor for the literal the wrong-pin ordering check
+        # below matches against. Without this pairing, rewording
+        # say("extracting...") turns that must-NOT-contain check vacuous
+        # forever — the exact silent decay the gate conventions forbid.
+        check("extraction is logged on the success path",
+              any("extracting" in ln for ln in lines),
+              "if this wording changes, update the ordering check below "
+              "IN THE SAME COMMIT")
+        shutil.rmtree(managed, ignore_errors=True)
+
+        # (b) wrong pin refuses, BEFORE extraction, leaving nothing.
+        bad = ("0" if good_sha[0] != "0" else "1") + good_sha[1:]
+        lines = []
+        raised = False
         try:
-            managed = os.path.join(tmp_root, "managed")
-            solvers.win_install_root = lambda: managed
-            solvers._pref_path = lambda _key: ""
-            os.environ["PATH"] = ""
+            solvers.run_win_install("fasthenry",
+                                    line_callback=lines.append,
+                                    _plan=dict(base_plan, sha256=bad))
+        except SolverError:
+            raised = True
+        check("wrong pin REFUSES to install", raised,
+              "a hash that does not bind is decoration")
+        check("refusal happens BEFORE extraction",
+              not any("extracting" in ln for ln in lines),
+              "extraction is the first step that feeds untrusted bytes "
+              "to code; verify-then-extract is the order that matters")
+        check("refusal leaves no install behind",
+              not os.path.isdir(os.path.join(managed, "fasthenry")))
 
-            # (a) correct pin, UPPERCASE on purpose: comparison must normalise.
-            lines = []
-            plan = dict(base_plan, sha256=good_sha.upper())
-            info = solvers.run_win_install("fasthenry",
-                                           line_callback=lines.append,
-                                           _plan=plan)
-            check("correct pin installs and detection sees it",
-                  info.found and info.path.startswith(managed),
-                  repr(info))
-            check("the pin was actually checked",
-                  any("verifying sha256" in ln for ln in lines))
-            # Positive anchor for the literal the wrong-pin ordering check
-            # below matches against. Without this pairing, rewording
-            # say("extracting...") turns that must-NOT-contain check vacuous
-            # forever — the exact silent decay the gate conventions forbid.
-            check("extraction is logged on the success path",
-                  any("extracting" in ln for ln in lines),
-                  "if this wording changes, update the ordering check below "
-                  "IN THE SAME COMMIT")
-            shutil.rmtree(managed, ignore_errors=True)
-
-            # (b) wrong pin refuses, BEFORE extraction, leaving nothing.
-            bad = ("0" if good_sha[0] != "0" else "1") + good_sha[1:]
-            lines = []
-            raised = False
-            try:
-                solvers.run_win_install("fasthenry",
-                                        line_callback=lines.append,
-                                        _plan=dict(base_plan, sha256=bad))
-            except SolverError:
-                raised = True
-            check("wrong pin REFUSES to install", raised,
-                  "a hash that does not bind is decoration")
-            check("refusal happens BEFORE extraction",
-                  not any("extracting" in ln for ln in lines),
-                  "extraction is the first step that feeds untrusted bytes "
-                  "to code; verify-then-extract is the order that matters")
-            check("refusal leaves no install behind",
-                  not os.path.isdir(os.path.join(managed, "fasthenry")))
-
-            # (c) a plan WITHOUT a pin still installs — elmer/gmsh point at
-            # upstream URLs whose bytes legitimately shift; pinning is opt-in.
-            lines = []
-            info = solvers.run_win_install("fasthenry",
-                                           line_callback=lines.append,
-                                           _plan=dict(base_plan))
-            check("unpinned plans keep working", info.found, repr(info))
-        finally:
-            solvers.win_install_root = orig_root
-            solvers._pref_path = orig_pref
-            os.environ["PATH"] = orig_path
-            if orig_env is not None:
-                os.environ["EMSTUDIO_FASTHENRY"] = orig_env
-            shutil.rmtree(tmp_root, ignore_errors=True)
+        # (c) a plan WITHOUT a pin still installs — elmer/gmsh point at
+        # upstream URLs whose bytes legitimately shift; pinning is opt-in.
+        lines = []
+        info = solvers.run_win_install("fasthenry",
+                                       line_callback=lines.append,
+                                       _plan=dict(base_plan))
+        check("unpinned plans keep working", info.found, repr(info))
+    finally:
+        os.name = orig_name
+        os.access = orig_access
+        solvers.BACKENDS["fasthenry"] = orig_backend
+        solvers.win_install_root = orig_root
+        solvers._pref_path = orig_pref
+        os.environ["PATH"] = orig_path
+        if orig_env is not None:
+            os.environ["EMSTUDIO_FASTHENRY"] = orig_env
+        shutil.rmtree(tmp_root, ignore_errors=True)
 
     print(" windows source build — offer only what can run:")
+    # ⚠ These three checks were written as `<real property> if os.name == "nt"
+    # else True`. Off Windows the operand IS the literal True — a check whose
+    # passing condition is a constant, which is not a check — and the third
+    # was vacuous the same way (win_build_toolchain_note() returns "" for
+    # everyone off Windows, so "with a compiler -> no complaint" asserted the
+    # platform, not the compiler). os.name is faked for BOTH sides instead, so
+    # each branch is asserted against a computed value on every platform.
     real_tc = solvers.win_build_toolchain
+    real_name = os.name
     try:
+        # Off Windows there is no native-Windows build at all; that route is
+        # build_plan()'s bash recipe, and offering both would double the button.
+        os.name = "posix"
+        solvers.win_build_toolchain = lambda: ("cc.exe", "make.exe")
+        check("off Windows -> no native-Windows build plan",
+              solvers.win_source_build_plan("fasthenry") is None,
+              "a toolchain is present in this branch, so None here is the "
+              "PLATFORM answering, not a missing compiler")
+        check("off Windows -> no toolchain complaint",
+              solvers.win_build_toolchain_note() == "")
+
+        os.name = "nt"
         solvers.win_build_toolchain = lambda: (None, None)
         check("no compiler -> no Build button",
-              solvers.win_source_build_plan("fasthenry") is None
-              if os.name == "nt" else True,
+              solvers.win_source_build_plan("fasthenry") is None,
               "an offered button that cannot run is worse than none")
         note = solvers.win_build_toolchain_note()
         check("no compiler -> the note says how to get one",
-              ("pacman" in note) if os.name == "nt" else note == "",
-              note[:70])
+              "pacman" in note, note[:70])
         solvers.win_build_toolchain = lambda: ("cc.exe", "make.exe")
+        # Paired positively: without this, deleting fasthenry from
+        # WIN_SOURCE_BUILDS would leave "no compiler -> no Build button"
+        # passing for the wrong reason, forever.
+        check("with a compiler -> the Build plan IS offered",
+              solvers.win_source_build_plan("fasthenry") is not None,
+              "the recipe must survive in WIN_SOURCE_BUILDS")
         check("with a compiler -> no complaint",
               solvers.win_build_toolchain_note() == "")
     finally:
         solvers.win_build_toolchain = real_tc
+        os.name = real_name
 
     print("")
     if FAILURES:

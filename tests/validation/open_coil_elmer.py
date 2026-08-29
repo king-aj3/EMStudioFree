@@ -57,7 +57,19 @@ WHAT THIS GATE PINS
    Applying the closed rule to an open coil would flag a CORRECT 6.44-turn
    helix as 644 % over-delivered.
 
-Pass: exit 0 and 'OPEN COIL GATE PASSED'. Live tier auto-skips without Elmer.
+Pass: exit 0 and 'OPEN COIL GATE PASSED'. The geometry/writer/turns tiers run
+anywhere (pure python3, no backend). The LIVE tier — item 1 above, the
+Biot-Savart match that IS this gate's headline claim — needs ElmerSolver +
+gmsh, and this gate sits in the battery's SOLVER tier with **no requirement
+declared for it** in ``run_battery.py``'s ``SOLVER_REQS``, so a skip here is
+INVISIBLE to the runner. Absent backends therefore print 'OPEN COIL GATE
+SKIPPED' and exit 2: a run that solved nothing must not read as a pass, by
+hand or in the battery. (Until 2026-08-29 this branch printed the PASS token
+and returned 0 — the same self-skip shape this project has now fixed in ten
+other gates, and the worst place for it, because the -0.77 % arc match is the
+only evidence that an open conductor is solved correctly at all.) Any OTHER
+exception out of the live tier is a REGRESSION and propagates: only an ABSENT
+BACKEND is a skip.
 """
 
 from __future__ import annotations
@@ -72,6 +84,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(_HERE)))
 
 MU0 = 4.0e-7 * math.pi
 FAILURES = []
+#: Tiers that were REQUESTED but could not run (absent backend). Non-empty
+#: means no pass was earned — see main(). Kept separate from FAILURES so
+#: "skipped" stays tellable from "failed" in both the banner and the exit code.
+SKIPPED = []
 
 R_M = 0.100
 C_M = 0.004
@@ -399,8 +415,14 @@ def gate_live():
     missing = [k for k in ("elmer", "gmsh")
                if not solver_setup.find_backend(k).found]
     if missing:
-        print("  skip  live tier — backend(s) not installed: {0}".format(
-            ", ".join(missing)))
+        # Recorded, not just printed. The battery declares no requirement for
+        # this gate, so a bare `return` here left main() free to print the
+        # PASS token for a run that never solved anything — the exit code
+        # being the ONLY signal a caller sees under freecadcmd, which drops
+        # print() on exit.
+        SKIPPED.append("live tier (no {0})".format(", ".join(missing)))
+        print("  SKIP  live tier NOT RUN — backend(s) not installed: "
+              "{0}".format(", ".join(missing)))
         return
     res = run_model3d(split_ring_model(open_coil=True), workdir=None)
 
@@ -488,9 +510,32 @@ def main():
     print("-------------------")
     if FAILURES:
         raise SystemExit("OPEN COIL GATE FAILED: " + "; ".join(FAILURES))
+    if SKIPPED:
+        # The battery declares NO requirement for this gate (SOLVER_REQS in
+        # run_battery.py has no entry for it, and there is no `elmer:` kind at
+        # all), so exit 0 here would be read as a pass for a run that never
+        # touched the solver. A requested tier that could not run is an
+        # unearned pass, not a pass — distinct code 2 keeps "skipped" tellable
+        # from "failed" (code 1).
+        print("OPEN COIL GATE SKIPPED (no pass earned): {0}; the deck and "
+              "geometry tiers passed, but the -0.77 % arc match — the whole "
+              "claim — is UNVERIFIED".format("; ".join(SKIPPED)))
+        return 2
     print("OPEN COIL GATE PASSED")
     return 0
 
 
 if __name__ == "__main__" or "FreeCAD" in sys.modules:
-    sys.exit(main())
+    rc = main()
+    if rc == 2:
+        # stderr as well as stdout: bare freecadcmd DROPS print() on exit, and
+        # a skip that loses its message looks like an unexplained failure.
+        sys.stderr.write("open-coil validation SKIPPED — the live tier could "
+                         "not run ({0}); no pass was earned\n".format(
+                             "; ".join(SKIPPED)))
+        raise SystemExit(2)
+    if rc != 0:
+        # SystemExit(msg), not sys.exit(code): under freecadcmd the latter is
+        # unreliable and this gate is runnable there.
+        raise SystemExit("open-coil validation failed")
+    sys.exit(0)

@@ -42,6 +42,7 @@ def main():
             "the binary. (The battery skips this gate automatically; a direct "
             "run does not.)")
     import FreeCAD
+    import numpy as np
 
     from emstudio.solvers import openems
     from emstudio.templates import patch
@@ -79,12 +80,125 @@ def main():
     )
 
     # --- near-field map gate ---
+    # ⚠ THIS BLOCK USED TO CHECK SHAPE, SIZE AND "not all zero" — AND NOTHING
+    # ELSE. ``nf["plane"]`` was PRINTED and never asserted, so every way the
+    # map can be WRONG still passed: the XZ cut handed back for an XY request,
+    # a constant map, a map off by a stray 1e6. "An array exists and has
+    # numbers in it" is a check that the file parsed, not a check on a field.
+    # The six below are the field.
     nf = getattr(result, "nearfield", None)
     assert nf is not None, "openEMS run produced no near-field map"
-    e = nf["e_mag"]
+    e = np.asarray(nf["e_mag"], dtype=float)
     assert e.ndim == 2 and e.size > 100, "near-field map malformed: {0}".format(e.shape)
     assert e.max() > 0.0, "near-field map is all zero"
-    print("patch: near-field {0} map, plane {1}".format(e.shape, str(nf.get("plane"))))
+
+    # (1) THE LABEL IS THE PLANE THAT WAS ASKED FOR. ``NearFieldPlane`` is the
+    #     document's request (the patch template leaves it at the "XY"
+    #     default); ``nf["plane"]`` is what came back through the deck, the h5
+    #     -> npz conversion and the runner.
+    want = str(solver.NearFieldPlane)
+    got = str(nf.get("plane"))
+    assert got == want, (
+        "near-field map came back as the {0} plane, but the solver asked for "
+        "{1}".format(got, want))
+
+    # (2) AND THE DATA AGREES WITH THE LABEL. The label is COPIED from the
+    #     request by the writer, so on its own it can only catch half of the
+    #     defect — place the dump box on the wrong axis and it still reads
+    #     "XY". The mesh saved beside the map is the dump's OWN grid, so: the
+    #     axis normal to the requested plane must be the degenerate one, and
+    #     the map's two dimensions must be the two in-plane axes IN ORDER (the
+    #     deck squeezes an (nx, ny, nz) array). An XZ cut mislabelled XY has
+    #     one y line and shape (nx, nz) — caught here, and nowhere else.
+    ax = {"X": np.atleast_1d(np.asarray(nf["x"], dtype=float)),
+          "Y": np.atleast_1d(np.asarray(nf["y"], dtype=float)),
+          "Z": np.atleast_1d(np.asarray(nf["z"], dtype=float))}
+    a1, a2 = want[0], want[1]
+    normal = ({"X", "Y", "Z"} - {a1, a2}).pop()
+    assert ax[normal].size == 1, (
+        "{0} map is not a flat cut: {1} axis carries {2} lines".format(
+            want, normal, ax[normal].size))
+    assert e.shape == (ax[a1].size, ax[a2].size), (
+        "map {0} is not the {1} grid ({2}, {3}) it is labelled with".format(
+            e.shape, want, ax[a1].size, ax[a2].size))
+
+    # (3) THE CUT PASSES THROUGH THE STRUCTURE. The deck puts it at the
+    #     geometry-bbox centre; the bbox is rebuilt HERE from the document's
+    #     own shapes, independently of the writer's ``_geometry_bbox``, so this
+    #     is a cross-check and not a restatement of the code under test. Mesh
+    #     snapping can move the plane by up to a cell, so this asserts "inside
+    #     the structure" (the domain is ±67 mm of air around a 1.524 mm
+    #     substrate — there is nothing marginal about the distinction) rather
+    #     than an equality on the centre. ⚠ h5 mesh lines are METRES; FreeCAD
+    #     is mm — the same 1e3 the results dialog and vtk_out apply.
+    bbox = FreeCAD.BoundBox()
+    for _o in doc.Objects:
+        _shp = getattr(_o, "Shape", None)
+        if _shp is not None and not _shp.isNull():
+            bbox.add(_shp.BoundBox)
+    span = {"X": (bbox.XMin, bbox.XMax), "Y": (bbox.YMin, bbox.YMax),
+            "Z": (bbox.ZMin, bbox.ZMax)}
+    n_lo, n_hi = span[normal]
+    cut_mm = float(ax[normal][0]) * 1e3
+    slack = 0.1 * (n_hi - n_lo)
+    assert n_lo - slack <= cut_mm <= n_hi + slack, (
+        "{0} cut sits at {1} = {2:.3f} mm, outside the geometry "
+        "({3:.3f} to {4:.3f} mm)".format(want, normal, cut_mm, n_lo, n_hi))
+
+    # (4) THE MAP HAS STRUCTURE. A CONSTANT array passes every shape and
+    #     non-zero test ever written — and a fill value, a broadcast scalar or
+    #     a mis-indexed h5 read all look exactly like one. Measured on this
+    #     deck: std/mean 3.08, peak/median 115. The gates are an order of
+    #     magnitude below both, because they exist to separate "a field" from
+    #     "a flat array", not to pin this mesh.
+    cv = float(e.std() / e.mean())
+    dyn = float(e.max() / max(float(np.median(e)), 1e-300))
+    assert cv > 0.5, (
+        "near-field map is nearly constant (std/mean = {0:.3f})".format(cv))
+    assert dyn > 10.0, (
+        "near-field map has no dynamic range (peak/median = {0:.2f})".format(dyn))
+
+    # (5) AND THE STRUCTURE IS THE ANTENNA'S. Mid-substrate at resonance, |E|
+    #     belongs under the patch and at the feed — not spread over the
+    #     lambda/4 air padding, which is most of the map by area (1044 of 1443
+    #     samples). Measured: the mean inside the substrate footprint is 13.6x
+    #     the mean outside it, and the peak sample lands at x = -6 mm, y = 0 —
+    #     the feed. A rotated, transposed or otherwise scrambled map keeps its
+    #     shape, its dynamic range and its magnitude, and fails this.
+    c1 = ax[a1] * 1e3
+    c2 = ax[a2] * 1e3
+    lo1, hi1 = span[a1]
+    lo2, hi2 = span[a2]
+    inside = ((c1 >= lo1) & (c1 <= hi1))[:, None] & ((c2 >= lo2) & (c2 <= hi2))[None, :]
+    assert inside.any() and not inside.all(), (
+        "near-field map does not straddle the geometry footprint"
+    )
+    e_in = float(e[inside].mean())
+    e_out = float(e[~inside].mean())
+    assert e_in > 3.0 * e_out, (
+        "near-field energy is not on the antenna: mean |E| inside the "
+        "footprint {0:.3e} vs {1:.3e} outside".format(e_in, e_out))
+    i_pk, j_pk = np.unravel_index(int(np.argmax(e)), e.shape)
+    assert inside[i_pk, j_pk], (
+        "peak |E| is out in the padding at {0} = {1:.1f} mm, {2} = {3:.1f} "
+        "mm".format(a1, c1[i_pk], a2, c2[j_pk]))
+
+    # (6) A PHYSICALLY SANE MAGNITUDE. Checks (4) and (5) are RATIOS, so every
+    #     one of them survives the whole map being multiplied by 1e6 — the
+    #     stray-factor class (a unit mix-up, a double normalisation) is
+    #     invisible to all of them. The FD dump's absolute scale is the
+    #     backend's own normalisation rather than a physical constant we can
+    #     derive (measured 3.4e-9 on this deck), so this is a WIDE window —
+    #     three decades either side — deliberately too loose to fire on an
+    #     upstream re-normalisation and still tight enough to catch a 1e6.
+    assert 1e-12 <= e.max() <= 1e-5, (
+        "near-field peak |E| = {0:.3e} is off the physical scale for this "
+        "dump (expected ~1e-9)".format(e.max()))
+
+    print("patch: near-field {0} map, plane {1} at {2} = {3:.3f} mm; "
+          "std/mean {4:.2f}, peak/median {5:.1f}, in/out {6:.1f}, "
+          "peak |E| {7:.3e}".format(
+              e.shape, got, normal, cut_mm, cv, dyn, e_in / e_out, e.max()))
 
     print("PATCH GATE PASSED")
     return 0

@@ -12,6 +12,16 @@ hit that on a solid, then hit "edge is not straight" on a curve.
 So this pins the whole path end to end, both from a SOLID and from a CURVE,
 including the thing a novice most needs: that the tool SAYS what it assumed
 and why, rather than silently substituting a wire for the thing they drew.
+
+Needs freecadcmd (every check below builds real FreeCAD geometry).
+
+Exit codes -- a run that tested NOTHING must never read as a pass:
+  0  every check ran and passed ('ANTENNA-FROM-SELECTION GATE PASSED')
+  1  a check failed ('ANTENNA-FROM-SELECTION GATE FAILED: ...')
+  2  FreeCAD itself is unavailable ('ANTENNA-FROM-SELECTION GATE SKIPPED') --
+     the battery declares this gate in run_battery.NEEDS_FREECAD and skips it
+     BEFORE spawning, so this code is only ever reached on a by-hand python3
+     run
 """
 
 from __future__ import annotations
@@ -26,6 +36,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(_HERE)))
 
 FAILURES = []
 
+#: Exit code for "FreeCAD -- the backend the BATTERY declares -- is absent".
+#: Distinct from 1 (a real failure) so a caller can tell "nothing ran" from
+#: "the physics moved", and non-zero so a by-hand run can never read as
+#: success.
+_RC_SKIPPED = 2
+
 
 def check(label, ok, detail=""):
     if not ok:
@@ -39,10 +55,25 @@ def main():
     try:
         import FreeCAD
         import Part
-    except Exception:
+    except ImportError:
+        # ImportError ONLY. The bare `except Exception` this replaces would
+        # swallow a REAL regression raised during FreeCAD's own import (a
+        # broken .so, a half-installed Mod dir, a bad user config) and launder
+        # it into "no FreeCAD on this box". Anything that is not an
+        # ImportError must escape from here and fail loudly.
+        #
+        # run_battery.py DECLARES this gate in NEEDS_FREECAD, so on a box with
+        # no freecadcmd the battery skips it honestly BEFORE spawning it and
+        # never reaches this branch. The only way here is a BY-HAND python3
+        # run -- where the caller explicitly ASKED for the gate, so it must
+        # not read as success. It used to print the PASS token and return 0
+        # having run ZERO checks; now it prints the SKIPPED token (never the
+        # PASS token) and returns a distinct non-zero code. Found 2026-08-29,
+        # the 2026-08-05 defect class again.
         print("  skip  needs FreeCAD — run under freecadcmd")
-        print("ANTENNA-FROM-SELECTION GATE PASSED")
-        return 0
+        print("ANTENNA-FROM-SELECTION GATE SKIPPED — nothing was tested, "
+              "this is NOT a pass")
+        return _RC_SKIPPED
 
     from emstudio.antenna import from_selection as fs
     from emstudio.objects import query
@@ -384,4 +415,9 @@ def gate_solid_analysis_repair():
 
 
 if __name__ == "__main__" or "FreeCAD" in sys.modules:
+    # main() returns 0 (everything ran and passed) or _RC_SKIPPED (FreeCAD
+    # absent); a failed check raises SystemExit with its own message. The skip
+    # code can only arise under plain python3 -- freecadcmd always HAS FreeCAD
+    # -- so the "sys.exit is unreliable under freecadcmd" caveat cannot apply
+    # to it, and the distinct code survives to the caller.
     sys.exit(main())

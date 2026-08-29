@@ -646,9 +646,31 @@ def main():
     check("the ambiguity is WARNED about, because a reader will otherwise "
           "quote one of them as 'the 20 mm factor'",
           any("do not quote" in w for w in ml.warnings))
-    check("a per-group warning names the group it belongs to, not just the "
-          "size",
-          all(("mm @" in w) for w in ml.warnings if "K/m:" in w) or True)
+    # ⚠ This needs a fixture that REALLY produces a per-group warning. `ml`
+    # above produces none, so `all(...)` over the empty filter was vacuously
+    # true and the check asserted nothing. Give the 10 mm group a Nusselt
+    # number ABOVE the correlation so exactly ONE group raises the "forced
+    # flow" warning — and pick the group that is neither first in the reading
+    # order nor shares its flux with any other, so a prefix built from the
+    # wrong group's size or flux cannot pass by coincidence.
+    _LOADW = [(-0.02, 0.0, 0.020, 400.0), (0.02, 0.0, 0.020, 100.0),
+              (0.0, 0.03, 0.010, 250.0)]
+    _RECW = {"cables_g0_d20p0": (0.020, 400.0, 3.6097, 5541.0),
+             "cables_g1_d20p0": (0.020, 100.0, 2.4000, 1400.0),
+             "cables_g2_d10p0": (0.010, 250.0, 3.0000, 625.1)}
+    mg = bc.solve_mixed_bundle_factor(_LOADW, box_w=0.2, box_h=0.2,
+                                      runner=_stub_groups(_RECW),
+                                      case_factory=_StubCase, case_dir=".")
+    _pergroup = [w for w in mg.warnings if "K/m:" in w]
+    check("a per-group warning names the group it belongs to (size AND flux), "
+          "not just the size — and it is raised for THAT group alone",
+          len(_pergroup) == 1
+          and _pergroup[0].startswith("10 mm @ 250 K/m: ")
+          and "forced flow" in _pergroup[0]
+          and mg.by_group["cables_g2_d10p0"].factor > 1.0,
+          "%d per-group warning(s): %s" % (len(_pergroup),
+                                           _pergroup[0][:34] if _pergroup
+                                           else "none"))
     check("provenance identifies every group by size AND flux",
           ml.provenance.count("K/m ->") == 3
           and "20 mm @ 400 K/m" in ml.provenance

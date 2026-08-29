@@ -18,8 +18,12 @@ k(T) = k0·(1 + β·(T − Tref)). Two tiers:
   differs measurably from the constant-k value C/k0 (proving k(T) took
   effect rather than being silently ignored).
 
-Pass: exit 0 and 'HEAT-KTEMP GATE PASSED'. The deck tier runs anywhere;
-the live tier auto-skips if ElmerSolver is absent.
+Pass: exit 0 and 'HEAT-KTEMP GATE PASSED'. The deck tier runs anywhere.
+The live tier needs gmsh + ElmerSolver + ElmerGrid, PROBED BEFORE the solve
+(``_live_backends_missing``): with them present the solve is un-wrapped, so a
+bad SIF / meshing failure / parser change fails loudly; with them absent the
+gate prints NO pass token and FAILS (``main`` returns 2, process exit 1),
+because you asked for this gate by name and it cannot answer.
 """
 import math
 import os
@@ -103,16 +107,56 @@ def gate_emission():
           "Radiation" not in kt and "Stefan Boltzmann" not in kt)
 
 
+def _live_backends_missing():
+    """Binaries the live tier needs that this box does NOT have — probed
+    BEFORE any solve is attempted. Empty list == the tier can really run.
+
+    ⚠ WHY THIS EXISTS. The live tier used to be a bare ``except Exception``
+    wrapped around ``run_model``, which relabelled EVERY failure — a malformed
+    SIF, a meshing failure, a renamed VTU field, a ``parser`` change, a genuine
+    k(T) regression — as "Elmer run unavailable", discarded the whole numeric
+    half and still printed the unqualified ``HEAT-KTEMP GATE PASSED``. A broken
+    conduction chain was therefore indistinguishable from an absent solver, and
+    under freecadcmd (which drops ``print`` on exit) the exit code was the ONLY
+    signal a caller saw — and it said success. Probing first is what lets the
+    ``try`` disappear entirely: past this check, anything that goes wrong is a
+    real failure and must reach the traceback at the bottom of this file.
+
+    Resolved through the PRODUCT's own resolver (prefs → env → PATH → platform
+    dirs), not a bare ``shutil.which``, so an ``EMSTUDIO_ELMER`` override
+    counts and this probe cannot disagree about which binary ``run_model``
+    will actually launch. ElmerGrid is probed too rather than assumed: it has
+    no registry entry of its own (it is resolved as a sibling of ElmerSolver),
+    and the guided Windows install has already produced a real box with
+    ElmerSolver found and ElmerGrid "not found" in the same bin directory.
+    """
+    from emstudio.setup import solvers as solver_setup
+    from emstudio.solvers.base import SolverError
+    from emstudio.solvers.elmer.runner import find_elmergrid
+
+    missing = []
+    if not solver_setup.find_backend("gmsh").found:
+        missing.append("gmsh")           # meshes the billet before Elmer runs
+    if not solver_setup.find_backend("elmer").found:
+        missing.append("ElmerSolver")
+    else:
+        try:
+            find_elmergrid()
+        except SolverError:              # ONLY "companion tool absent"
+            missing.append("ElmerGrid")
+    return missing
+
+
 def gate_live():
     from emstudio.solvers.elmer import parser as eparser
     from emstudio.solvers.elmer import run_model
 
-    try:
-        res = run_model(_billet_model(k_beta=BETA), [F],
-                        extract_coupling=False)
-    except Exception as exc:  # noqa: BLE001
-        print("  skip  live tier — Elmer run unavailable: {0}".format(exc))
-        return
+    # NO try/except here, deliberately. _live_backends_missing() has already
+    # proved every binary this needs is present, so the only things left that
+    # can raise are REGRESSIONS — and a regression must not be able to dress
+    # itself up as "solver unavailable" and take the pass token with it.
+    res = run_model(_billet_model(k_beta=BETA), [F],
+                    extract_coupling=False)
     case = res.sweep_cases()[0]
     mesh = eparser.parse_vtu(case["vtu"])
     t_c = eparser.field_at(mesh, 0.0, 0.0, "temperature")
@@ -158,10 +202,38 @@ def gate_live():
 def main():
     print("EMStudio heat-ktemp (magnetics §2) validation gate")
     gate_emission()
-    gate_live()
+    missing = _live_backends_missing()
+    if not missing:
+        gate_live()
+    else:
+        print("  skip  live tier NOT RUN — missing: {0}".format(
+            ", ".join(missing)))
     if FAILURES:
         print("HEAT-KTEMP GATE FAILED: {0}".format(FAILURES))
         return 1
+    if missing:
+        # ⚠ NOT `return 0`, and NOT the PASS token. The deck tier alone does
+        # not earn a pass: the numeric half — the Kirchhoff integral, the
+        # "k(T) actually took effect" drop and the k-independent surface
+        # temperature — is the only part that tests the SOLVE, and none of it
+        # ran. Returns 2 rather than 1 so a PROGRAMMATIC caller can tell
+        # "could not run" from "ran and was wrong"; the auto-run block at the
+        # bottom of this file collapses every non-zero into
+        # SystemExit("heat-ktemp validation failed") == process exit 1, which
+        # is left alone on purpose (it is this repo's convention, and
+        # freecadcmd makes sys.exit(code) unreliable). Either way, non-zero.
+        #
+        # ⛳ NOTE FOR THE BATTERY, not fixable from inside this file:
+        # run_battery.py tiers heat_ktemp_elmer as SOLVER but declares NO
+        # requirement for it (it is absent from SOLVER_REQS, and there is no
+        # `elmer` kind in _requirement_missing). Until `"heat_ktemp_elmer":
+        # "elmer"` is declared there, `--all` on a solver-less box will now
+        # report this gate RED instead of printing a vacuous "ok" — which is
+        # the honest answer of the two, but the battery skip is the right one.
+        print("HEAT-KTEMP GATE FAILED: live tier could not run ({0}) — the "
+              "deck tier alone proves nothing about the k(T) solve".format(
+                  ", ".join(missing)))
+        return 2
     print("HEAT-KTEMP GATE PASSED")
     return 0
 

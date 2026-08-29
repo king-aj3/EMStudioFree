@@ -29,8 +29,14 @@ nonlinear solve (de-risk probe: 9 digits). Tiers:
   class); saturation droop vs the linear harmonic run; and the exactness
   pin — a straight-line B-H table == plain Relative Permeability.
 
-Pass: exit 0 and 'BH GATE PASSED'. Deck tier runs anywhere; live tiers
-auto-skip if ElmerSolver is absent.
+Pass: exit 0 and 'BH GATE PASSED'. The deck tier runs anywhere (pure
+python3, no backend). The two LIVE tiers need ElmerSolver + gmsh — and this
+gate sits in the battery's SOLVER tier with **no requirement declared for it**
+in ``run_battery.py``'s ``SOLVER_REQS``, so a skip here is INVISIBLE to the
+runner. Absent backends therefore print 'BH GATE SKIPPED' and exit 2: a run
+that solved nothing must not read as a pass, by hand or in the battery. Any
+OTHER exception out of a live tier is a REGRESSION and is raised, never
+swallowed into a skip.
 """
 import math
 import os
@@ -60,6 +66,11 @@ if _ROOT not in sys.path:
 
 MU0 = 4.0e-7 * math.pi
 FAILURES = []
+
+#: Live tiers that were REQUESTED but could not run because a backend is
+#: absent. Non-empty means this run proved nothing about the solver, so main()
+#: must not print the PASS token for it (see the module docstring).
+SKIPPED = []
 
 
 def check(name, ok, detail=""):
@@ -299,16 +310,48 @@ def _lam(res, name="coil"):
     return res.sweep_cases()[0]["coil_lambda"][name]
 
 
+def _missing_backends():
+    """Backend keys the live tiers need that this box does not have.
+
+    Probed EXPLICITLY, and BEFORE the solve — not inferred from a bare
+    ``except Exception`` wrapped around it. The old shape caught EVERY
+    exception as "Elmer run unavailable", printed a skip line and returned
+    success, so a broken writer, a malformed deck, a diverged nonlinear solve
+    or a ``SolverError`` — every regression the live tiers exist to catch —
+    read as a pass. This gate's whole claim lives in those tiers, so that
+    ``except`` was the difference between a benchmark and theatre.
+
+    ``gmsh`` meshes the axisymmetric model and ``ElmerSolver`` solves it;
+    ``ElmerGrid`` is resolved as a SIBLING of ElmerSolver by the runner, so
+    the ``elmer`` key covers it and there is nothing separate to probe.
+    """
+    from emstudio.setup import solvers as solver_setup
+
+    return [k for k in ("elmer", "gmsh")
+            if not solver_setup.find_backend(k).found]
+
+
+def _skip_live(tier):
+    """Record + announce an honest skip. Returns True when the tier can't run."""
+    missing = _missing_backends()
+    if not missing:
+        return False
+    SKIPPED.append("{0} (no {1})".format(tier, ", ".join(missing)))
+    print("  skip  {0} — backend(s) not installed: {1}".format(
+        tier, ", ".join(missing)))
+    return True
+
+
 def gate_live_static():
     from emstudio.solvers.elmer import run_model
 
-    BH = froehlich_table()
-    try:
-        runs = {i: run_model(potcore_model(i, bh=BH), [0.0],
-                             extract_coupling=False) for i in DRIVES_A}
-    except Exception as exc:  # noqa: BLE001
-        print("  skip  live static tier — Elmer run unavailable: {0}".format(exc))
+    if _skip_live("live static tier"):
         return None
+    BH = froehlich_table()
+    # NO try/except: the backends were probed above, so anything that raises
+    # from here down is a real failure and must reach main()'s handler.
+    runs = {i: run_model(potcore_model(i, bh=BH), [0.0],
+                         extract_coupling=False) for i in DRIVES_A}
     lams = {i: _lam(runs[i]) for i in DRIVES_A}
 
     for i in DRIVES_A:
@@ -347,13 +390,12 @@ def gate_live_static():
 def gate_live_harmonic(static_lams):
     from emstudio.solvers.elmer import run_model
 
-    BH = froehlich_table()
-    try:
-        h_runs = {i: run_model(potcore_model(i, bh=BH, static=False), [50.0],
-                               extract_coupling=False) for i in DRIVES_A}
-    except Exception as exc:  # noqa: BLE001
-        print("  skip  live harmonic tier — Elmer run unavailable: {0}".format(exc))
+    if _skip_live("live harmonic tier"):
         return
+    BH = froehlich_table()
+    # NO try/except — same reason as the static tier above.
+    h_runs = {i: run_model(potcore_model(i, bh=BH, static=False), [50.0],
+                           extract_coupling=False) for i in DRIVES_A}
     for i in DRIVES_A:
         lam_h = _lam(h_runs[i])
         if static_lams:
@@ -386,6 +428,13 @@ def main():
     if FAILURES:
         print("BH GATE FAILED: {0}".format(FAILURES))
         return 1
+    if SKIPPED:
+        # The battery declares NO requirement for this gate, so exit 0 here
+        # would be read as a pass for a run that never touched the solver.
+        # A requested tier that could not run is an unearned pass, not a
+        # pass — distinct code 2 keeps "skipped" tellable from "failed".
+        print("BH GATE SKIPPED (no pass earned): {0}".format("; ".join(SKIPPED)))
+        return 2
     print("BH GATE PASSED")
     return 0
 
@@ -401,6 +450,12 @@ if (__name__ == "__main__") or (_UNDER_FREECAD and not _UNDER_PYTEST):
         import traceback
         traceback.print_exc()
         raise SystemExit("validation failed: {0}".format(exc))
+    if rc == 2:
+        # stderr as well as stdout: bare freecadcmd DROPS print() on exit, and
+        # a skip that loses its message looks like an unexplained failure.
+        sys.stderr.write("bh validation SKIPPED — live tier(s) could not run "
+                         "({0}); no pass was earned\n".format("; ".join(SKIPPED)))
+        raise SystemExit(2)
     if rc != 0:
         raise SystemExit("bh validation failed")
     sys.exit(0)

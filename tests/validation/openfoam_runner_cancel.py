@@ -18,6 +18,21 @@ cannot:
   keeps burning CPU behind a "cancelled" UI. The kill is therefore a
   process-group kill, and the child-is-dead check here is the one that fails
   if that regresses.
+
+⚠ That child-is-dead check is an ABSENCE test, and an absence test is only
+worth its exit code when the instrument can see a presence. Two ways it used
+to read "pass" while proving nothing, both closed here:
+
+* it never ran at all. ``main`` opened with ``if os.name == "nt": print(
+  "skip"); return 0`` — and ``run_battery.FAST`` lists this gate with
+  requirement ``None``, so on every Windows box the battery printed **ok** for
+  a gate that had executed zero checks. The skip is now a NON-SUCCESS
+  (``_SKIP_RC``) with its own token, so neither a battery run nor a hand run
+  can read it as a pass. See ``_unavailable``.
+* the probe was blind. ``ps -eo args`` returning nothing at all — no ``ps``,
+  an empty table, an argv format the exact-match never matches — yields the
+  same empty list as a correctly killed child. A POSITIVE CONTROL now proves
+  the probe can see a live process of exactly that shape first.
 """
 import os
 import shutil
@@ -32,6 +47,57 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 FAILURES = []
+
+#: Exit code for "this gate did NOT run". Distinct from 0 (a pass it earned)
+#: and from 1 (a check that failed), so a hand run cannot be mistaken for
+#: success and the battery cannot count it as ok.
+#:
+#: ⚠ ``run_battery.FAST`` currently declares this gate's requirement as
+#: ``None``, so the battery has no honest "skip" line to print for it: on a
+#: box that cannot run the gate the battery will now report FAIL rather than
+#: ok. That is deliberate and it is the lesser evil — printing "ok" for a
+#: gate that ran nothing is the 2026-08-05 defect class (see SOLVER_REQS in
+#: run_battery.py). The proper cure is a declared prerequisite for this gate
+#: in run_battery.py; until that exists, red-and-honest beats green-and-blind.
+_SKIP_RC = 3
+
+
+def _unavailable():
+    """Why this gate cannot run on this box, or "" when it can.
+
+    Probed UP FRONT, and reported by the caller as a NON-SUCCESS. The whole
+    body of this gate drives a real ``bash`` and then reads a POSIX process
+    table; there is no partial mode, so "cannot run" has to be said out loud
+    rather than returned as a zero.
+    """
+    if os.name == "nt":
+        # The live checks drive a real `bash`; the Windows boxes reach bash
+        # only through MSYS/WSL installs this gate must not depend on, and
+        # `ps -eo args` has no equivalent there (the Windows kill path is
+        # `taskkill /T`, a different mechanism needing a different gate).
+        return ("live-subprocess checks are POSIX-only (os.name={0!r}) — the "
+                "cancellation path is exercised on Linux/macOS".format(os.name))
+    # Probed with `shutil.which` BEFORE anything is launched, so a missing
+    # tool reports itself by name instead of surfacing as a FileNotFoundError
+    # traceback from somewhere in the middle of the chain.
+    for tool in ("bash", "ps"):
+        if shutil.which(tool) is None:
+            return ("no {0!r} on PATH — the chain steps are bash and the "
+                    "orphan check reads `ps -eo args`".format(tool))
+    return ""
+
+
+def _argv_alive(argv_line):
+    """Process-table lines whose argv is EXACTLY ``argv_line``.
+
+    Exact equality, not substring: any harness that carries this gate's source
+    text on ITS command line (a heredoc, a ``-c`` string) would otherwise
+    match itself and report a phantom orphan — measured, first run of this
+    gate. Kept as one function so the orphan check and its positive control
+    below cannot drift apart and ask the process table different questions.
+    """
+    ps = subprocess.run(["ps", "-eo", "args"], capture_output=True, text=True)
+    return [ln for ln in ps.stdout.splitlines() if ln.strip() == argv_line]
 
 
 def check(label, ok, detail=""):
@@ -60,11 +126,12 @@ def main():
     from emstudio.solvers.openfoam import runner
 
     print("EMStudio run_chain cancellation gate")
-    if os.name == "nt":
-        # The live checks drive a real `bash`; the Windows boxes reach bash
-        # only through MSYS/WSL installs this gate must not depend on.
-        print("  skip: live-subprocess checks are POSIX-only")
-        return 0
+    why = _unavailable()
+    if why:
+        print("  SKIP: {0}".format(why))
+        print("")
+        print("OPENFOAM-RUNNER-CANCEL GATE SKIPPED — NOT RUN, NOTHING PROVED")
+        return _SKIP_RC
 
     wd = tempfile.mkdtemp(prefix="emstudio-cancelgate-")
     try:
@@ -112,13 +179,29 @@ def _checks(wd):
                                        "error")}))
 
     # ⚠ The CHILD must be dead, not orphaned. Give the group kill a moment,
-    # then look for the child's EXACT argv in the process table. Exact
-    # equality, not substring: any harness that carries this gate's source
-    # text on ITS command line (a heredoc, a -c string) would otherwise match
-    # itself and report a phantom orphan — measured, first run of this gate.
+    # then look for the child's EXACT argv in the process table.
     time.sleep(1.0)
-    ps = subprocess.run(["ps", "-eo", "args"], capture_output=True, text=True)
-    alive = [ln for ln in ps.stdout.splitlines() if ln.strip() == marker]
+
+    # ⚠ POSITIVE CONTROL, and it is not ceremony. The check below passes on an
+    # EMPTY match list — which is also what a blind probe returns: no `ps`, a
+    # `ps` that errored, an argv rendering this exact-match can never equal.
+    # Any of those would make the one check that catches an orphaned solver
+    # pass on every box forever, which is precisely the regression this gate
+    # exists to catch. So prove the instrument can see a live process of
+    # exactly this shape before believing it that the real child is gone.
+    # A distinct number (…998) so it can never collide with a chain marker,
+    # and it is held by a handle we kill ourselves — never pkill'd by name.
+    sentinel = subprocess.Popen(["sleep", "987.998"])
+    try:
+        time.sleep(0.4)
+        seen = _argv_alive("sleep 987.998")
+        check("orphan probe can SEE a live process (detector not blind)",
+              bool(seen), "ps -eo args matched %d exact line(s)" % len(seen))
+    finally:
+        sentinel.kill()
+        sentinel.wait()
+
+    alive = _argv_alive(marker)
     check("the step's child process is dead (no orphaned solver)",
           not alive, "; ".join(alive[:3]))
     if alive:                           # never leave a stray behind on a FAIL
@@ -193,6 +276,13 @@ if (__name__ == "__main__") or (_UNDER_FREECAD and not _UNDER_PYTEST):
         import traceback
         traceback.print_exc()
         raise SystemExit("validation failed: {0}".format(exc))
+    if rc == _SKIP_RC:
+        # SystemExit(int) so the DISTINCT code survives; a message-form
+        # SystemExit would collapse it to 1 and lose "did not run" vs "failed".
+        # Written to stderr as well because freecadcmd drops print() on exit.
+        sys.stderr.write("openfoam-runner-cancel SKIPPED — the gate did not "
+                         "run on this box and proved nothing\n")
+        raise SystemExit(_SKIP_RC)
     if rc != 0:
         raise SystemExit("openfoam-runner-cancel validation failed")
     sys.exit(0)

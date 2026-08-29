@@ -27,6 +27,7 @@ FAST tier: arithmetic, guard rails, and what the writer emits. The solve is
 `openfoam_cht` (SOLVER).
 """
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -334,10 +335,24 @@ def main():
               "chtMultiRegionFoam is transient and demands a PIMPLE block")
         solid = open(os.path.join(
             d, "constant", cht.SOLID_REGION, "thermophysicalProperties")).read()
+        # ⚠ THIS CHECK USED TO BE A SUBSTRING HUNT. After the .split()[-1]
+        # only the bare number survived, so it reduced to `"0.1" in solid` —
+        # a digit string that could have come from ANY entry in the file, that
+        # "0.105" also contains, and that is ALSO the default k_solid, so a
+        # writer which hard-coded its own constant and never read the requested
+        # value passed. Both were proven by mutation: kappa*1.05 and a literal
+        # 0.10 in place of case.k_solid each left the gate green. So parse the
+        # mixture's OWN transport entry and compare the number, not a substring.
+        def _solid_kappa(text):
+            """The kappa the solid mixture's transport block actually carries."""
+            m = re.search(r"\btransport\s*\{[^}]*\bkappa\s+([-\d.eE+]+)\s*;",
+                          text)
+            return float(m.group(1)) if m else None
+
         check("the solid carries the requested conductivity",
-              "kappa   {0:.10g}".format(cht.ChtCase().k_solid).strip()
-              .split()[-1] in solid.replace("kappa", "kappa "),
-              "k_solid = {0}".format(cht.ChtCase().k_solid))
+              _solid_kappa(solid) == cht.ChtCase().k_solid,
+              "the file's kappa entry is {0!r}, k_solid is {1}".format(
+                  _solid_kappa(solid), cht.ChtCase().k_solid))
         check("the solid uses heSolidThermo", "heSolidThermo" in solid)
         fluid = open(os.path.join(
             d, "constant", cht.FLUID_REGION, "thermophysicalProperties")).read()
@@ -355,6 +370,25 @@ def main():
         # inert and a "buoyant" case silently returns the conduction answer.
         check("a still case uses rhoConst", "rhoConst" in fluid
               and "Boussinesq" not in fluid)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+    # ⚠ A DEFAULT-ONLY CHECK CANNOT SEE A HARD-CODED WRITER: 0.1 is both what
+    # the gate asked for and what a frozen constant would emit, so the two agree
+    # for the wrong reason. Ask for a conductivity the module names nowhere and
+    # require the emitted file to follow it.
+    d = tempfile.mkdtemp(prefix="chtk_")
+    try:
+        asked = 0.037          # exact under the writer's "%.10g", and unlike
+        #                        any default in cht.py, so only a value that
+        #                        travelled from the request can appear.
+        cht.write_cht(d, cht.ChtCase(k_solid=asked))
+        asked_solid = open(os.path.join(
+            d, "constant", cht.SOLID_REGION, "thermophysicalProperties")).read()
+        check("  ...and it TRACKS the request, not a constant of its own",
+              _solid_kappa(asked_solid) == asked,
+              "asked {0}, the file carries {1!r}".format(
+                  asked, _solid_kappa(asked_solid)))
     finally:
         shutil.rmtree(d, ignore_errors=True)
 

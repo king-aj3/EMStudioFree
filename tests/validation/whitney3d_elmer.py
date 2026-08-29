@@ -22,7 +22,11 @@ checks (end ratios, flatness) then pin the physics.
 
 Runtime: three ~0.5-0.8 M-tet magnetostatic solves, ~6-9 min total — a SLOW
 gate, run per release or after touching the 3-D chain.
-Pass: exit 0 and 'WHITNEY3D GATE PASSED'. Auto-skips without Elmer/gmsh.
+Pass: exit 0 and 'WHITNEY3D GATE PASSED'. WITHOUT Elmer/gmsh the live tier
+cannot run, so the gate prints 'WHITNEY3D GATE SKIPPED' and exits 2 — never
+the PASS token, because the seven physics comparisons proved nothing. Any
+OTHER failure (a broken solve, a missing SaveLine column, a real regression)
+propagates and exits non-zero: only an ABSENT BACKEND is a skip.
 """
 import math
 import os
@@ -173,15 +177,44 @@ def _signed(vals, ref_sign_probe):
     return s
 
 
+#: The backends the live tier drives. ``run_model3d`` meshes with gmsh, then
+#: converts and solves with the Elmer suite — absence of either is the ONLY
+#: condition that may be reported as "not run" rather than as a failure.
+_LIVE_BACKENDS = ("elmer", "gmsh")
+
+
+def missing_backends():
+    """Backend keys the live tier needs and this box does not have.
+
+    PROBED UP FRONT, on purpose. This used to be inferred from a bare
+    ``except Exception`` wrapped round the FIRST solve: every failure —
+    a broken deck, a SaveLine column rename, a genuine physics regression —
+    was relabelled "3-D Elmer run unavailable", ``gate_live`` returned before
+    a single one of the seven comparisons ran for ANY of the three cases, and
+    ``main`` then printed WHITNEY3D GATE PASSED. A gate whose only claim lives
+    in its live tier cannot be allowed to decide it was "unavailable" from the
+    shape of an exception; it has to ask the question directly, and everything
+    else has to be a failure.
+    """
+    from emstudio.setup import solvers as solver_setup
+    return [k for k in _LIVE_BACKENDS if not solver_setup.find_backend(k).found]
+
+
 def gate_live():
+    """Run the three live cases. Returns a skip REASON, or None if it ran."""
     from emstudio.solvers.elmer.runner3d import run_model3d
 
+    missing = missing_backends()
+    if missing:
+        reason = "backend(s) not installed: {0}".format(", ".join(missing))
+        print("  SKIP  live tier NOT RUN — {0}".format(reason))
+        return reason
+
     # ---- case 1: thick solenoid --------------------------------------
-    try:
-        res = run_model3d(solenoid_model())
-    except Exception as exc:  # noqa: BLE001
-        print("  skip  live tier — 3-D Elmer run unavailable: {0}".format(exc))
-        return
+    # No try/except: with the backends present, a solve that raises IS the
+    # regression this gate exists to catch. It propagates to the auto-run
+    # guard, which prints the traceback and exits non-zero.
+    res = run_model3d(solenoid_model())
     line = res["saveline"]
     zs = line["coordinate 3"]
     bz = line["magnetic flux density 3"]
@@ -253,10 +286,21 @@ def gate_live():
 def main():
     print("EMStudio 3-D WhitneyAV (magnetics §5) ANALYTIC validation gate")
     gate_emission()
-    gate_live()
+    skipped = gate_live()
     if FAILURES:
         print("WHITNEY3D GATE FAILED: {0}".format(FAILURES))
         return 1
+    if skipped:
+        # Exit 2, NOT 0. run_battery.py declares no requirement for this gate
+        # (it is in SOLVER with no SOLVER_REQS entry), so nothing upstream
+        # would turn a silent zero into an honest "skip" line — the battery
+        # would print "ok" for a run that verified no physics at all. Until a
+        # requirement is declared there, the only honest exit is a distinct
+        # non-zero one, and the token above is deliberately not the PASS token.
+        print("WHITNEY3D GATE SKIPPED — live tier did not run ({0}); the "
+              "deck-emission checks are green but NO physics was "
+              "verified".format(skipped))
+        return 2
     print("WHITNEY3D GATE PASSED")
     return 0
 
@@ -272,6 +316,11 @@ if (__name__ == "__main__") or (_UNDER_FREECAD and not _UNDER_PYTEST):
         import traceback
         traceback.print_exc()
         raise SystemExit("validation failed: {0}".format(exc))
+    if rc == 2:
+        # SystemExit(int) is what tests/run_gate.py itself raises and what it
+        # maps back out, so the 2 survives both the direct and the freecadcmd
+        # route. The SKIPPED line above carries the reason.
+        raise SystemExit(2)
     if rc != 0:
         raise SystemExit("whitney3d validation failed")
     sys.exit(0)

@@ -28,7 +28,43 @@ returning a single perfectly plausible pattern that belongs to no frequency at
 all — no error, no warning. ``parse_radiation_patterns_all`` splits on the
 frequency marker instead, and this gate pins the difference.
 
-Pass: exit 0 and 'PATTERN SWEEP GATE PASSED'.
+HOW MUCH OF IT ACTUALLY RAN
+---------------------------
+Three of the nine sub-gates need FreeCAD (two of them) or FreeCAD *and* a NEC2
+binary (one), so under the plain-python3 FAST battery **63 of the 88 checks
+never execute**. Until 2026-08-29 that run printed a bare
+``PATTERN SWEEP GATE PASSED`` and ``docs/CAPABILITIES.md`` sold the gate as
+"88 checks" — so the headline number and the number a reader could have
+watched go by differed by 25, with nothing on screen saying so. That is the
+same defect class this repo has now found four times (the four openEMS gates
+in 2026-08-05, the eight FreeCAD self-skippers in 2026-08-23): a gate that
+reports a pass it did not earn is worse than a gate that is missing.
+
+So every run now ends with an EXECUTED-OF-TOTAL line, every skip is named in
+that summary with the number of checks it took with it, and the terminal token
+is ``PASSED`` only when all 88 ran — a partial run says ``PARTIAL`` instead.
+
+⚠ A partial run still exits **0**, deliberately. ``run_battery.FAST`` lists
+``"pattern_sweep": None`` — no requirement — which is the battery DECLARING
+that the python3-reachable 63 must run on every push; making the partial run
+non-zero would delete this gate from CI rather than make it honest. Set
+``EMSTUDIO_GATE_REQUIRE_ALL=1`` to demand the full 88 (release runs, and any
+run where you believe FreeCAD/NEC2 are present): a skip then exits non-zero
+with ``PATTERN SWEEP GATE INCOMPLETE``.
+
+The per-tier counts are AUDITED against what really ran, so this coverage
+number cannot rot the way the doc's did: add or delete a ``check`` call in a
+tier that runs on your interpreter and the gate FAILS until ``TIERS`` is
+updated.
+
+⚠ Prose in this file must NOT spell that call with its bracket attached:
+``capability_counts`` derives the number CAPABILITIES.md advertises by
+counting that exact token TEXTUALLY (comment lines excepted), so a docstring
+mentioning it would inflate the very count it describes. Say "a ``check``
+call".
+
+Pass: exit 0 and 'PATTERN SWEEP GATE PASSED' (all 88 checks).
+Partial: exit 0 and 'PATTERN SWEEP GATE PARTIAL' (a tier could not run).
 """
 
 from __future__ import annotations
@@ -42,12 +78,75 @@ sys.path.insert(0, _ROOT)
 
 FAILURES = []
 
+#: (tier, checks it would have run, why it could not) — filled by ``_skip``.
+SKIPS = []
+
+#: tier name -> how many ``check()`` calls it actually made this run.
+EXECUTED = {}
+
+#: The tier ``check()`` should bill its calls to. A list because the gates are
+#: plain functions and this is rebound by ``main``'s driver loop, not passed.
+_TIER = [None]
+
+#: Sub-gates in RUN ORDER: (function name, checks executed when it runs, what
+#: it needs — None = always runnable).
+#:
+#: ⚠ The count is EXECUTIONS, not source lines, and the two differ on purpose:
+#: ``gate_writer`` has five ``check(`` sites but one sits in a two-deck loop
+#: (six executions), and ``gate_flat_band`` has nine sites of which exactly
+#: EIGHT can run in any one interpreter — its last two are the try/else arms of
+#: one statement, the same property proven live under freecadcmd and by AST
+#: under python3. Counting source text would therefore report a total no run
+#: can reach, which is precisely the kind of unearned number this block exists
+#: to stop. ``_audit_coverage`` checks these against reality after the run.
+#:
+#: ⚠ The static and executed bases AGREE AT 88 BY COINCIDENCE, worth knowing
+#: before anyone "simplifies" one into the other: ``capability_counts``
+#: re-derives the number CAPABILITIES.md advertises by counting 88 static call
+#: sites, and a full run executes 88, only because gate_writer's loop (+1)
+#: exactly cancels gate_flat_band's unreachable arm (-1). Move either and the
+#: two part company. Note also what that static basis CANNOT see, and what
+#: this table exists for: on the python3 battery 25 of those 88 never run.
+TIERS = [
+    ("gate_parser",           7, None),
+    ("gate_flat_band",        8, None),
+    ("gate_writer",           6, "FreeCAD"),
+    ("gate_wiring",          17, None),
+    ("gate_currents_blocks", 11, None),
+    ("gate_band",            14, None),
+    ("gate_segmentation",     6, None),
+    ("gate_polyline_deck",    7, "FreeCAD"),
+    ("gate_live",            12, "FreeCAD + a NEC2 backend"),
+]
+
+#: Turns every skip into a failure. For release runs and for anyone who
+#: believes the backends ARE installed — a skip then means the environment is
+#: not what you thought, which is a result worth an exit code.
+REQUIRE_ALL = os.environ.get("EMSTUDIO_GATE_REQUIRE_ALL", "") not in ("", "0")
+
 
 def check(label, ok, detail=""):
+    # Bill the call to the running tier BEFORE anything can go wrong, so the
+    # coverage audit sees a truncated tier (an early `return`, a swallowed
+    # exception) as the short count it is.
+    EXECUTED[_TIER[0]] = EXECUTED.get(_TIER[0], 0) + 1
     if not ok:
         FAILURES.append(label)
     print("  {0} - {1}{2}".format("ok  " if ok else "FAIL", label,
                                   ("   [" + str(detail)[:96] + "]") if detail else ""))
+
+
+def _skip(reason):
+    """Record — not merely print — that the running tier did not run.
+
+    The old code printed a bare ``skip`` line mid-output and returned, so the
+    summary and the exit code both behaved as though nothing had been missed.
+    Recording it is what lets the summary say 63-of-88 and the token say
+    PARTIAL.
+    """
+    SKIPS.append((_TIER[0], dict((n, c) for n, c, _ in TIERS).get(_TIER[0], 0),
+                  reason))
+    print("  skip  {0} — {1}".format(_TIER[0], reason))
 
 
 #: Two frequency blocks, each with its own 2x2 pattern. The gains are chosen so
@@ -184,12 +283,20 @@ def gate_writer():
     actually consumes — the same standard `team7_elmer` applies to its `.sif`.
 
     Needs FreeCAD for a real analysis (the deck is built from geometry), so it
-    skips under plain python exactly as `gate_polyline_deck` does.
+    skips under plain python exactly as `gate_polyline_deck` does — but the
+    skip is RECORDED (see ``_skip``), because six unrun checks that print
+    nothing are how "88 checks" came to mean 63.
     """
     try:
         import FreeCAD
-    except Exception:                                           # noqa: BLE001
-        print("  skip  writer deck — needs FreeCAD (run under freecadcmd)")
+    except ImportError:
+        # ⚠ NARROWED from `except Exception` on 2026-08-29. The broad form
+        # turned ANY failure of the import machinery — a half-installed
+        # FreeCAD, a broken numpy under it (0.21.2 on macOS does exactly
+        # that), a C-extension ABI clash — into a silent, passing skip. Only
+        # "the module is not here" is a legitimate reason not to run; every
+        # other exception is a real regression and must reach the caller.
+        _skip("needs FreeCAD (run under freecadcmd)")
         return
 
     import tempfile
@@ -663,8 +770,8 @@ def gate_polyline_deck():
     """
     try:
         import FreeCAD
-    except Exception:                                           # noqa: BLE001
-        print("  skip  polyline deck — needs FreeCAD (run under freecadcmd)")
+    except ImportError:                     # narrowed 2026-08-29, see gate_writer
+        _skip("needs FreeCAD (run under freecadcmd)")
         return
 
     import math
@@ -758,13 +865,17 @@ def gate_live():
     """A real solve really does produce N patterns for one extra run."""
     from emstudio.setup import solvers as solver_setup
 
+    # An explicit probe BEFORE the work, not an `except` around it: "the
+    # binary is absent" is the ONLY condition allowed to skip this tier, and
+    # a probe cannot accidentally swallow a solver crash the way a try/except
+    # over the run would.
     if not solver_setup.find_backend("nec2").found:
-        print("  skip  live tier — no NEC2 backend installed")
+        _skip("no NEC2 backend installed")
         return
     try:
         import FreeCAD  # noqa: F401
-    except Exception:                                           # noqa: BLE001
-        print("  skip  live tier — needs FreeCAD (run under freecadcmd)")
+    except ImportError:                     # narrowed 2026-08-29, see gate_writer
+        _skip("needs FreeCAD (run under freecadcmd)")
         return
 
     import FreeCAD
@@ -941,21 +1052,76 @@ def gate_flat_band():
               "for")
 
 
+def _audit_coverage():
+    """Did every tier that RAN run all of itself?
+
+    The coverage number is only worth printing if it cannot drift, and there
+    are two ways it drifts. A tier can be TRUNCATED — ``gate_parser`` returns
+    early when the parser hands back the wrong number of blocks, and a future
+    `return` or swallowed exception would do the same silently. Or a
+    ``check`` call can be added to (or deleted from) a tier while ``TIERS``
+    still quotes the old count, which is exactly how CAPABILITIES.md came to
+    advertise a number no run produced. Both are FAILURES here, named.
+
+    Only tiers that actually ran are audited: a skipped tier's shortfall is
+    already reported, by name and by count, in the summary.
+    """
+    skipped = {name for name, _n, _why in SKIPS}
+    for name, count, _need in TIERS:
+        if name in skipped:
+            continue
+        got = EXECUTED.get(name, 0)
+        if got != count:
+            FAILURES.append(
+                "{0} ran {1} of its {2} checks — a tier stopped short, or "
+                "TIERS is stale".format(name, got, count))
+    # A check billed to no tier at all means a check() call was added outside
+    # the driver loop, where nothing counts it and the summary would under-
+    # report the run.
+    stray = set(EXECUTED) - {name for name, _c, _n in TIERS}
+    if stray:
+        FAILURES.append("check calls billed to no tier: {0}".format(
+            sorted(str(s) for s in stray)))
+
+
 def main():
     print("EMStudio per-frequency radiation-pattern gate")
-    gate_parser()
-    gate_flat_band()
-    gate_writer()
-    gate_wiring()
-    gate_currents_blocks()
-    gate_band()
-    gate_segmentation()
-    gate_polyline_deck()
-    gate_live()
+    total = sum(count for _name, count, _need in TIERS)
+    for name, _count, _need in TIERS:
+        _TIER[0] = name
+        globals()[name]()
+    _TIER[0] = None
+    _audit_coverage()
+
+    executed = sum(EXECUTED.values())
     print("-------------------")
+    print("checks executed: {0} of {1}".format(executed, total))
+    for name, count, reason in SKIPS:
+        print("  SKIPPED  {0:<20s} {1:2d} checks NOT run — {2}".format(
+            name, count, reason))
+
     if FAILURES:
         raise SystemExit("PATTERN SWEEP GATE FAILED: " + "; ".join(FAILURES))
-    print("PATTERN SWEEP GATE PASSED")
+    if SKIPS:
+        if REQUIRE_ALL:
+            # The caller asked for the whole gate, so a skip is a failure and
+            # gets an exit code that says so.
+            raise SystemExit(
+                "PATTERN SWEEP GATE INCOMPLETE: {0} of {1} checks ran; "
+                "EMSTUDIO_GATE_REQUIRE_ALL is set and {2} tier(s) could not "
+                "run: {3}".format(executed, total, len(SKIPS),
+                                  "; ".join("{0} ({1})".format(n, r)
+                                            for n, _c, r in SKIPS)))
+        # Exit 0 — see the module docstring: run_battery tiers this gate FAST
+        # with NO requirement, so the python3-reachable subset is meant to run
+        # on every push. The token, not the exit code, is what carries the
+        # honesty here, and it no longer reads as a full pass.
+        print("PATTERN SWEEP GATE PARTIAL — {0} of {1} checks executed, {2} "
+              "tier(s) SKIPPED above; run under freecadcmd with a NEC2 "
+              "backend for {1}/{1}".format(executed, total, len(SKIPS)))
+        return 0
+    print("PATTERN SWEEP GATE PASSED — {0} of {1} checks executed".format(
+        executed, total))
     return 0
 
 

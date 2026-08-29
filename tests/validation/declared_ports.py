@@ -16,7 +16,13 @@ that ``normalise_port_faces`` already accepts.
 
 1. **Order is ``PortNumber``, not document order.** S11 is reported for
    whichever port ends up first, so a picker that returned faces in creation
-   order would silently relabel the user's ports.
+   order would silently relabel the user's ports. ⚠ The sort itself lives one
+   level down, in ``query.get_ports`` — ``declared_port_boxes`` inherits the
+   ordering by delegating to it. That is exactly why this gate fakes the
+   DOCUMENT and not the query helpers (see SCOPE below): a gate that stubbed
+   ``query.get_ports`` with a sorting lambda would be grading its own stub, and
+   deleting the real ``sorted(...)`` would leave it green. Measured, 2026-08-29:
+   it did.
 2. **Faces only.** An ``Edge`` reference is a lumped / MSL port, not a
    waveguide mouth. Treating one as a wave port would mesh a line as a surface
    and fail a long way from the cause.
@@ -31,12 +37,16 @@ that ``normalise_port_faces`` already accepts.
    INSIDE the box — a zero-thickness query is a coin toss against floating
    point. The inferred path already slabs for this reason.
 
-⚠ **SCOPE — what this gate does NOT cover.** It stubs FreeCAD's object lookups
-(``query.get_ports`` / ``query.resolved_references``) and uses fake bounding boxes,
-so it tests the SELECTION LOGIC and nothing about real BREP geometry. The real
-geometry path — a picked ``FaceN`` on an actual solid reaching the mesher — is
-exercised under ``freecadcmd`` and by the live SOLVER-tier waveguide gates.
-Saying so here rather than implying full coverage.
+⚠ **SCOPE — what this gate does and does NOT cover.** It fakes the DOCUMENT: an
+analysis object whose ``Group`` holds stand-in ``EMStudio::LumpedPort`` objects
+carrying real ``References`` tuples, over fake bounding boxes. It patches
+NOTHING — the whole production chain runs, ``declared_port_boxes`` ->
+``query.get_ports`` (the sort) -> ``query.resolved_references`` (the FaceN
+lookup). What it still cannot see is real BREP geometry: every shape here is a
+hand-built box, so this tests the SELECTION LOGIC and nothing about OCC. The
+real geometry path — a picked ``FaceN`` on an actual solid reaching the mesher
+— is exercised under ``freecadcmd`` and by the live SOLVER-tier waveguide
+gates. Saying so here rather than implying full coverage.
 
 Pure python3, no FreeCAD, no solver.
 Pass: exit 0 and 'DECLARED PORTS GATE PASSED'.
@@ -83,27 +93,64 @@ class _Shape(object):
         self.BoundBox = bb
 
 
+class _ElementShape(object):
+    """The ``Shape`` of a linked object: it resolves sub-element names.
+
+    ``query.resolved_references`` reaches a face by calling
+    ``link_obj.Shape.getElement("Face3")``, so the fake has to answer that call
+    rather than merely carry a shape. A name this dict does not know raises,
+    which ``resolved_references`` swallows into ``None`` — that would surface as
+    "no usable face" and turn check 1 RED, not as a silent pass.
+    """
+
+    def __init__(self, elements):
+        self._elements = elements
+
+    def getElement(self, name):
+        return self._elements[name]
+
+
+class _LinkedObject(object):
+    """Stand-in for the document object a reference points AT."""
+
+    def __init__(self, elements):
+        self.Shape = _ElementShape(elements)
+
+
 class _Port(object):
-    """A stand-in LumpedPort: a PortNumber and (sub_shape, sub_name) refs."""
+    """A stand-in ``EMStudio::LumpedPort``.
+
+    It carries the two things production reads — the ``EMStudioType`` tag that
+    ``query.get_members`` filters on, and a ``References`` LinkSubList in the
+    real ``[(link_object, [subname, ...]), ...]`` shape — so no query helper has
+    to be replaced to make it work.
+    """
+
+    EMStudioType = "EMStudio::LumpedPort"
 
     def __init__(self, number, refs):
         self.PortNumber = number
-        self._refs = refs
+        self.References = [(_LinkedObject({name: shp}), [name])
+                           for shp, name in refs]
+
+
+class _Analysis(object):
+    """The analysis group, holding its members in DOCUMENT (creation) order.
+
+    ⚠ Deliberately NOT sorted. Ordering by ``PortNumber`` is the property under
+    test; handing it in pre-sorted is how the old version of this gate ended up
+    proving nothing.
+    """
+
+    def __init__(self, ports):
+        self.Group = list(ports)
 
 
 def _run(ports, solid_bb):
-    """Call declared_port_boxes with query stubbed to the given ports."""
-    from emstudio.objects import query
+    """Call declared_port_boxes over a faked document — nothing is patched."""
     from emstudio.solvers.palace import model
 
-    real_get, real_iter = query.get_ports, query.resolved_references
-    try:
-        query.get_ports = lambda _a: sorted(ports, key=lambda p: p.PortNumber)
-        query.resolved_references = lambda p: [
-            (None, shp, name) for shp, name in p._refs]
-        return model.declared_port_boxes(object(), _Shape(solid_bb))
-    finally:
-        query.get_ports, query.resolved_references = real_get, real_iter
+    return model.declared_port_boxes(_Analysis(ports), _Shape(solid_bb))
 
 
 def _face(xmin, ymin, zmin, xmax, ymax, zmax):
@@ -120,9 +167,15 @@ def main():
     f_side = _face(0, 20, 0, 60, 20, 10)     # y = 20  side wall -> port 3
 
     # --- 1. three declared faces come back in PortNumber order -------------
-    boxes = _run([_Port(3, [(f_side, "Face5")]),
-                  _Port(1, [(f_lo, "Face1")]),
-                  _Port(2, [(f_hi, "Face2")])], solid)
+    # Document order is 3, 1, 2 -- i.e. NOT port order. Production has to do
+    # the sorting; this gate must never do it on production's behalf.
+    doc_ports = [_Port(3, [(f_side, "Face5")]),
+                 _Port(1, [(f_lo, "Face1")]),
+                 _Port(2, [(f_hi, "Face2")])]
+    declared = [p.PortNumber for p in doc_ports]
+    check("the fixture is scrambled, so the ordering check CAN fail",
+          declared != sorted(declared), "document order %s" % (declared,))
+    boxes = _run(doc_ports, solid)
     check("three declared port faces are honoured", boxes is not None
           and len(boxes) == 3, "got %s" % (None if boxes is None else len(boxes)))
     if boxes and len(boxes) == 3:

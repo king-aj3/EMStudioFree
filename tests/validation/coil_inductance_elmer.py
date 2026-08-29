@@ -21,7 +21,11 @@ What this pins
    delivered against requested, and delivered is exact because the half-plane
    section counts every turn.
 
-   The pure half is gated here without a solver. A topological (Euler/genus)
+   The pure half is gated here without a solver — but the VERDICT is asked of
+   the product: ``_guard_verdict`` drives ``model3d.run3d``'s own guard with
+   the measured pair and asserts what IT returns. Re-deriving the band here
+   from literals (what this file used to do) tests nothing: no edit to the
+   real guard could fail it. A topological (Euler/genus)
    test is deliberately NOT used and must not be reintroduced: it reports
    EMStudio's own closed template tube as genus-0, because OCC's seam edges
    break the naive V-E+F count (measured, same day).
@@ -74,6 +78,77 @@ def ring_model():
     }
 
 
+#: The measured pair the guard was BUILT from (2026-08-05, ElmerSolver 26.2).
+#: Closed ring: J_avg over its half-plane section -> 999.8 of 1000 At.
+#: Mis-declared helix: an OPEN conductor whose deck STILL said "Coil Closed"
+#: (being wrong about that is the whole defect the guard exists to catch), so
+#: it too goes through the closed branch: J_avg over the 6.44-turn half-plane
+#: section -> 5.17 of 100 At.
+J_CLOSED_A_M2 = 6.2490e7
+J_OPEN_A_M2 = 2.8396e3
+OPEN_REQ_AT = 100.0
+OPEN_SECTION_M2 = 6.43588 * 282.843e-6         # 6.44 turns x 282.843 mm^2
+
+
+def _coil_model(name, amp_turns, section_m2):
+    """The smallest model3d dict the delivery guard reads."""
+    return {"bodies": [{"name": name,
+                        "coil": {"amp_turns": amp_turns,
+                                 "section_area_m2": section_m2}}],
+            "notes": []}
+
+
+def _guard_verdict(model, j_avg_a_m2):
+    """Ask the PRODUCT's delivered-ampere-turns guard about one measurement.
+
+    Returns ``(delivered_amp_turns, warnings)`` exactly as ``model3d.run3d``
+    computed them.
+
+    WHY the stubs: the guard lives INSIDE ``run3d``, downstream of a FreeCAD
+    analysis and a live Elmer run, so the only way to reach it without a
+    solver is to hand it those two. They supply INPUT ONLY — the geometry
+    dict and the J_avg the solver measured. Everything asserted on is
+    computed by ``run3d`` itself: the delivered ampere-turns, and whether the
+    band accepted or refused. So widening, narrowing or deleting the band in
+    ``emstudio/solvers/elmer/model3d.py`` changes what comes back here.
+    Until 2026-08-29 this gate re-implemented ``0.5 <= frac <= 2.0`` from
+    literals of its own and never imported ``model3d`` at all, so the four
+    checks below could not fail for any edit to the guard they named.
+
+    Both stubs are empty of warnings and notes, so any warning returned is
+    one the guard itself raised.
+    """
+    import shutil
+    import tempfile
+
+    from emstudio.solvers.elmer import model3d, runner3d
+
+    res = {"solver_warnings": [], "energy_j": None,
+           "j_avg": [float(j_avg_a_m2)], "open_coil_current": [],
+           "vtu": None, "workdir": "", "duration_s": 0.0,
+           "body_ids": {}, "norms": {}}
+
+    class _Analysis:                    # run3d reads only .Label, for meta
+        Label = "coil_inductance_elmer gate"
+
+    base = tempfile.mkdtemp(prefix="emstudio_gate_guard_")
+    real_build, real_run = model3d.build_3d_model, runner3d.run_model3d
+    model3d.build_3d_model = lambda analysis, solver, workdir: model
+    runner3d.run_model3d = lambda m, workdir=None, line_callback=None: res
+    try:
+        out = model3d.run3d(_Analysis(), None, workdir=base)
+    finally:
+        # Restore even on failure: a leaked monkeypatch would poison every
+        # later import in the same interpreter (the battery runs gates in
+        # one process on some paths).
+        model3d.build_3d_model = real_build
+        runner3d.run_model3d = real_run
+        shutil.rmtree(base, ignore_errors=True)
+    case = out.cases[0]
+    return (case["delivered_amp_turns"] or [None])[0], list(
+        case["solver_warnings"])
+
+
 def gate_pure():
     """No solver needed: the writer emits the keywords, and the guard arithmetic."""
     from emstudio.solvers.elmer import writer3d
@@ -94,28 +169,45 @@ def gate_pure():
     check("deck does NOT emit the non-existent 'Calculate Magnetic Field "
           "Energy'", "Calculate Magnetic Field Energy" not in deck)
 
-    # --- guard arithmetic, both directions, no solver -------------------
+    # --- the delivered-ampere-turns guard, both directions, no solver ---
+    # The numbers below are the MEASUREMENT; the accept/refuse verdict and the
+    # delivered ampere-turns come back out of model3d.run3d's real guard.
     # closed ring, measured: J_avg 6.2490e7 A/m^2 over 16 mm^2 -> 999.8 At
-    got_closed = 6.2490e7 * (C_M * C_M)
-    check("measured CLOSED-ring delivery is within the guard band",
-          0.5 <= got_closed / I_A <= 2.0,
-          "{0:.1f} of {1:.0f} At ({2:.2%})".format(got_closed, I_A,
-                                                   got_closed / I_A))
+    got_closed, warn_closed = _guard_verdict(
+        _coil_model("ring", I_A, C_M * C_M), J_CLOSED_A_M2)
+    frac_closed = (got_closed / I_A) if got_closed is not None else 0.0
+    check("measured CLOSED-ring delivery is within the product's guard band",
+          got_closed is not None and not warn_closed,
+          "{0} of {1:.0f} At ({2:.2%}); {3}".format(
+              "{0:.1f}".format(got_closed) if got_closed is not None
+              else "NOTHING", I_A, frac_closed,
+              warn_closed[0][:30] if warn_closed else "no warning"))
     check("closed ring delivers essentially all of it (>99 %)",
-          got_closed / I_A > 0.99, "{0:.4%}".format(got_closed / I_A))
+          frac_closed > 0.99, "{0:.4%}".format(frac_closed))
     # open helix, measured: J_avg 2.8396e3 A/m^2 over 6.44 x 282.843 mm^2
-    open_area = 6.43588 * 282.843e-6
-    got_open = 2.8396e3 * open_area
-    check("measured OPEN-helix delivery is REFUSED by the guard band",
-          not (0.5 <= got_open / 100.0 <= 2.0),
-          "{0:.3f} of 100 At ({1:.2%})".format(got_open, got_open / 100.0))
+    got_open, warn_open = _guard_verdict(
+        _coil_model("helix", OPEN_REQ_AT, OPEN_SECTION_M2), J_OPEN_A_M2)
+    frac_open = (got_open / OPEN_REQ_AT) if got_open is not None else 0.0
+    # Refusal is not enough: the message must also name the coil and the
+    # closed-declaration, because the guard's OTHER branch (a declared-open
+    # coil) warns about terminal faces instead and would be the wrong
+    # diagnosis for this measurement.
+    check("measured OPEN-helix delivery is REFUSED by the product's guard "
+          "band, blaming the closed declaration",
+          bool(warn_open) and "helix" in warn_open[0]
+          and "OPEN conductor" in warn_open[0],
+          "{0} of {1:.0f} At ({2:.2%}); {3}".format(
+              "{0:.3f}".format(got_open) if got_open is not None
+              else "NOTHING", OPEN_REQ_AT, frac_open,
+              warn_open[0][:30] if warn_open else "NO WARNING"))
     # 19x on the measured pair (99.98 % vs 5.17 %). Stated as >10x so the gate
     # asserts the SEPARATION it actually has: an earlier draft claimed "three
     # orders of magnitude" from a per-turn area instead of the all-turns
     # half-plane section, and this check caught it.
     check("the two cases are separated by more than 10x",
-          (got_closed / I_A) / (got_open / 100.0) > 10.0,
-          "ratio {0:.0f}x".format((got_closed / I_A) / (got_open / 100.0)))
+          frac_open > 0.0 and frac_closed / frac_open > 10.0,
+          "ratio {0:.0f}x".format(frac_closed / frac_open)
+          if frac_open > 0.0 else "no open-case delivery reported")
 
     # The rejected alternative, pinned so it cannot come back.
     check("genus/Euler is NOT used to detect closure (it misjudges the "
@@ -146,10 +238,17 @@ def gate_live():
           "FEM {0:.6g} H vs {1:.6g} H ({2:+.2%})".format(L_fem, L_ana, err))
     check("the run reports a per-coil average current density",
           len(res.get("j_avg") or []) == 1, res.get("j_avg"))
+    # The current is the LIVE solve's; the pass/fail is the product's, for the
+    # same reason as gate_pure — a band re-typed here would agree with itself
+    # forever. run_model3d sits BELOW the guard (which lives in run3d), so the
+    # measured J_avg is handed up to it.
     j = (res.get("j_avg") or [0.0])[0]
     frac = abs(j) * C_M * C_M / I_A
-    check("a CLOSED coil passes the delivered-ampere-turns guard",
-          0.5 <= frac <= 2.0, "{0:.2%} delivered".format(frac))
+    delivered, warn = _guard_verdict(_coil_model("ring", I_A, C_M * C_M), j)
+    check("a CLOSED coil passes the product's delivered-ampere-turns guard",
+          delivered is not None and not warn,
+          "{0:.2%} delivered; {1}".format(
+              frac, warn[0][:40] if warn else "no warning"))
     check("live solve converged cleanly", not res["solver_warnings"],
           "; ".join(res["solver_warnings"][:2]))
 

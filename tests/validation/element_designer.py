@@ -43,7 +43,26 @@ E2 additions:
   geometry (0.475·λ / 0.1·λ, frozen segment counts) and the new optional
   ``length_m``/``height_m`` kwargs land exactly.
 
-Pass: exit 0 and 'ELEMENT-DESIGNER GATE PASSED'.
+Every tier is ACCOUNTED FOR in the summary. Three of the eleven need a
+backend this box may not have — the TL-writer and template-override
+tiers need FreeCAD, the live folded tier needs FreeCAD *and* nec2c — so
+an unqualified "PASSED" claimed coverage the run never had: under
+python3 it advertised eleven tiers and delivered eight, and the battery
+prints only "ok element_designer", so nothing downstream could tell.
+The summary now names every tier, prints the CHECK COUNT each one
+contributed, and the pass line carries the ran/total tally plus the name
+and reason of anything skipped. A tier that runs but contributes NO
+checks FAILS the gate — that is the shape a vanished tier takes, and a
+count is the only thing that can tell it from a real one.
+
+The FAST battery declares this gate with NO requirement (run_battery.py
+``FAST["element_designer"] = None``) because the eight pure-python tiers
+are the required ones and CI has no FreeCAD — so a missing backend here
+is an honest partial run, not a failure. What it must never be is
+SILENT.
+
+Pass: exit 0 and 'ELEMENT-DESIGNER GATE PASSED (<ran>/<total> tiers,
+<n> checks)'.
 """
 import math
 import os
@@ -54,9 +73,14 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 FAILURES = []
+#: Every check's name, in order. This is the gate's COVERAGE COUNT, and it
+#: is what lets the summary say how much each tier actually did rather
+#: than merely that it was called.
+CHECKS = []
 
 
 def check(name, ok, detail=""):
+    CHECKS.append(name)
     print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
                                  " — " + detail if detail else ""))
     if not ok:
@@ -754,9 +778,10 @@ def gate_tl_writer():
     try:
         import FreeCAD
         import Part
-    except Exception:
-        print("  skip  TL-writer tier — needs freecadcmd (FreeCAD)")
-        return
+    except ImportError:
+        # ONLY an absent FreeCAD skips. A FreeCAD that is present but
+        # raises on import is a regression and must reach main().
+        return "needs freecadcmd (FreeCAD)"
     import tempfile
 
     from emstudio.objects import analysis as analysis_mod
@@ -916,9 +941,8 @@ def gate_templates():
     try:
         import FreeCAD
         import Part  # noqa: F401
-    except Exception:
-        print("  skip  template-override tier — needs freecadcmd (FreeCAD)")
-        return
+    except ImportError:
+        return "needs freecadcmd (FreeCAD)"
     import FreeCAD
 
     from emstudio.templates import dipole as dipole_tpl
@@ -972,14 +996,12 @@ def gate_live_folded():
     try:
         import FreeCAD  # noqa: F401
         import Part  # noqa: F401
-    except Exception:
-        print("  skip  live folded tier — needs freecadcmd (FreeCAD geometry)")
-        return
+    except ImportError:
+        return "needs freecadcmd (FreeCAD geometry)"
     import shutil
 
     if not shutil.which("nec2c"):
-        print("  skip  live folded tier — nec2c not installed")
-        return
+        return "nec2c not installed"
     import FreeCAD
     import Part
 
@@ -1018,11 +1040,12 @@ def gate_live_folded():
         solver = solver_objs.makeSolverNEC2(doc, ana)
         solver.SegmentsPerWavelength = 42  # equal odd counts on both wires
         doc.recompute()
-        try:
-            result = nec2.run(ana, solver)
-        except Exception as exc:  # noqa: BLE001
-            print("  skip  live folded tier — NEC2 run unavailable: {0}".format(exc))
-            return
+        # NO try/except here. The `shutil.which("nec2c")` probe above IS
+        # the backend check; past it, anything nec2.run() raises is a real
+        # regression (bad deck, writer change, parser change) and must go
+        # RED. It used to be swallowed into a "skip" line that the old
+        # unqualified PASS then hid completely.
+        result = nec2.run(ana, solver)
         # resonance by R-window: the fold has anti-resonances (~7.9 kohm at
         # 204 MHz, ~1.6 kohm at 381 MHz) around the real one — never take
         # the first X=0 crossing blindly
@@ -1146,23 +1169,67 @@ def _raises(fn, *args, **kw):
     return False
 
 
+#: The tiers this gate advertises, in run order. The summary is GENERATED
+#: from this roster, so a tier cannot be advertised in the docstring and
+#: then quietly not run: every entry is reported either as ran-with-N-
+#: checks or as SKIPPED-with-a-reason. Each callable returns None when it
+#: ran, or a short reason string when the backend it needs is absent.
+TIER_ROSTER = (
+    ("E1 wire synthesis", gate_synthesis),
+    ("E2 picker/recommender", gate_picker),
+    ("E3 Yagi-Uda (TN-688)", gate_yagi),
+    ("E4 microstrip patch", gate_patch),
+    ("inverted-F (IFA)", gate_ifa),
+    ("PIFA", gate_pifa),
+    ("E5 LPDA (Carrel)", gate_lpda),
+    ("E6 service presets", gate_presets),
+    ("E5 TL writer [FreeCAD]", gate_tl_writer),
+    ("E2 template overrides [FreeCAD]", gate_templates),
+    ("live folded dipole [FreeCAD+nec2c]", gate_live_folded),
+)
+
+
 def main():
     print("EMStudio Element Designer E1-E5 (synthesis/recommender/families) gate")
-    gate_synthesis()
-    gate_picker()
-    gate_yagi()
-    gate_patch()
-    gate_ifa()
-    gate_pifa()
-    gate_lpda()
-    gate_presets()
-    gate_tl_writer()
-    gate_templates()
-    gate_live_folded()
+    ran, skipped = [], []
+    for label, tier in TIER_ROSTER:
+        before = len(CHECKS)
+        reason = tier()
+        n_checks = len(CHECKS) - before
+        if reason:
+            skipped.append((label, reason))
+            print("  skip  {0} tier — {1}".format(label, reason))
+            continue
+        ran.append((label, n_checks))
+        if n_checks == 0:
+            # A tier that "ran" and asserted NOTHING is the silent form of
+            # a skip — an early return, a body commented out, a rename that
+            # left the roster entry pointing at a stub. Counting is the
+            # only thing that tells it from a real tier, so it fails here.
+            FAILURES.append(
+                "tier '{0}' ran but reported NO checks".format(label))
+
+    print("-" * 66)
+    print("TIERS: {0} of {1} ran, {2} checks total".format(
+        len(ran), len(TIER_ROSTER), len(CHECKS)))
+    for label, n_checks in ran:
+        print("  ran      {0:<38s} {1:4d} checks".format(label, n_checks))
+    for label, reason in skipped:
+        print("  SKIPPED  {0:<38s} — {1}".format(label, reason))
     if FAILURES:
         print("ELEMENT-DESIGNER GATE FAILED: {0}".format(FAILURES))
         return 1
-    print("ELEMENT-DESIGNER GATE PASSED")
+    if skipped:
+        # Qualified on purpose: this line is the only thing a reader of a
+        # captured log sees, and it must not read as full coverage.
+        print("ELEMENT-DESIGNER GATE PASSED ({0}/{1} tiers, {2} checks) — "
+              "NOT RUN: {3}".format(
+                  len(ran), len(TIER_ROSTER), len(CHECKS),
+                  "; ".join("{0} ({1})".format(lbl, why)
+                             for lbl, why in skipped)))
+        return 0
+    print("ELEMENT-DESIGNER GATE PASSED (all {0} tiers, {1} checks)".format(
+        len(TIER_ROSTER), len(CHECKS)))
     return 0
 
 

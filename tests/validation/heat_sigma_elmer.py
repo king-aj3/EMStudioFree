@@ -30,8 +30,22 @@ or a per-timestep field re-solve (transient). Three tiers:
   σ(T) heating curve must stay below the constant-σ curve and approach its
   own steady state from below.
 
-Pass: exit 0 and 'HEAT-SIGMA GATE PASSED'. The deck tier runs anywhere;
-the live tiers auto-skip if ElmerSolver is absent.
+Pass: exit 0 and 'HEAT-SIGMA GATE PASSED'. The deck tier runs anywhere.
+
+The two live tiers need ElmerSolver + ElmerGrid + gmsh. That is probed ONCE,
+BEFORE any solve (``_live_backend_missing``), and the outcome is named in the
+summary: a backend-less box prints 'HEAT-SIGMA GATE SKIPPED' and exits **2**,
+never the PASS token. Past that probe NOTHING is caught — a diverged solve, an
+unreadable VTU, a missing ``eddy_power_w`` key or a wrong-sign coupling is a
+FAILURE. Both live tiers used to sit inside ``except Exception: return``, so
+every one of those regressions became a silent "skip" under a printed
+'HEAT-SIGMA GATE PASSED' (found 2026-08-29).
+
+.. warning:: ``run_battery`` lists ``heat_sigma_elmer`` in the SOLVER tier with
+   **no** entry in ``SOLVER_REQS``, so the battery has no ``elmer`` requirement
+   to route it to an honest "skip" line. Until it does, exit 2 is the only way
+   a box without Elmer learns the live tiers never ran; the battery reports it
+   as a failure, which is the safe direction.
 """
 import math
 import os
@@ -203,15 +217,38 @@ def gate_emission():
               False, "deck was written")
 
 
+def _live_backend_missing():
+    """Reason the live tiers cannot run on THIS box, or None if they can.
+
+    An explicit probe of the three binaries ``run_model`` shells out to, run
+    BEFORE the solve so the live tiers need no ``except`` at all. That ordering
+    is the whole point: ``SolverError`` is raised both for "ElmerSolver not
+    found" AND for "ElmerSolver produced no VTU" / an ``ERROR::`` line in the
+    solver log, so catching it around the run cannot tell an absent backend
+    from the exact regressions this gate exists to catch. Probe first, then let
+    everything else fail loudly.
+    """
+    from emstudio.setup import solvers as solver_setup
+    from emstudio.solvers.base import SolverError
+
+    for backend in ("elmer", "gmsh"):
+        if not solver_setup.find_backend(backend).found:
+            return "{0} backend not found on this box".format(backend)
+    from emstudio.solvers.elmer import runner as elmer_runner
+    try:
+        elmer_runner.find_elmergrid()       # raises SolverError when absent
+    except SolverError as exc:
+        return "ElmerGrid not found: {0}".format(str(exc).splitlines()[0])
+    return None
+
+
 def gate_live_steady():
     from emstudio.solvers.elmer import parser as eparser
     from emstudio.solvers.elmer import run_model
 
-    try:
-        res = run_model(_billet_model(alpha=ALPHA), [F], extract_coupling=False)
-    except Exception as exc:  # noqa: BLE001
-        print("  skip  live steady tier — Elmer run unavailable: {0}".format(exc))
-        return
+    # NO try/except: main() has already probed the backend, so anything that
+    # goes wrong from here is a REGRESSION and must be seen as one.
+    res = run_model(_billet_model(alpha=ALPHA), [F], extract_coupling=False)
     case = res.sweep_cases()[0]
     mesh = eparser.parse_vtu(case["vtu"])
     t_c = eparser.field_at(mesh, 0.0, 0.0, "temperature")
@@ -254,14 +291,13 @@ def gate_live_steady():
 def gate_live_transient():
     from emstudio.solvers.elmer import run_model
 
-    try:
-        res_sig = run_model(_billet_model(alpha=ALPHA, transient=True), [F],
-                            extract_coupling=False)
-        res_const = run_model(_billet_model(transient=True), [F],
-                              extract_coupling=False)
-    except Exception as exc:  # noqa: BLE001
-        print("  skip  live transient tier — Elmer run unavailable: {0}".format(exc))
-        return
+    # NO try/except — see gate_live_steady. A transient run that diverges, or
+    # a result whose "temp_history" key is gone, is a failure of the coupling
+    # under test, not an absent solver.
+    res_sig = run_model(_billet_model(alpha=ALPHA, transient=True), [F],
+                        extract_coupling=False)
+    res_const = run_model(_billet_model(transient=True), [F],
+                          extract_coupling=False)
     hist_sig = res_sig.sweep_cases()[0]["temp_history"]
     hist_const = res_const.sweep_cases()[0]["temp_history"]
     check("transient runs produce heating curves", bool(hist_sig) and bool(hist_const))
@@ -282,13 +318,37 @@ def gate_live_transient():
 
 
 def main():
+    """0 = every tier ran and passed, 1 = a check failed, 2 = live tiers SKIPPED.
+
+    The summary names which tiers actually ran, because "PASSED" after a
+    deck-only run is the same sentence as "PASSED" after all three and the
+    reader cannot tell them apart.
+    """
     print("EMStudio heat-sigma (magnetics §3, coupled Joule) validation gate")
     gate_emission()
-    gate_live_steady()
-    gate_live_transient()
+    ran = ["deck emission"]
+
+    missing = _live_backend_missing()
+    if missing is None:
+        gate_live_steady()
+        ran.append("live steady")
+        gate_live_transient()
+        ran.append("live transient")
+
+    print("tiers RUN:     {0}".format(", ".join(ran)))
+    if missing is not None:
+        print("tiers SKIPPED: live steady, live transient — {0}".format(missing))
+
     if FAILURES:
         print("HEAT-SIGMA GATE FAILED: {0}".format(FAILURES))
         return 1
+    if missing is not None:
+        # NOT the PASS token: the deck tier alone proves nothing about the
+        # coupled solve, and a caller that only sees an exit code must not
+        # read this as success.
+        print("HEAT-SIGMA GATE SKIPPED: deck emission passed, but the two live "
+              "tiers never ran — this is NOT a pass")
+        return 2
     print("HEAT-SIGMA GATE PASSED")
     return 0
 
@@ -304,6 +364,12 @@ if (__name__ == "__main__") or (_UNDER_FREECAD and not _UNDER_PYTEST):
         import traceback
         traceback.print_exc()
         raise SystemExit("validation failed: {0}".format(exc))
+    if rc == 2:
+        # Distinct non-zero code so "the live tiers could not run" is
+        # distinguishable from "a check failed". An INT SystemExit is used
+        # rather than sys.exit(): freecadcmd makes sys.exit unreliable, while
+        # tests/run_gate.py propagates an integer SystemExit code verbatim.
+        raise SystemExit(2)
     if rc != 0:
         raise SystemExit("heat-sigma validation failed")
     sys.exit(0)

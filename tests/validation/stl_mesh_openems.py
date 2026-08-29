@@ -25,6 +25,18 @@ Three behaviours are pinned:
    same principle as the NEC2 thin-wire warning at the other end of the scale:
    each solver states where it stops being valid instead of returning a
    confident answer outside its range.
+
+Exit codes — a run that tested NOTHING must never read as a pass:
+
+  0  all 18 checks ran and passed ('STL-MESH GATE PASSED')
+  1  a check failed ('STL-MESH GATE FAILED: ...')
+  2  FreeCAD is unavailable, so not one of the 18 checks could run
+     ('STL-MESH GATE SKIPPED'). ``run_battery.py`` declares this gate in
+     NEEDS_FREECAD and skips it BEFORE spawning on a box with no freecadcmd,
+     so this code is only ever reached on a BY-HAND python3 run — where the
+     caller explicitly asked for the gate and must be told it proved nothing.
+     Until 2026-08-29 that branch printed the PASS token and returned 0: a
+     python3 run reported success having executed zero checks.
 """
 
 from __future__ import annotations
@@ -37,6 +49,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(_HERE)))
 
 FAILURES = []
+
+#: Exit code for "the prerequisite the BATTERY declares is absent". Distinct
+#: from 1 (a real failure) so a caller can tell "nothing ran" from "the physics
+#: moved", and non-zero so a by-hand run can never read as success.
+_RC_SKIPPED = 2
 
 
 def check(label, ok, detail=""):
@@ -51,12 +68,24 @@ def main():
     try:
         import FreeCAD  # noqa: F401
         import Part
-    except Exception:
-        # The openEMS writer imports FreeCAD at module scope, so nothing here
-        # is reachable without it.
+    except ImportError:
+        # ImportError ONLY. A bare `except Exception` here (what this was)
+        # would swallow a REAL regression raised DURING FreeCAD's own import —
+        # a broken .so, a bad user config, a half-installed Mod dir — and
+        # relabel it "no FreeCAD on this box": a regression laundered into a
+        # skip.
+        #
+        # The openEMS writer imports FreeCAD at module scope, so not one of
+        # the 18 checks below is reachable without it. run_battery.py DECLARES
+        # this gate in NEEDS_FREECAD, so the battery skips it honestly before
+        # ever spawning it and never reaches here; the only way in is a
+        # BY-HAND python3 run. That must not read as success — print the
+        # SKIPPED token (never the PASS token) and return a distinct non-zero
+        # code.
         print("  skip  needs FreeCAD — run under freecadcmd")
-        print("STL-MESH GATE PASSED")
-        return 0
+        print("STL-MESH GATE SKIPPED — no FreeCAD in this interpreter, so "
+              "0 of 18 checks ran; nothing was tested, this is NOT a pass")
+        return _RC_SKIPPED
 
     from emstudio.solvers.openems import writer as wr
 
@@ -170,4 +199,10 @@ def main():
 
 
 if __name__ == "__main__" or "FreeCAD" in sys.modules:
-    sys.exit(main())
+    _rc = main()
+    # _RC_SKIPPED fires only when FreeCAD is ABSENT, i.e. under plain python3,
+    # where sys.exit IS reliable — freecadcmd's "sys.exit is unreliable"
+    # caveat cannot apply, since freecadcmd always has FreeCAD. A real failure
+    # has already left main() through `raise SystemExit(...)` above, which
+    # freecadcmd does honour.
+    sys.exit(_rc)

@@ -37,8 +37,20 @@ offering the choice, because the result looks computed.
   produces both GW geometry and its LD card; a Conductor sheet produces
   ``AddConductingSheet``; a Conductor SOLID falls back to PEC and says so.
 
-Run:  python3 tests/validation/material_loss.py     (library + preset half)
-      freecadcmd tests/validation/material_loss.py  (adds the deck half)
+Run:  python3 tests/validation/material_loss.py                      (library + preset)
+      freecadcmd tests/run_gate.py tests/validation/material_loss.py  (adds the decks)
+
+⚠ **Use ``tests/run_gate.py`` for the FreeCAD run, not this file directly.**
+Until 2026-08-29 the line above said ``freecadcmd tests/validation/material_loss.py``
+and that command did **nothing at all, in silence, and exited 0**: freecadcmd sets
+``__name__`` to the script basename, so the ``if __name__ == "__main__"`` guard
+never fired and ``main()`` was never called. The deck half is covered by nothing
+BUT a by-hand freecadcmd run (it is a FAST-tier gate; CI runs it under python3),
+so the one command documented to exercise it was testing nothing — the same
+"settable field that changes nothing" shape this gate exists to catch, one level
+up. The guard below now also fires when FreeCAD is in ``sys.modules``, and
+``run_gate.py`` additionally tees ``print`` into ``FreeCAD.Console`` so the
+verdict is visible rather than inferred from an exit code.
 """
 
 import os
@@ -49,6 +61,13 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 FAILURES = []
+
+_UNDER_PYTEST = "pytest" in sys.modules
+#: True when FreeCAD is running this file (freecadcmd, or the GUI console) —
+#: the invocation that REQUESTS the deck half. Captured at import time, before
+#: anything below imports FreeCAD itself: probed later it would find the module
+#: this gate just loaded and answer "yes" even under plain python3.
+_UNDER_FREECAD = "FreeCAD" in sys.modules
 
 #: Conductivity of annealed copper, the 100 % IACS reference. Nothing in the
 #: library may claim to conduct better than silver, and silver is the best
@@ -140,16 +159,35 @@ def check_presets():
           M.apply_preset(o, "Unobtainium") is False)
 
 
-def check_decks():
-    """Deck-level half: needs FreeCAD. Returns False when unavailable."""
+def _freecad_geometry_available():
+    """Can the deck half run here at all? ``ImportError`` ONLY — nothing else.
+
+    ⚠ This replaces a bare ``except Exception`` that wrapped the deck half's
+    imports and printed the single word "skip" for ANY failure. That shape
+    makes a genuine regression — a writer that raises at import, a renamed
+    FreeCAD API, a broken Part module — indistinguishable from "this is plain
+    python3, there is no FreeCAD here", and the gate printed PASSED for both.
+    Only the backend being ABSENT may be absorbed; every other exception must
+    escape and fail the gate.
+    """
     try:
         import FreeCAD  # noqa: F401
-        import Part
-    except Exception:
-        print("  skip — deck half needs freecadcmd (FreeCAD geometry)")
+        import Part     # noqa: F401
+    except ImportError:
         return False
+    return True
 
+
+def check_decks():
+    """Deck-level half: needs FreeCAD. Call only when it is importable.
+
+    Returns True when the deck half ran to completion (individual check
+    results land in FAILURES as usual). Anything that stops it raises — the
+    caller must never be able to mistake "could not run" for "ran and was
+    happy".
+    """
     import FreeCAD
+    import Part
 
     from emstudio.objects import analysis as analysis_mod
     from emstudio.objects import material as material_mod
@@ -214,13 +252,64 @@ def main():
     print("== material loss reaches the solver, and gain is gain ==")
     check_library()
     check_presets()
-    check_decks()
+
+    # ⚠ The deck half is selected BY THE INVOCATION, not by a flag: plain
+    # python3 cannot import FreeCAD, freecadcmd always can. So an absent
+    # FreeCAD under python3 skips a tier nobody asked for — honest, and the
+    # summary says so. Under freecadcmd the deck half WAS requested, and not
+    # running it is a FAILURE, not a skip. main() used to call check_decks()
+    # and THROW ITS ANSWER AWAY, so both cases printed the same PASS line.
+    deck_ran = False
+    if _freecad_geometry_available():
+        deck_ran = check_decks() is True
+        if not deck_ran:
+            # Cannot happen today (check_decks either completes or raises) and
+            # is NOT printed as a passing check for exactly that reason — a
+            # check that cannot fail is not a check. It exists so a future
+            # early `return False` inside check_decks cannot slip past.
+            check("the deck half ran to completion", False,
+                  "check_decks() returned without completing")
+    elif _UNDER_FREECAD:
+        # Inside FreeCAD, and yet its geometry kernel will not import: a
+        # broken install or a broken Part — never a reason to print a pass.
+        check("FreeCAD geometry (Part) imports under freecadcmd", False,
+              "the deck half was requested by this invocation and cannot run")
+    else:
+        print("  SKIPPED — deck half needs FreeCAD; run it with "
+              "`freecadcmd tests/run_gate.py tests/validation/material_loss.py`")
+
     if FAILURES:
-        print("MATERIAL LOSS GATE FAILED (%d)" % len(FAILURES))
+        print("MATERIAL LOSS GATE FAILED (%d): %s"
+              % (len(FAILURES), "; ".join(FAILURES)))
         return 1
-    print("MATERIAL LOSS GATE PASSED")
+    if not deck_ran:
+        # Still a pass — the library and preset halves really did run and
+        # really did pass, and this gate is FAST-tiered so python3 is its
+        # declared home. But the summary must never let a reader believe the
+        # decks were read back when they were not.
+        print("MATERIAL LOSS GATE PASSED (library + preset halves; "
+              "DECK HALF SKIPPED — no FreeCAD in this interpreter)")
+        return 0
+    print("MATERIAL LOSS GATE PASSED (library + preset + deck halves)")
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+# ⚠ freecadcmd sets __name__ to the script BASENAME, so `__name__ ==
+# "__main__"` alone left main() uncalled: the documented FreeCAD invocation
+# printed nothing and exited 0. The second clause is the house guard every
+# other gate in this directory carries; _UNDER_PYTEST keeps an import-for-
+# collection from running the whole gate as a side effect.
+if (__name__ == "__main__") or (_UNDER_FREECAD and not _UNDER_PYTEST):
+    # freecadcmd exits 0 on an uncaught exception (verified 2026-07-05), so
+    # every failure is converted into SystemExit, which does carry a code.
+    try:
+        rc = main()
+    except SystemExit:
+        raise
+    except BaseException as exc:                                # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        raise SystemExit("material loss validation failed: {0}".format(exc))
+    if rc != 0:
+        raise SystemExit("material loss validation failed")
+    sys.exit(0)

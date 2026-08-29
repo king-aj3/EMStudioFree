@@ -37,8 +37,10 @@ read that column.
    straight into usage output.
 5. **The fixtures still match the binaries on THIS box.** Every backend
    actually installed is probed for real and must report the version the
-   docs quote. See the long comment at check 6 for why a fixture alone was
-   not enough.
+   docs quote — and since 2026-08-29 that half **enforces by default**
+   rather than waiting to be switched on. See the long comment at check 6
+   for why a fixture alone was not enough, and why an opt-IN was no better
+   than no check at all.
 
 Pure python3 — no third-party imports. The parser checks (1-4) need no
 binaries, because the fixtures ARE the binaries' output; the live
@@ -47,6 +49,10 @@ absent. Measured 2026-08-21 with all seven backends present: ~1.5 s, of
 which Elmer is ~0.7 s because `ElmerSolver --version` starts the solver.
 FAST tier.
 Pass: exit 0 and 'SOLVER VERSIONS GATE PASSED'.
+Fail: exit 1 and 'SOLVER VERSIONS GATE FAILED'.
+Opted out (``EMSTUDIO_VERSION_REFERENCE=0``) **while a live mismatch was
+standing**: exit 3 and 'SOLVER VERSIONS GATE SKIPPED' — never the PASS
+token, because a run that suppressed a mismatch did not earn one.
 """
 import os
 import sys
@@ -77,7 +83,15 @@ REAL_OUTPUT = [
     ("fasthenry",
      "FastHenry Version 3.0.1 (28May12)        see file default_opts.c for d",
      "3.0.1"),
-    ("openfoam", "OpenFOAM v2606 (ESI, apt-esi)", "2606"),
+    # ⚠ 2512, not 2606, and that is DELIBERATE. The resolver was changed to
+    # prefer the COMPLETE v2512 tree over the newer-but-hollow
+    # `2606.0~rc2-1` stub, so 2512 is what Solver Setup shows a user. This
+    # fixture kept quoting 2606 and the live cross-check could not say so,
+    # because it only asserted when EMSTUDIO_VERSION_REFERENCE was set and
+    # that export lives in ~/.profile — login shells only, so never CI and
+    # never an agent run. Corrected 2026-08-29 once the check started
+    # enforcing by default and went honestly red.
+    ("openfoam", "OpenFOAM v2512 (ESI, apt-esi)", "2512"),
     ("palace", "", ""),
 ]
 
@@ -176,16 +190,45 @@ def main():
     # for. Only the live cross-check is scoped, because only it is about one
     # machine's installed binaries.
     #
-    # ⚠ **A check nobody enables is a check that never runs**, so this must
-    # never fail QUIETLY into advisory mode: when the opt-in is absent the gate
-    # prints, loudly, that the live half did not assert and names the drift it
-    # saw anyway. The drift is still reported — it is just not fatal.
+    # ⚠⚠ **A check nobody enables is a check that never runs — and this one
+    # was never enabled.** (Measured 2026-08-29, and it is why the default
+    # below is now the other way round.)
     #
-    # Set EMSTUDIO_VERSION_REFERENCE=1 on the reference box and in the
-    # pre-release checklist.
+    # The scoping above shipped as an OPT-IN: `EMSTUDIO_VERSION_REFERENCE=1`,
+    # exported from the reference box's `~/.profile`. `~/.profile` is read by
+    # LOGIN shells only, and `~/.bashrc` returns early when non-interactive —
+    # so the variable is absent from every shell that actually runs the
+    # battery (CI, a `python3 tests/validation/run_battery.py` from an editor
+    # or an agent, a cron job). On the reference box itself, on that date, the
+    # live probe read **OpenFOAM 2512 against a table saying 2606**, printed
+    # the mismatch as advisory, and exited 0 with 'GATE PASSED'.
+    #
+    # And the mismatch was REAL, not a foreign developer's install: discovery
+    # was deliberately changed to prefer the COMPLETE v2512 tree over the
+    # newer-but-hollow `2606.0~rc2-1` stub, so the number Solver Setup shows a
+    # user moved — while REAL_OUTPUT here and the docs/TUTORIALS.md version
+    # table kept quoting 2606. That is EXACTLY the drift this check was
+    # written to catch, standing in the open, reported by the gate, and green.
+    # An advisory check plus an opt-in nobody's automation exports is not a
+    # weaker check; it is decoration.
+    #
+    # ⛳ **So the default is now ENFORCE: any backend PRESENT on this box must
+    # report the version the table claims.** Absent backends still skip, out
+    # loud (FAST tier must stay green on a bare box with no solvers, where
+    # checks 1-5 genuinely ran).
+    #
+    # AJ's one-machine ruling survives as an explicit OPT-OUT — set
+    # `EMSTUDIO_VERSION_REFERENCE=0` on a developer box that legitimately
+    # carries different solvers (the Windows work box: gmsh 4.15.2, nec2
+    # 2.3.4). What it CANNOT do is buy a green: if opting out actually
+    # suppressed a mismatch, the gate prints SKIPPED, returns 3, and names the
+    # drift, because an exit code that claims success the run did not earn is
+    # the entire disease this file exists to treat. Opting out on a box whose
+    # solvers DO match the table costs nothing — nothing was hidden, so the
+    # pass still stands. `=1` keeps working: it is simply the default now.
     from emstudio.setup.solvers import find_backend
 
-    reference = os.environ.get("EMSTUDIO_VERSION_REFERENCE", "") not in ("", "0")
+    enforce = os.environ.get("EMSTUDIO_VERSION_REFERENCE", "1") not in ("", "0")
 
     covered, absent, drift = 0, [], []
     for key, _fixture, want in REAL_OUTPUT:
@@ -205,14 +248,14 @@ def main():
             "coil_inductance_elmer anchors" % (got, want))
         if not ok:
             drift.append("%s: installed %r vs table %r" % (key, got, want))
-        if reference:
+        if enforce:
             check("LIVE %s still reports %s" % (key, want or "no version"),
                   ok, detail)
         else:
             print("  {0}  LIVE {1} {2}".format(
                 "ok  " if ok else "....", key, detail))
 
-    if not reference:
+    if not enforce:
         # (!) not the warning-sign glyph: U+26A0 is outside cp1252, and on a
         # default Windows console this print DIED with UnicodeEncodeError
         # BEFORE the advisory text, the drift list and the PASS banner — the
@@ -221,13 +264,13 @@ def main():
         # gates; run STANDALONE the gate was a hard red on any stock
         # PowerShell/cmd console (reproduced on the work box, 2026-08-24).
         # Printed OUTPUT here stays ASCII-safe; docstrings can keep glyphs.
-        print("  ....  (!) LIVE CROSS-CHECK IS ADVISORY ON THIS BOX — "
-              "EMSTUDIO_VERSION_REFERENCE is not set, so the %d drift(s) above "
-              "did NOT fail the gate. Set it on the reference machine, and "
-              "before a release, or nothing enforces the table."
-              % len(drift))
+        print("  ....  (!) LIVE CROSS-CHECK OPTED OUT ON THIS BOX — "
+              "EMSTUDIO_VERSION_REFERENCE=0, so the %d drift(s) above did NOT "
+              "fail the checks. Enforcing is the DEFAULT; unset the variable "
+              "to restore it. A suppressed drift still ends this run as "
+              "SKIPPED (exit 3), never PASSED." % len(drift))
         if drift:
-            print("  ....  drift seen (advisory): %s" % "; ".join(drift))
+            print("  ....  drift seen (suppressed): %s" % "; ".join(drift))
 
     if absent:
         print("  ....  live cross-check SKIPPED (not installed): %s"
@@ -241,6 +284,15 @@ def main():
     if FAILURES:
         print("SOLVER VERSIONS GATE FAILED (%d)" % len(FAILURES))
         return 1
+    # Only reachable with the opt-out set AND a mismatch it swallowed: with
+    # enforcement on, a drift is already a FAILURE above. A skip must never
+    # print the PASS token, so this prints its own and returns its own code —
+    # distinct from 1 so a caller can tell "your box differs from the
+    # reference table" from "the parser broke".
+    if drift:
+        print("SOLVER VERSIONS GATE SKIPPED (live cross-check opted out while "
+              "%d drift(s) stood: %s)" % (len(drift), "; ".join(drift)))
+        return 3
     print("SOLVER VERSIONS GATE PASSED")
     return 0
 

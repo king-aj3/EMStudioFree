@@ -26,9 +26,10 @@ What is checked, and why each one:
    reuses a number already written. The near-term table carried TWO ``#7``
    rows until 2026-08-20 and numbered induction heating as 12 while the
    master list called it 7 — so a reader could not tell which "#7" was meant.
-4. **No tutorial COUNT in the prose.** Written as a deny-list of number words
-   followed by "tutorial(s)", because that is the exact phrasing that went
-   stale twice.
+4. **No tutorial COUNT in the prose — in words OR in digits.** A deny-list of
+   number words followed by "tutorial(s)" catches the phrasing that went
+   stale twice; a second, digit-only pattern catches "37 tutorials", which
+   the word list could not see at all (its number group is letters-only).
 
 ⚠ **What this gate deliberately does NOT check:** whether the anchors are the
 RIGHT numbers. It cannot — that needs the solver. The SOLVER-tier gates each
@@ -78,12 +79,39 @@ _STUB_PARTS = ("**What it does.**", "**What it measured.**",
 #: into a walkthrough; their presence means the how-to has leaked out of Pro.
 _PRO_FORBIDDEN = ("**Do**", "**You should see**")
 
-#: Number words that have actually appeared in front of "tutorial(s)" here.
-#: A deny-list rather than a regex for any digit, because "#12" and "TN-688"
-#: are legitimate and a blanket digit rule would fire on every anchor.
-_COUNT_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight",
-                "nine", "ten", "eleven", "twelve", "eighteen", "twenty-one",
-                "twenty-seven")
+#: Number words that can stand in front of "tutorial(s)" / "capabilities".
+#: BUILT out to ninety-nine rather than hand-listed. The hand list stopped at
+#: "twenty-seven" -- the count on the day it was typed -- so once the file held
+#: thirty-seven tutorials the deny-list had quietly stopped denying the only
+#: number anyone would write. A list that must be edited every release to keep
+#: working is not a check; it is a check with an expiry date nobody can see.
+_ONES = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+_TEENS = ("ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+          "sixteen", "seventeen", "eighteen", "nineteen")
+_TENS = ("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty",
+         "ninety")
+_COUNT_WORDS = frozenset(
+    _ONES + _TEENS + _TENS + ("hundred",)
+    + tuple("{0}-{1}".format(t, u) for t in _TENS for u in _ONES))
+
+#: The same claim written in DIGITS -- which the word deny-list is structurally
+#: incapable of seeing, because its number group is ``[A-Za-z\-]+``. "All 37
+#: tutorials" is the form a writer reaches for today, and it sailed straight
+#: past the one check whose entire job is that sentence.
+#:
+#: Kept narrow on purpose, because a blanket digit rule WOULD fire on the
+#: legitimate digits this file is full of:
+#:   * anchors put the number AFTER the noun ("tutorial 34", "#12", "TN-688"),
+#:     so requiring the digits immediately BEFORE it excludes every one;
+#:   * a dimension keeps its unit in between ("this fixed 2.4 GHz tutorial"),
+#:     and adjacency excludes that too;
+#:   * a version string is rejected by the lookbehind -- without it, the "0"
+#:     of "One v1.10.0 capability is deliberately uncovered" reads as a count.
+#: Bold markers are tolerated ("All **37** tutorials") because emphasis is
+#: exactly how a headline count gets written.
+_COUNT_DIGITS = re.compile(
+    r"(?<![\w.\-])(\d{1,4})\+?\**\s+\**(?:tutorials?|capabilit(?:y|ies))\b",
+    re.I)
 
 
 def _sections(text):
@@ -204,6 +232,13 @@ def main():
         if word in _COUNT_WORDS and prev != "least":
             line = text[:m.start()].count("\n") + 1
             bad.append("line %d: %r" % (line, m.group(0).strip()))
+    # ⚠ ...and the SAME claim in digits. There is no "at least" exemption
+    # here: "at least one tutorial per capability" is the standing order and
+    # cannot go stale, but a bare numeral is never a policy -- it is always a
+    # count of what exists on the day it was typed.
+    for m in _COUNT_DIGITS.finditer(text):
+        line = text[:m.start()].count("\n") + 1
+        bad.append("line %d: %r" % (line, m.group(0).strip()))
     check("no tutorial COUNT in the prose (it goes stale — it already did)",
           not bad, "; ".join(bad[:3]))
 

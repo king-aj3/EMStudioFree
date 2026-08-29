@@ -78,7 +78,30 @@ FDTD runs, lambda/30 (19.97 M cells, ~9 min) plus lambda/40 (47.05 M cells,
 ~14 min) — budget ~25 minutes. Reported rather than hidden, because a gate whose
 cost surprises you gets skipped.
 
-Run:  freecadcmd tests/validation/horn_openems.py
+Run:  freecadcmd tests/run_gate.py tests/validation/horn_openems.py
+
+⚠⚠ **Run it through ``tests/run_gate.py``, never as a bare freecadcmd
+script.** Measured on 0.21.2, three separate ways this file could report a
+success it had not earned:
+
+* ``freecadcmd`` sets ``__name__`` to the script BASENAME, so the old
+  ``if __name__ == "__main__"`` guard never fired — the documented invocation
+  above returned **exit 0 in two seconds** without solving anything, on a box
+  where both FreeCAD and openEMS were installed and a 22-minute run was due.
+  The guard below therefore also fires on ``"FreeCAD" in sys.modules``, which
+  is what every other gate in this directory does.
+* ``freecadcmd`` swallows an uncaught traceback and still exits **0**, so the
+  auto-run block converts any escaping exception into a ``SystemExit``.
+* ``freecadcmd`` drops ``print()`` on exit (only stderr and ``FreeCAD.Console``
+  survive), so the exit code is the ONLY signal a bare run gives. The shim tees
+  stdout into the Console and preserves the code.
+
+⚠ Neither prerequisite branch returns 0 any more: a missing FreeCAD or a
+missing openEMS prints a **SKIPPED** token (never the PASS token) and exits
+``SKIPPED_RC``. Skipping is the BATTERY's job — ``run_battery.SOLVER_REQS``
+declares ``"openems_python"`` for this gate and ``NEEDS_FREECAD`` lists it, so
+the battery reports an honest skip and never reaches the code below. A run you
+asked for BY HAND must fail loudly instead.
 """
 
 import os
@@ -108,6 +131,27 @@ MESH_SPREAD_MAX_DB = 0.50
 #: run that collapses is still caught.
 FINE_TOL_DB = 1.0
 
+#: Exit code for "you asked for this gate by hand and a prerequisite was
+#: absent". Deliberately NOT 0 (that is a pass this run did not earn) and
+#: deliberately NOT 1 (that is "the solver disagreed with the vendor curve",
+#: a physics result). A caller can tell the three apart from the code alone,
+#: which under a bare freecadcmd run is all it gets.
+SKIPPED_RC = 3
+
+
+def _skipped(reason):
+    """Report an un-run gate as SKIPPED, loudly, and never as a pass.
+
+    Written to stderr as well as stdout because ``freecadcmd`` discards
+    ``print()`` on exit; stderr is one of the two channels that survive. The
+    token is ``SKIPPED``, so no grep for the PASS token can ever match a run
+    that tested nothing.
+    """
+    line = "HORN OPENEMS GATE SKIPPED (did NOT run) \u2014 {0}".format(reason)
+    print(line)
+    sys.stderr.write(line + "\n")
+    return SKIPPED_RC
+
 
 def check(name, ok, detail=""):
     print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
@@ -119,19 +163,29 @@ def check(name, ok, detail=""):
 def main():
     print("== Ka-band pyramidal horn (Mi-Wave 261A-20/599) via openEMS ==")
 
+    # ⚠ ImportError ONLY. A bare ``except Exception`` here would turn a real
+    # regression inside FreeCAD's own import (a broken numpy, a half-installed
+    # AppImage) into a quiet "skip", which is the failure mode this gate was
+    # repaired for. Anything that is not "the module is absent" must escape and
+    # be reported.
     try:
         import FreeCAD  # noqa: F401
-    except Exception:
-        print("  skip — needs freecadcmd (FreeCAD geometry)")
-        return 0
+    except ImportError:
+        return _skipped("needs FreeCAD geometry, and this interpreter has no "
+                        "FreeCAD module — run it under freecadcmd via "
+                        "tests/run_gate.py")
 
     # A live FDTD run needs the openEMS PYTHON modules, not just the binary.
-    # Absence of an optional backend is a SKIP, never a failure — the same
-    # correction patch_openems and the nec2c gates already carry.
+    # ⚠ This used to ``return 0``, i.e. print the gate's PASS token on a box
+    # with no solver. Absence of the backend is the BATTERY's skip to declare
+    # (SOLVER_REQS: "openems_python"), and it does; by hand it is a loud
+    # SKIPPED with a non-zero code, matching ifa_openems and pifa_openems.
     from emstudio.setup.solvers import find_openems_python
     if not find_openems_python():
-        print("  skip — openEMS python modules not installed")
-        return 0
+        return _skipped("openEMS is required and was not found — set "
+                        "EMSTUDIO_OPENEMS_PYTHON, or install openEMS with its "
+                        "venv beside the binary. (The battery skips this gate "
+                        "automatically; a direct run does not.)")
 
     from emstudio.templates import horn as horn_tpl
 
@@ -288,5 +342,23 @@ def main():
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+# ⚠⚠ ``freecadcmd`` sets ``__name__`` to the script basename, so the
+# ``__main__`` test alone left this whole file inert under the very interpreter
+# its docstring told you to use — exit 0, no output, nothing solved. The
+# ``sys.modules`` test is the project-wide idiom (see ifa_openems /
+# pifa_openems); ``_UNDER_PYTEST`` keeps a collector from firing a 22-minute
+# Ka-band solve on import.
+_UNDER_PYTEST = "pytest" in sys.modules
+_UNDER_FREECAD = "FreeCAD" in sys.modules
+if (__name__ == "__main__") or (_UNDER_FREECAD and not _UNDER_PYTEST):
+    # ⚠ An uncaught traceback under bare freecadcmd exits **0** (measured on
+    # 0.21.2). Funnel every escaping exception into SystemExit, which does not.
+    try:
+        rc = main()
+    except SystemExit:
+        raise
+    except BaseException as exc:                                # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        raise SystemExit("horn validation failed: {0}".format(exc))
+    raise SystemExit(rc)

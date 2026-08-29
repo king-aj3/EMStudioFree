@@ -24,10 +24,26 @@ fluid mechanics, and on THREE independent quantities rather than one:
 the shedding FREQUENCY is not, and it is what proves the solve is resolving
 the physics rather than merely running.
 
-MEASURED HERE (v2512, O-grid 80x30, 40 diameters, 40 cycles, half discarded):
+MEASURED ONCE, BY A LIVE SOLVE THAT IS NOT THIS GATE (v2512, O-grid 80x30,
+40 diameters, 40 cycles, half discarded):
 
     Re 100   Cd 1.3411   St 0.1647   Cl amp 0.3275   15 cycles
     Re 150   see WIND_ANCHORS below
+
+⚠ **NOTHING IS SOLVED IN THIS FILE, AND NO NUMBER HERE IS RE-MEASURED.**
+Those are a RECORD of a past run. The live re-measurement is the SOLVER gate
+`openfoam_wind_transient` (~9 min) and it runs **Re 100 ONLY** — so the Re 150
+row is re-measured by no gate on any tier and must be read as a recorded
+observation, not a continuously verified one.
+
+⚠ Until 2026-08-29 the anchor block was worse than that: all eight of its
+checks read literals declared in THIS file and judged them with a closed form
+declared in THIS file, importing nothing from `emstudio`, so any sabotage of
+the product left every one of them green. It now carries two real ties — the
+fixture is pinned digit-for-digit to the anchor table the PRODUCT module
+publishes, and every published-range verdict is passed on numbers the
+product's own `force_history_from_log` RECOVERS from a replay of the record,
+never on the literal itself.
 
 ⚠ **ABOVE Re ~190 THE REAL WAKE GOES THREE-DIMENSIONAL** (mode A/B). A 2-D
 laminar solve above that is modelling an idealisation, not the flow, so
@@ -42,7 +58,9 @@ FAST tier: the SOLVE is a SOLVER-tier gate (`openfoam_wind`); everything here
 is the case setup, the guard rails and the history arithmetic, which is where
 the errors that produce plausible wrong numbers live.
 """
+import math
 import os
+import re
 import sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -68,9 +86,57 @@ WIND_ANCHORS = {
 }
 
 
-def williamson_st(re):
+def williamson_st(reynolds):
     """St(Re) for the laminar shedding regime (Williamson 1988)."""
-    return -3.3265 / re + 0.1816 + 1.6e-4 * re
+    return -3.3265 / reynolds + 0.1816 + 1.6e-4 * reynolds
+
+
+#: How the PRODUCT module records the same anchors in its own docstring:
+#:     Re 100  Cd 1.3411   St 0.1647   Cl amp 0.3275   15 cycles
+#: Parsed rather than eyeballed, because a fixture nobody compares against the
+#: product is a fixture that drifts — and a drifted one still passes every
+#: check it makes about itself. The STEADY rows ("Re 20   Cd 2.0646   Cl
+#: -5.1e-07") carry no Strouhal number and deliberately do not match.
+_ANCHOR_ROW = re.compile(
+    r"Re\s+([0-9.]+)\s+Cd\s+([0-9.]+)\s+St\s+([0-9.]+)\s+Cl amp\s+([0-9.]+)")
+
+
+def recorded_anchors(doc):
+    """{Re: (Cd, St, Cl amplitude)} exactly as the product module records it."""
+    return dict((float(m.group(1)),
+                 (float(m.group(2)), float(m.group(3)), float(m.group(4))))
+                for m in _ANCHOR_ROW.finditer(doc or ""))
+
+
+def replay_anchor(case, cd_mean, st, cl_amp, reader, cycles=24.0, per_cycle=200):
+    """Write the force log this anchor's OWN numbers imply, and read it BACK
+    through the product.
+
+    This is what stops the anchor block being a fixture talking to itself. The
+    log is synthetic — no solve happens — but the Cd, Strouhal and lift
+    amplitude the caller then judges come out of `force_history_from_log`,
+    which is product code, at the anchor's own operating point rather than at
+    the round numbers the arithmetic section below uses. Drag is written
+    oscillating at 2f, as the real thing does, so a reader that keys on drag
+    returns double the Strouhal number and fails against Williamson here too.
+
+    `reader` is passed in because the gate imports emstudio inside main().
+    """
+    f = st * case.u_inf / case.d_ref          # the anchor's shedding frequency
+    dt = 1.0 / (f * per_cycle)                # per_cycle samples per cycle
+    n = int(cycles * per_cycle)
+    q = case.q_ref
+    out = []
+    for i in range(n):
+        t = i * dt
+        cd = cd_mean + 0.02 * cd_mean * math.sin(4.0 * math.pi * f * t)
+        cl = cl_amp * math.sin(2.0 * math.pi * f * t)
+        out.append("Time = %.10g\n" % t)
+        out.append("Sum of forces\n  Total    : (%.10g %.10g 0)\n"
+                   "  Pressure : (%.10g %.10g 0)\n"
+                   "  Viscous  : (0 0 0)\n" % (cd * q, cl * q, cd * q, cl * q))
+    return reader("".join(out), q, case.d_ref, case.u_inf,
+                  settle_time=n * dt * 0.5)
 
 
 def check(name, ok, detail=""):
@@ -81,6 +147,7 @@ def check(name, ok, detail=""):
 
 
 def main():
+    from emstudio.solvers.openfoam import wind as wind_mod
     from emstudio.solvers.openfoam.parser import force_history_from_log
     from emstudio.solvers.openfoam.wind import (RAS_SQUARE_RADIUS_RATIO,
                                                 SHEDDING_RE, TURBULENT_RE,
@@ -88,31 +155,80 @@ def main():
 
     print("EMStudio unsteady wind gate")
 
-    # --- the anchors we measured agree with published values --------------
-    print(" published anchors:")
-    for re, a in sorted(WIND_ANCHORS.items()):
+    # --- the RECORDED anchors, replayed through the product ----------------
+    # ⚠ NO SOLVE HAPPENS HERE and nothing below re-measures the flow. These
+    # numbers came out of ONE past live run; the live re-measurement is the
+    # SOLVER gate `openfoam_wind_transient`, which runs **Re 100 only** — the
+    # Re 150 row is re-measured by no gate on any tier.
+    #
+    # What a FAST gate CAN do is refuse to be a fixture talking to itself.
+    # Until 2026-08-29 every check in this block compared literals declared in
+    # this file against a closed form declared in this file, imported nothing
+    # from emstudio, and therefore stayed green through any product sabotage.
+    # Two real ties replace that, and the labels say which is which:
+    #
+    #   RECORDED  — the fixture must equal, digit for digit, the anchor table
+    #               `emstudio/solvers/openfoam/wind.py` publishes in its own
+    #               docstring. Neither copy can now drift without the other.
+    #   RECOVERED — each anchor is replayed as the force history its numbers
+    #               imply and read BACK through `force_history_from_log`. The
+    #               Williamson and published-range verdicts are then passed on
+    #               what the PRODUCT returns, at the anchor's own Reynolds
+    #               number, not on the literal.
+    print(" recorded anchors (replayed through the product — nothing is solved):")
+    recorded = recorded_anchors(wind_mod.__doc__)
+    check("wind.py publishes a transient anchor table to pin the fixture to",
+          set(recorded) == set(WIND_ANCHORS) and len(recorded) == len(WIND_ANCHORS),
+          "parsed Re {0} from wind.py, fixture holds Re {1}".format(
+              sorted(recorded), sorted(WIND_ANCHORS)))
+
+    got_st, got_clamp = {}, {}
+    for reynolds, a in sorted(WIND_ANCHORS.items()):
         cd, st, clamp = a["cd"], a["st"], a["clamp"]
-        want = williamson_st(re)
-        err = abs(st - want) / want * 100.0
-        check("Re {0:g}: St {1:.4f} vs Williamson {2:.4f}".format(re, st, want),
+        check("Re {0:g}: RECORDED — the fixture IS wind.py's own row".format(reynolds),
+              recorded.get(reynolds) == (cd, st, clamp),
+              "wind.py records {0}, fixture holds {1}".format(
+                  recorded.get(reynolds), (cd, st, clamp)))
+
+        # Replay -> the product's reader. Every number judged below is ITS
+        # output; sabotage the reader and these go red.
+        hist = replay_anchor(WindCase(reynolds=reynolds, transient=True),
+                             cd, st, clamp, force_history_from_log)
+        r_st, r_cd, r_clamp = hist.strouhal, hist.cd_mean, hist.cl_amplitude
+        got_st[reynolds], got_clamp[reynolds] = r_st, r_clamp
+        check("Re {0:g}: the product reads the record back unchanged".format(reynolds),
+              abs(r_st - st) < 1e-5 and abs(r_cd - cd) < 1e-4
+              and abs(r_clamp - clamp) < 1e-4 and hist.cycles_measured >= 5,
+              "St {0:.5f} Cd {1:.5f} Cl {2:.5f} over {3} cycles".format(
+                  r_st, r_cd, r_clamp, hist.cycles_measured))
+
+        want = williamson_st(reynolds)
+        err = abs(r_st - want) / want * 100.0
+        check("Re {0:g}: RECOVERED St {1:.4f} vs Williamson {2:.4f}".format(
+                  reynolds, r_st, want),
               err < 3.0, "{0:.2f} % — St is the sharp check".format(err))
         lo, hi = a["cd_range"]
-        check("Re {0:g}: Cd {1:.4f} in the published {2}-{3}".format(re, cd, lo, hi),
-              lo <= cd <= hi)
+        check("Re {0:g}: RECOVERED Cd {1:.4f} in the published {2}-{3}".format(
+                  reynolds, r_cd, lo, hi),
+              lo <= r_cd <= hi)
         lo, hi = a["clamp_range"]
-        check("Re {0:g}: lift amplitude {1:.4f} in {2}-{3}".format(re, clamp, lo, hi),
-              lo <= clamp <= hi,
+        check("Re {0:g}: RECOVERED lift amplitude {1:.4f} in {2}-{3}".format(
+                  reynolds, r_clamp, lo, hi),
+              lo <= r_clamp <= hi,
               "a symmetric wake would give ~0, so this also proves shedding")
 
     # The TREND across the two anchors, which no single point can check: the
-    # shedding frequency rises with Re, and so does the lift amplitude.
-    res = sorted(WIND_ANCHORS)
-    check("Strouhal RISES with Reynolds number across the anchors",
-          all(WIND_ANCHORS[a]["st"] < WIND_ANCHORS[b]["st"]
-              for a, b in zip(res, res[1:])))
-    check("lift amplitude rises with Reynolds number too",
-          all(WIND_ANCHORS[a]["clamp"] < WIND_ANCHORS[b]["clamp"]
-              for a, b in zip(res, res[1:])),
+    # shedding frequency rises with Re, and so does the lift amplitude. Taken
+    # from the RECOVERED values, so a reader that returned a constant — or
+    # keyed on the time step rather than the flow — breaks the trend as well.
+    res = sorted(got_st)
+    check("RECOVERED Strouhal RISES with Reynolds number across the anchors",
+          len(res) >= 2 and all(got_st[a] < got_st[b]
+                                for a, b in zip(res, res[1:])),
+          "{0}".format(["{0:.4f}".format(got_st[r]) for r in res]))
+    check("RECOVERED lift amplitude rises with Reynolds number too",
+          len(res) >= 2 and all(got_clamp[a] < got_clamp[b]
+                                for a, b in zip(res, res[1:])),
           "0.33 at Re 100 -> 0.52 at Re 150")
 
     # --- the guard rails ---------------------------------------------------

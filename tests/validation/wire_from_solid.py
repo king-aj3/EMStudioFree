@@ -20,6 +20,14 @@ Measured on a real user helix (2026-08-05, 6.44 turns, octagonal 20 mm
 conductor): centreline 6067 mm vs 6030 mm parametric truth (+0.61 %),
 equivalent radius 9.488 mm vs 9.488 mm, and the extracted model resonated at
 18.89 / 25.4 MHz against 18.65 / 25.78 MHz for a hand-built 103-chord model.
+
+Exit codes, because a skip is NOT a pass
+----------------------------------------
+0  every tier ran and passed ("WIRE-FROM-SOLID GATE PASSED")
+1  a check failed ("WIRE-FROM-SOLID GATE FAILED: ...")
+3  FreeCAD absent, so the solid tier — this gate's SUBJECT — never ran
+   ("WIRE-FROM-SOLID GATE SKIPPED"). Run it under freecadcmd:
+   ``freecadcmd tests/run_gate.py tests/validation/wire_from_solid.py``.
 """
 
 from __future__ import annotations
@@ -32,9 +40,13 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(_HERE)))
 
 FAILURES = []
+#: Every check that actually EXECUTED. The skip line quotes this rather than a
+#: hard-coded total so it cannot rot into a lie the next time a tier is added.
+RAN = []
 
 
 def check(label, ok, detail=""):
+    RAN.append(label)
     if not ok:
         FAILURES.append(label)
     print("  {0} - {1}{2}".format("ok  " if ok else "FAIL", label,
@@ -103,15 +115,39 @@ def gate_equivalent_radius():
 def main():
     print("EMStudio wire-from-solid gate")
     gate_equivalent_radius()
+    # Everything below IS this gate's subject: recovering a centreline from a
+    # real SOLID. Probe with a NARROW except — only a missing module is an
+    # honest "backend absent". A FreeCAD that imports and then raises (broken
+    # install, ABI mismatch, a regression inside Part) must FAIL the gate; a
+    # bare `except Exception` here would have turned that regression into a
+    # skip, which is the failure mode this project keeps paying for.
     try:
         import FreeCAD  # noqa: F401
         import Part
-    except Exception:
-        print("  skip  needs FreeCAD (solid geometry) — run under freecadcmd")
-        print("WIRE-FROM-SOLID GATE PASSED")
-        return 0
-
-    import FreeCAD
+    except ImportError as exc:
+        print("  skip  FreeCAD tier NOT RUN — {0}".format(exc))
+        print("        the rod / helix / closed-loop / thick-wire / resample /"
+              " provenance")
+        print("        tiers are this gate's SUBJECT and none of them were "
+              "exercised.")
+        print("        Run: freecadcmd tests/run_gate.py "
+              "tests/validation/wire_from_solid.py")
+        print("-------------------")
+        # The equivalent-radius tier above is real, ran, and still binds: if it
+        # failed, this is a FAILURE, not a skip.
+        if FAILURES:
+            raise SystemExit("WIRE-FROM-SOLID GATE FAILED: "
+                             + "; ".join(FAILURES))
+        # NOT the PASS token and NOT exit 0. Only the pure-python equivalent-
+        # radius tier ran, so a hand run must not read as success — that is
+        # exactly the vacuous pass run_battery's SOLVER_REQS note describes.
+        # Code 3 is distinct from 1 so a caller can tell "could not run" from
+        # "ran and was wrong". The battery routes this gate through freecadcmd
+        # whenever it exists (WANTS_FREECAD), so the by-hand path is the
+        # exposure this closes.
+        print("WIRE-FROM-SOLID GATE SKIPPED (no FreeCAD; {0} pure-python "
+              "check(s) ran, the solid tier untested)".format(len(RAN)))
+        return 3
 
     from emstudio.geometry import wire_extract as wx
 

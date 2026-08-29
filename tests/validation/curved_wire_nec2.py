@@ -38,6 +38,22 @@ What this gate pins
    stops ~21 % above it; that gap is the formula's idealization (uniform
    current, infinitely thin wire), which is why the gate pins CONVERGENCE and
    the analytic value only as an order-of-magnitude sanity bound.
+
+Exit codes — a backend this box lacks is never a pass
+-----------------------------------------------------
+* ``0`` — every tier above RAN and passed. The PASS token is printed on this
+  path and NOWHERE else.
+* ``2`` (``_RC_SKIPPED``) — no FreeCAD, so not one check could be built.
+  ``run_battery.py`` lists this gate in ``NEEDS_FREECAD`` and skips it
+  honestly before spawning it, so this is reachable only BY HAND; it prints
+  the SKIPPED token, never the PASS token.
+* ``1`` — a real failure, INCLUDING "no NEC engine". The battery declares no
+  ``nec2`` requirement for this gate and reads only the exit code, so a
+  missing engine cannot be a quiet skip: it drops the file's only analytic
+  check, and a gate that reports a pass it did not earn is worse than a gate
+  that is missing.
+
+Both of those branches used to print ``CURVED-WIRE GATE PASSED`` and return 0.
 """
 
 from __future__ import annotations
@@ -50,6 +66,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(_HERE)))
 
 FAILURES = []
+
+#: Exit code for "the prerequisite the BATTERY declares is absent" (FreeCAD).
+#: Distinct from 1 (a real failure) so a caller can tell "nothing ran" from
+#: "physics moved", and non-zero so a by-hand run can never read as success.
+_RC_SKIPPED = 2
 
 
 def check(label, ok, detail=""):
@@ -89,10 +110,23 @@ def main():
     try:
         import FreeCAD
         import Part
-    except Exception:
-        print("  skip  needs FreeCAD — run under freecadcmd")
-        print("CURVED-WIRE GATE PASSED")
-        return 0
+    except ImportError:
+        # ImportError ONLY. A bare `except Exception` here relabels a BROKEN
+        # FreeCAD (half-installed Mod dir, bad .so, unreadable user config) as
+        # an ABSENT one, laundering a real regression into a skip; anything
+        # that is not "the module is not there" must fail.
+        #
+        # And NOT the PASS token, which is what this branch used to print
+        # after building zero wires and running zero checks. run_battery.py
+        # DECLARES this gate in NEEDS_FREECAD, so on a box with no freecadcmd
+        # the battery skips it honestly and never spawns it — the only way in
+        # here is a BY-HAND python3 run, where the caller explicitly asked for
+        # the gate. Print the SKIPPED token and return a distinct non-zero
+        # code: nothing was tested, and that must not read as success.
+        print("  SKIP  needs FreeCAD (Part geometry) — run under freecadcmd")
+        print("CURVED-WIRE GATE SKIPPED — no FreeCAD; nothing was tested, "
+              "this is NOT a pass")
+        return _RC_SKIPPED
 
     from emstudio.solvers.nec2 import writer as wr
 
@@ -190,17 +224,42 @@ def main():
         wr.CHORD_DEFLECTION_FRAC = orig
 
     # ---- 4. live solve: the analytic loop -------------------------------
-    try:
-        from emstudio.solvers.nec2 import runner as nec_runner
+    # PROBE for the engine, do not wrap the solve in `except Exception`. The
+    # old form caught everything this tier can raise — a deck the writer built
+    # wrong, a NEC run that aborted, a parser that returned no sweep — printed
+    # "no NEC engine", dropped the only analytic check in the file and then
+    # printed the PASS token. A regression in precisely the code this gate
+    # exists to pin came back green. The probe uses the SAME resolver the
+    # runner does (runner.run -> find_backend("nec2")), so the two cannot
+    # disagree about whether an engine exists.
+    from emstudio.setup import solvers as solver_setup
 
-        res = nec_runner.run(ana2, solver2)
-    except Exception as exc:                                    # noqa: BLE001
-        print("  skip  live tier — no NEC engine: {0}".format(str(exc)[:60]))
+    if not solver_setup.find_backend("nec2").found:
+        # A FAILURE, not a skip, and deliberately so. run_battery.SOLVER_REQS
+        # declares no requirement for this gate — there is no "nec2"
+        # requirement kind in the battery at all — so the battery cannot skip
+        # it honestly; it spawns the gate and reads ONLY the exit code. This
+        # branch used to `return 0`, so on a nec2c-less box the battery
+        # printed "ok" for a gate that had solved nothing: the 2026-08-05
+        # defect class that SOLVER_REQS exists to prevent. The sibling live
+        # gates (array_nec2, array_taper_nec2, rfdf_nec2, lpda_nec2) all fail
+        # loudly here; a red battery on a nec2c-less box is an honest signal.
+        #
+        # TODO (run_battery.py, not editable from here): add a "nec2"
+        # requirement kind to _requirement_missing() and declare
+        # "curved_wire_nec2": "nec2" in SOLVER_REQS. After that the battery
+        # reports a true skip and this branch guards the by-hand path only.
+        print("  FAIL - live tier NOT RUN: no NEC engine (nec2c/nec2++)")
         print("-------------------")
-        if FAILURES:
-            raise SystemExit("CURVED-WIRE GATE FAILED: " + "; ".join(FAILURES))
-        print("CURVED-WIRE GATE PASSED")
-        return 0
+        raise SystemExit("CURVED-WIRE GATE FAILED: " + "; ".join(
+            FAILURES + ["live tier NOT RUN: no NEC engine on PATH, so the "
+                        "analytic small-loop convergence check never ran"]))
+
+    from emstudio.solvers.nec2 import runner as nec_runner
+
+    # No try/except: every exception from here is a regression in the writer,
+    # the runner or the parser, and must reach the caller as a failure.
+    res = nec_runner.run(ana2, solver2)
 
     sweep = res["sweep"] if isinstance(res, dict) else res
     r = float(sweep.zin[0].real)
@@ -225,4 +284,24 @@ def main():
 
 
 if __name__ == "__main__" or "FreeCAD" in sys.modules:
-    sys.exit(main())
+    try:
+        rc = main()
+    except SystemExit:
+        raise
+    except BaseException as exc:                                # noqa: BLE001
+        # A stray exception must not exit silently: under freecadcmd an
+        # uncaught traceback can be swallowed with print(), and `raise
+        # SystemExit(msg)` is the form this project has measured as reliably
+        # non-zero there.
+        import traceback
+
+        traceback.print_exc()
+        raise SystemExit("CURVED-WIRE GATE FAILED: {0}".format(exc))
+    if rc == _RC_SKIPPED:
+        # Reachable only when FreeCAD is ABSENT, i.e. under plain python3,
+        # where sys.exit IS reliable — the freecadcmd caveat cannot apply,
+        # since freecadcmd always has FreeCAD.
+        sys.exit(_RC_SKIPPED)
+    if rc != 0:
+        raise SystemExit("CURVED-WIRE GATE FAILED (rc={0})".format(rc))
+    sys.exit(0)
