@@ -378,7 +378,25 @@ BACKENDS = {
         method="FEM",
         executables=("ElmerSolver", "ElmerSolver_mpi"),
         version_args=("--version",),
-        apt_package="elmerfem-csc",
+        # apt_package is EMPTY on purpose and must stay that way — the same
+        # reason OpenFOAM's is (see that entry below). `elmerfem-csc` is
+        # published ONLY by the CSC PPA; it is in NO Debian/Ubuntu/Mint archive
+        # (measured 2026-08-29: apt-cache policy sources it from
+        # ppa.launchpadcontent.net/elmer-csc-ubuntu, while nec2c and gmsh come
+        # from archive.ubuntu.com). It therefore is not a plain apt package and
+        # must never join install_plan()'s combined one-command sudo line:
+        # ⚠ APT ABORTS THE WHOLE TRANSACTION on a package it cannot locate, so
+        # one unreachable name in that line installed NOTHING — not nec2c, not
+        # gmsh, not a single build prerequisite. The user copies the one command
+        # Solver Setup offers, gets "E: Unable to locate package elmerfem-csc",
+        # and concludes the guided install is broken. Measured before the fix:
+        # apt_line == "sudo apt install -y nec2c elmerfem-csc gmsh".
+        # The two commands that DO work live in manual_hint below.
+        # ⛳ Emptying this field is ALSO what puts the PPA requirement into the
+        # Solver Setup dialog's VISIBLE Details column: that column falls back
+        # to manual_hint's first line exactly when apt_package is empty
+        # (installer_dialog.py), instead of promising "in the sudo step below
+        # (apt: elmerfem-csc)" and hiding the PPA in a tooltip.
         manual_hint=(
             "Needs the official CSC PPA first:\n"
             "sudo add-apt-repository -y ppa:elmer-csc-ubuntu/elmer-csc-ppa && "
@@ -827,11 +845,66 @@ def _lib_present(stem):
         out = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True,
                              timeout=10,
                              creationflags=procutil.CREATE_NO_WINDOW).stdout
-        return ("lib" + stem) in out
     except Exception:
         # ldconfig missing on a non-Darwin posix box (musl, a slim container):
         # unprovable, not proven-missing. Same reasoning as the macOS branch.
         return True
+    # ⚠⚠ A RUNTIME SONAME IS NOT A BUILD PREREQUISITE, AND THIS TEST USED TO
+    # ACCEPT ONE. It was `("lib" + stem) in out` — a substring search of the
+    # whole cache — but every "lib" Prereq in this file names a **-dev**
+    # package (libopenblas-dev, libhdf5-dev, libvtk9-dev, libboost-all-dev,
+    # libgmp-dev, libtinyxml-dev). On Linux the dev/runtime split is real:
+    # `libfoo.so.N` (the versioned SONAME) ships in the RUNTIME package, which
+    # FreeCAD, numpy and half the desktop already pull in, while the headers
+    # and the unversioned `libfoo.so` link the compiler needs come from the
+    # -dev package (Debian Policy §8.1 vs §8.4). So the old test answered True
+    # on a box with no headers at all, check_prereqs passed, and Palace's
+    # 30-90 minute superbuild then died at configure with "Could NOT find
+    # BLAS" — the exact message the OpenBLAS Prereq's `why` promises to
+    # prevent. MEASURED here 2026-08-29: `_lib_present("absl_base")` returned
+    # True while `gcc -labsl_base` could not link (libabsl-dev absent, only
+    # the runtime libabsl_base.so.20220623 in the cache).
+    #
+    # So require a DEVELOPMENT entry: a cached name that ends in a bare `.so`.
+    # ldconfig caches the -dev symlink under its own file name as well as the
+    # SONAME, verified on this box: `libopenblas.so`, `libhdf5_serial.so`
+    # (libhdf5-dev), `libvtkCommonCore-9.1.so` (libvtk9-dev) are all listed
+    # when the dev package is installed and all absent when it is not.
+    #
+    # ⛳ The character AFTER the stem is load-bearing, not pedantry: a plain
+    # prefix test makes `libgmpxx.so` answer for stem "gmp", and — worse —
+    # `libtinyxml2.so` answer for "tinyxml", when homebrew's own note above
+    # records that tinyxml2 is a DIFFERENT API that builds and then fails
+    # further in. Only `.` (nothing left but ".so"), `-` (VTK's ABI tag) and
+    # `_` (HDF5's serial/openmpi flavour) continue the same library's name.
+    #
+    # Residual risk, recorded where the next person will hit it. Measured over
+    # 60 random stems on this box against `gcc -l<stem>`: the old substring
+    # test disagreed with the linker 42 times, this one 4. Three of the four
+    # are ROCm libraries under /opt/rocm-6.4.2/lib — this answers True and is
+    # RIGHT (the dev link is there); `ld` simply does not read ld.so.conf, so
+    # the linker proxy is what is narrow. The fourth is the real false-negative
+    # class: ⛳ **a -dev "library" can be an ASCII LINKER SCRIPT, not an ELF
+    # symlink** — /usr/lib/x86_64-linux-gnu/libncurses.so is the 31-byte text
+    # `INPUT(libncurses.so.6 -ltinfo)` — and ldconfig cannot cache a file that
+    # is not an object, so no dev entry appears for it. All six stems this
+    # file actually asks about are plain ELF symlinks and answer True
+    # (verified: openblas, hdf5, vtkCommonCore, boost_system, gmp, tinyxml).
+    # A false negative here only disables the Build button, and the row still
+    # names the apt package while manual_hint carries the full recipe —
+    # recoverable, where the old direction cost the user a 90-minute compile.
+    # If a linker-script prerequisite ever joins the registry, add a
+    # filesystem glob of the linker's search dirs as a FALLBACK; do not widen
+    # the match back to a substring.
+    prefix = "lib" + stem
+    for line in out.splitlines():
+        name = line.strip().split(" ", 1)[0]
+        if not name.startswith(prefix) or not name.endswith(".so"):
+            continue
+        rest = name[len(prefix):-len(".so")]
+        if rest == "" or rest[0] in "-_.":
+            return True
+    return False
 
 
 def check_prereqs(backend):
@@ -1115,6 +1188,34 @@ def install_plan():
 VERIFIED_BREW_FORMULAE = {
     "gmsh", "cmake", "git", "hdf5", "vtk", "boost", "cgal", "gmp",
     "open-mpi", "openblas", "gcc",
+}
+
+#: The apt half of the same allow-list, and it was MISSING until 2026-08-29 —
+#: which is how `elmerfem-csc` (a CSC-PPA-only package) reached the combined
+#: `sudo apt install` line and made the one command Solver Setup offers install
+#: NOTHING. Every name here was checked with `apt-cache policy <name>` on Ubuntu
+#: 24.04 / Mint 22 and comes from archive.ubuntu.com, i.e. a stock sources.list
+#: can resolve it with no repository added first.
+#:
+#: ⚠ THE FAILURE MODE IS ALL-OR-NOTHING, which is why an apt name is far less
+#: forgiving than a brew one: apt refuses the WHOLE transaction on a single name
+#: it cannot locate ("E: Unable to locate package …"), so one bad entry in a
+#: fifteen-package line installs zero packages, not fourteen. Homebrew installs
+#: what it can and complains about the rest.
+#:
+#: A package that needs a PPA / third-party repo added first does NOT belong
+#: here and must NOT be set as a backend's `apt_package` or a `Prereq.apt` —
+#: put its two commands in `manual_hint` instead (Elmer and OpenFOAM both do).
+#: If you add a name, run `apt-cache policy` first and add it in the same commit.
+VERIFIED_APT_PACKAGES = {
+    # backends
+    "nec2c", "gmsh",
+    # build prerequisites
+    "build-essential", "gfortran", "cmake", "git",
+    "libhdf5-dev", "libvtk9-dev", "libboost-all-dev", "libcgal-dev",
+    "libgmp-dev", "libtinyxml-dev", "libopenblas-dev",
+    "libopenmpi-dev", "openmpi-bin",
+    "python3-venv", "python3-setuptools", "cython3",
 }
 
 # macOS install guidance per backend. Homebrew where a formula really exists,
@@ -2464,12 +2565,18 @@ def build_plan(key):
     if backend is None:
         return None
     # A backend can be package-managed on one platform and source-built on
-    # another. Elmer is `apt install elmerfem-csc` on Linux but has NO Homebrew
+    # another. Elmer is a two-command PPA install on Linux (add-apt-repository
+    # + apt install elmerfem-csc — see its manual_hint) but has NO Homebrew
     # formula, so on macOS the guided build is the only route there is. Gating
     # purely on the source_build flag forced a bad choice: leave it False and
-    # macOS never gets a Build button, or flip it True and `elmerfem-csc` drops
-    # out of the LINUX apt line (see install_plan's `apt_package and not
-    # source_build`). Deciding per platform avoids both.
+    # macOS never gets a Build button, or flip it True and Linux is offered a
+    # 30-minute compile in place of a 30-second package install. Deciding per
+    # platform avoids both.
+    # ⚠ The flag USED to carry a second job — keeping `elmerfem-csc` inside
+    # install_plan's `apt_package and not source_build` test — and that is gone
+    # as of 2026-08-29: the package is PPA-only, so Elmer's apt_package is now
+    # empty (see the registry entry) and flipping this flag no longer moves any
+    # name in or out of the apt line. Do not restore that reasoning.
     offers_build = backend.source_build or (_is_mac() and not backend.brew_package)
     if not offers_build:
         return None

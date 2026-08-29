@@ -340,14 +340,45 @@ def _collect_ports(analysis, excite_port=None, cell_mm=None):
             entry["prop_axis"] = prop_dir[-1].lower()
             entry["prop_sign"] = 1.0 if prop_dir[0] == "+" else -1.0
             pi = AXES.index(entry["prop_axis"])
-            trans = [i for i in range(3) if i != pi]
-            spans = sorted(abs(stop[i] - start[i]) for i in trans)
-            # a is the BROAD wall, b the narrow one — the TE10 convention. Taking
-            # them by size rather than by axis order means the port works whatever
-            # way round the face was drawn.
-            entry["wg_b_m"] = spans[0] * 1e-3
-            entry["wg_a_m"] = spans[1] * 1e-3
-            entry["wg_mode"] = str(getattr(port, "WaveguideMode", "TE10") or "TE10")
+            # ⚠⚠ a AND b ARE BOUND TO AXES, NOT TO SIZE. ``RectWGPort.__init__``
+            # sets ny_P = (prop+1)%3 and ny_PP = (prop+2)%3, then writes the mode
+            # functions as sin(M*pi/a * <ny_P>) and sin(N*pi/b * <ny_PP>)
+            # (openEMS/ports.py). So ``a`` MUST be the span on ny_P and ``b`` the
+            # span on ny_PP, whatever their relative size — the docstring there
+            # says it too: "a : dimension along the first transverse axis".
+            # ⚠⚠ UNTIL 2026-08-29 THIS SORTED THEM BY SIZE ("a is the BROAD
+            # wall"), which is right only when the broad wall happens to land on
+            # ny_P. MEASURED on four WR-28 faces: broad-wall-on-Y with prop +Z,
+            # and the CONVENTIONAL broad-wall-on-X drawing whenever prop is +/-Y
+            # (there ny_P is z), both got a and b swapped — a half-sine of
+            # period 2a imposed across an aperture of width b, i.e. peak field ON
+            # the PEC wall, polarised along the wrong transverse axis. Not a mode
+            # at all, and SILENT: kc below is unchanged, so cutoff, beta and the
+            # modal ZL all still look right and the run returns a complete,
+            # meaningless S11 / Zin / gain / pattern set.
+            i_P, i_PP = (pi + 1) % 3, (pi + 2) % 3
+            span_P = abs(stop[i_P] - start[i_P])
+            span_PP = abs(stop[i_PP] - start[i_PP])
+            entry["wg_a_m"] = span_P * 1e-3
+            entry["wg_b_m"] = span_PP * 1e-3
+            mode = str(getattr(port, "WaveguideMode", "TE10") or "TE10")
+            # ⛳ ...and the MODE NAME is translated into that axial convention,
+            # which is what keeps the old promise — "the port works whatever way
+            # round the face was drawn" — without lying to the engine about which
+            # axis is which. The user types the textbook spelling, where a is the
+            # BROAD wall, so "TE10" means the dominant mode however the face was
+            # drawn. When the broad wall lands on ny_PP the SAME physical mode is
+            # spelled with the indices swapped (TE10 -> TE01: E along ny_P,
+            # half-sine along ny_PP). kc = sqrt((M*pi/a)^2 + (N*pi/b)^2) is
+            # invariant under swapping (M,a) with (N,b), so cutoff, beta and the
+            # modal reference impedance are untouched by this whole block — only
+            # the field axes move, which is the defect.
+            # ⚠ Guarded on the 4-character form openEMS itself requires
+            # ('Invalid mode definition' otherwise); anything else is passed
+            # through unaltered so the engine raises its own error, not ours.
+            if span_PP > span_P and len(mode) == 4 and mode[2:].isdigit():
+                mode = mode[:2] + mode[3] + mode[2]
+            entry["wg_mode"] = mode
             # ⚠⚠ AN EXCITED WAVEGUIDE PORT MAY NOT BE ZERO-LENGTH along the
             # propagation axis — openEMS raises "Port length in excitation
             # direction may not be zero if port is excited!". A port FACE is
@@ -807,7 +838,29 @@ def write_deck(analysis, solver, workdir, excite_port=None):
                               a, p["start"][i], p["stop"][i], counts[i]))
                 has_solid = True    # an STL body is a solid: it wants the
                                     # metal-edge thirds rule like any other
-        if m["kind"] == "metal":
+        # ⚠⚠ A CONDUCTING SHEET IS METAL AND GETS THE METAL-EDGE THIRDS RULE.
+        # ``conducting_sheet`` is the SAME geometry as ``metal`` with a surface
+        # impedance on it — the only difference is the CSX property. Gating the
+        # refinement on kind == "metal" meant that ticking Category=Conductor to
+        # account for copper loss ALSO coarsened the grid at every metal edge,
+        # which is the refinement this writer's own docstring and
+        # _refuse_unresolvable both call necessary. MEASURED on the shipped
+        # 2.4 GHz patch template, changing only the metal's Category:
+        #     Metal (PEC) -> 37 x 39 x 31 grid lines (41 040 cells)
+        #     Conductor   -> 29 x 29 x 31 grid lines (23 520 cells), no
+        #                    AddEdges2Grid line anywhere in the deck
+        # The resulting shift in resonance and bandwidth would be read as
+        # conductor loss when most of it is mesh.
+        # ⛳ AddEdges2Grid is property-type agnostic — it calls
+        # ``properties.GetAllPrimitives()`` and takes the hint from each BOX
+        # (openEMS.pyx / automesh.py), so a CSPropConductingSheet works exactly
+        # like a CSPropMetal here. It also covers the solid fall-back a few lines
+        # above, which emits AddMetal and is therefore literally PEC.
+        # ⚠ Nothing is lost by leaving the dielectric branch below: a conducting
+        # sheet is not a substrate, and on the zero-thickness sheet that branch
+        # above insists on, its guard `0 < (a2 - a1)` is false, so it emitted
+        # nothing. That is precisely why the coarsening was invisible.
+        if m["kind"] in ("metal", "conducting_sheet"):
             if has_solid:
                 w("FDTD.AddEdges2Grid(dirs='all', properties={0}, metal_edge_res=mesh_res/2)".format(m["name"]))
             for dirs in sorted(sheet_dirs):

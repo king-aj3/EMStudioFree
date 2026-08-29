@@ -62,6 +62,16 @@ taken the way docs/results/cht_convergence.py took it for the refinement
 study — full iteration budget, residuals against the case's own
 residualControl, and the drift of T over the last 1000 iterations.
 
+AND AT THE BUDGET THE USER ACTUALLY GETS. This gate runs 20000 iterations;
+`ui/cht_dialog.py` defaults to 10000 and states in two places that "the
+field was steady from ~10000". That was an unmeasured claim about a budget
+no gate looked at — green here proved the gate's own budget converged and
+nothing about the shipped one. The same solved T history is therefore ALSO
+read with its window ending at the dialog's default (imported, not
+restated), which is free: this solver is a fixed march with no restart and
+no early exit, so iterations 1..N of this run are the run whose endTime
+is N.
+
 THE FAILURE THIS EXISTS TO CATCH: the swapped-face-sets mesh
 (topBottom/frontAndBack exchanged, shipped until `69b65e5`) pinned Nu at
 1.86-1.88 at ANY scale and ANY solver route — Hele-Shaw drag from walls one
@@ -220,7 +230,7 @@ def residual_verdict(residuals, criteria):
     return offenders, matched
 
 
-def worst_drift(history, span):
+def worst_drift(history, span, end=None):
     """Largest movement of any extreme of T, in any region, over ``span``.
 
     BOTH extremes of BOTH regions, because which one is pinned by a boundary
@@ -228,10 +238,28 @@ def worst_drift(history, span):
     of this measurement: the fluid's min sits on the cold wall and the solid's
     max on the hot one, so reading a single end could report a Dirichlet
     condition holding still and call it convergence.
+
+    ``end``: finish the window at that ITERATION instead of at the end of the
+    run. chtMultiRegionSimpleFoam is a fixed march of steady sweeps — no
+    restart, no time-step feedback, and nothing reads residualControl (see
+    ``main``) — so iterations 1..N of a longer run ARE the run whose endTime
+    is N, and truncating the history here answers "was it finished at N?"
+    without a second multi-hour solve. Returns ``None`` when the run is too
+    short to hold the window, which the caller must read as a FAILURE: "we
+    could not look" is not "it had stopped".
     """
     worst = None
     for region in sorted(history):
         values = history[region]
+        if end is not None:
+            # ⚠ NOT a bare ``values[:end]``. A slice past the end of the list
+            # silently yields the WHOLE run, so an ``end`` beyond what was
+            # solved would quietly report the end-of-run drift and certify a
+            # budget that never ran — precisely the vacuity this reading was
+            # added to close. Too short is no reading at all.
+            if len(values) < end:
+                continue
+            values = values[:end]
         if len(values) <= span:
             continue
         moved = max(abs(values[-1][0] - values[-1 - span][0]),
@@ -251,6 +279,11 @@ def check(label, ok, detail=""):
 def main():
     from emstudio.solvers.openfoam import cht
     from emstudio.solvers.openfoam.runner import run_cht, CHT_SOLVE_STEPS
+    # The iteration budget the DIALOG ships, taken from the dialog rather
+    # than restated here so lowering the default cannot slip past the check
+    # at the bottom of this run. Headless-safe: cht_dialog imports Qt lazily
+    # and `cht_setup` already relies on that.
+    from emstudio.ui.cht_dialog import DEFAULT_ITERATIONS
 
     # The application whose log carries the physics, taken from the runner's
     # own step list rather than spelled again here — a gate that names the
@@ -423,6 +456,44 @@ def main():
               m.t_interface < case.t_interface - 2.0,
               "measured 2026-08-18: 348.74 (conduction) -> 342.45 (fixed "
               "mesh, convecting)")
+
+        # ── AND AT THE BUDGET THE PRODUCT ACTUALLY SHIPS ─────────────────
+        # Everything above measures the run THIS GATE chose — 20000
+        # iterations, a budget no user gets by default. The dialog ships
+        # DEFAULT_ITERATIONS and tells the user twice (its warning label and
+        # its result text) that "the field was steady from ~10000": a
+        # convergence claim about a budget nothing had ever measured. A
+        # default lowered into the transient — or a case that converges more
+        # slowly than this one — would leave the gate green while every
+        # number the dialog printed came off a moving field, which is the
+        # exact failure the end-of-run drift check exists to prevent.
+        # ⚠ Deliberately BELOW the trust gate above rather than beside the
+        # other drift check: this says nothing about the 20000-iteration
+        # field the Nusselt number was just read from, so it must not
+        # suppress that recovery and its diagnostics. It fails the gate on
+        # its own, at the bottom.
+        # ⚠ Costs no second solve — see ``worst_drift``'s ``end``. And it
+        # cannot go vacuous: too short a run returns None, which is a FAIL.
+        shipped = worst_drift(history, DRIFT_ITERS, end=DEFAULT_ITERATIONS)
+        if shipped is None:
+            # NOT "it was steady" — there was nothing to read, because the
+            # gate's own budget no longer contains the dialog's. Name that,
+            # so the red line points at the budgets rather than at the flow.
+            reading = ("no %d-iteration window ends at %d in this "
+                       "%d-iteration run"
+                       % (DRIFT_ITERS, DEFAULT_ITERATIONS, ran))
+        else:
+            reading = ("worst %s %.3e K over the %d its ending at %d"
+                       % (shipped[0], shipped[1], DRIFT_ITERS,
+                          DEFAULT_ITERATIONS))
+        check("T had already stopped moving at the dialog's default {0} "
+              "iterations".format(DEFAULT_ITERATIONS),
+              shipped is not None and shipped[1] <= DRIFT_MAX_K,
+              "%s (bound %.1e K); measured 2026-08-29 on this case: "
+              "2.6e-06 K at 10000 against 1.7e-02 K at 1500, so the "
+              "shipped default sits ~385x inside the bound while a "
+              "default cut back into the transient reads ~17x outside it"
+              % (reading, DRIFT_MAX_K))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

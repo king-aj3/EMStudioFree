@@ -392,8 +392,12 @@ def build_dialog(geometry, d_cable, box_w, box_h, parent=None,
 
             # Minutes, not seconds — ask before committing the user to it.
             from emstudio.ui import run_gui
+            # ⚠ The work measure comes from the CLOSURE's geometry, not from
+            # the dialog: this class has no cable count to read, and the
+            # version that tried to read one off `self` priced every bundle
+            # the same. See _trefoil_work.
             if not run_gui.confirm_solve_work(
-                    self, "openfoam", _trefoil_work(self),
+                    self, "openfoam", _trefoil_work(cables, box_w, box_h),
                     label="Convection on the reference trefoil (OpenFOAM)"):
                 return
 
@@ -499,31 +503,63 @@ def enclosure_side(geometry, d_cable, clearance_ratio):
                              clearance_ratio)
 
 
-def _trefoil_work(dlg):
-    """A work measure for the reference-trefoil CFD.
+def _trefoil_work(cables, box_w, box_h):
+    """A work measure for the bundle CFD — cells x iterations, as its siblings.
 
-    The dialog is parametric, so there is no mesh to count yet. Cable count
-    times whatever iteration budget the dialog exposes is monotonic in cost,
-    which is all a history key needs — see emstudio.solvers.estimate.
+    ⚠ This used to take the DIALOG and probe it for ``count`` / ``n_cables`` /
+    ``cables`` / ``iterations`` / ``iters``. ``ConvectionDialog`` sets none of
+    them — its cables are a CLOSURE variable of :func:`build_dialog`, never
+    ``self.cables`` — so every probe returned None, ``int(None)`` raised, both
+    loops fell through, and it handed ``confirm_solve_work`` ``1.0`` for every
+    bundle it would ever be given. A 3-cable reference trefoil and a 30-cable
+    mixed bundle therefore shared ONE history bucket, and the estimate quoted
+    "median of N previous runs of this size" from runs of a completely
+    different size — a provenance claim the key could not support
+    (2026-08-29 audit). A parameter that changes nothing is worse here than no
+    parameter, because the sentence it feeds sounds measured either way.
+
+    So price the case that is actually about to be written: background cells
+    plus the refined band snappy grows on each cable, times the iteration
+    budget. That is the same currency ``cht_dialog`` and
+    ``solid_convection_dialog`` hand ``confirm_solve_work``, and a history key
+    only has to be monotonic in cost — see :mod:`emstudio.solvers.estimate`.
     """
-    n = 1
-    for name in ("count", "n_cables", "cables"):
-        w = getattr(dlg, name, None)
-        try:
-            v = int(w.value()) if hasattr(w, "value") else int(w)
-            if v > 0:
-                n = v
-                break
-        except (TypeError, ValueError):
-            continue
-    iters = 1
-    for name in ("iterations", "iters"):
-        w = getattr(dlg, name, None)
-        try:
-            v = int(w.value()) if hasattr(w, "value") else int(w)
-            if v > 0:
-                iters = v
-                break
-        except (TypeError, ValueError):
-            continue
-    return float(n * iters)
+    try:
+        # ⚠ Read the DEFAULTS off the case class rather than copying the
+        # numbers here: the dialog passes no ``case_kw``, so BundleCase's own
+        # fields ARE the budget this solve will run under, and a duplicated
+        # constant is exactly what drifts the day one of them moves.
+        from emstudio.solvers.openfoam import BundleCase
+
+        case = BundleCase()
+        nx = int(case.cells_x)
+        ny = max(1, int(round(nx * float(box_h) / float(box_w))))
+        dx = float(box_w) / nx          # background cell — what snappy halves
+        d_max = max(float(c[2]) for c in cables)
+        # ⚠ Every cable contributes the SAME surface-cell count, set by the
+        # LARGEST diameter and not by its own: ``refine_match_perimeter`` adds
+        # ceil(log2(d_max/d)) levels to a smaller cable precisely so all of
+        # them resolve to comparable angular resolution (see
+        # solvers/openfoam/bundle.py). The bump is an integer, so a small cable
+        # can be over-refined by up to 2x — which a log-bucketed key does not
+        # care about.
+        band = math.pi * d_max * (2.0 ** case.refine_max) / dx
+        # ⚠ Charge that band once per refinement LEVEL and once per prism
+        # layer, not once in total. snappy castellates hierarchically — every
+        # level from 1 to refine_max grows its own band around the surface,
+        # several cells deep, and the layers go on top — so charging one band
+        # would under-count the refined region several-fold and let the FIXED
+        # background mesh swamp the only term that varies with the bundle.
+        # Still a deliberate under-count: the exact band depths live in the
+        # writer's snappyHexMeshDict literals, and a copy of them here would
+        # drift the day one of them moves.
+        per_cable = band * (case.refine_max + case.wall_layers)
+        return float(case.iterations) * (nx * ny + len(cables) * per_cable)
+    except Exception:                                      # noqa: BLE001
+        # ⚠ This must never raise. It is evaluated as an ARGUMENT to
+        # confirm_solve_work, i.e. OUTSIDE that function's own try/except, so
+        # an exception here would take the Solve button down with a traceback
+        # instead of merely leaving the estimate unpriced. 0.0 is what
+        # estimate.work_of returns when nothing can be read, and it buckets to
+        # "no useful history key" rather than to a wrong one.
+        return 0.0

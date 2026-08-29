@@ -33,10 +33,16 @@ constant-R and constant-X lines of the impedance plane become CIRCLES.
     constant X:   centre ( 1, 1/x )         radius |1/x|
 
 ⚠ Γ IS ALREADY IN THE RESULT. ``SweepResult.s11`` is exactly this Γ — the class
-computes ``(zin − z0)/(zin + z0)`` when a runner does not supply it. Nothing
-here re-derives what the solver already returned; ``gamma_from_z`` exists for
-callers holding a bare impedance (the matching designer's typed load, a cable
-model), not to second-guess a solve.
+computes ``(zin − z0)/(zin + z0)`` only when a runner does not supply it, and a
+runner that DOES supply it may have referenced it to something other than the
+single scalar ``z0`` stored beside it. That is not hypothetical: an openEMS
+waveguide port references every point to THAT frequency's modal impedance,
+while ``SweepResult.load_csv`` keeps one z0 cell out of the whole column. So
+nothing here second-guesses a solve — :func:`readout` takes the solver's Γ as
+its ``gamma`` argument and that value wins over anything re-derivable from the
+impedance. ``gamma_from_z`` derives one only for callers holding a bare
+impedance (the matching designer's typed load, a cable model), where the
+impedance and its reference are genuinely all there is.
 
 ⚠⚠ THE CHART IS NORMALISED, SO A CHART WITHOUT ITS Z0 IS HALF A NUMBER. The
 centre means "matched to THIS port", not "50 Ω". Every read-out below carries
@@ -134,15 +140,31 @@ def return_loss_db(gamma):
     return -20.0 * np.log10(m)
 
 
-def readout(zin, z0=50.0):
+def readout(zin, z0=50.0, gamma=None):
     """Everything the chart says at one point, as a dict.
 
     Kept as a pure function so ``gui_smoke`` can assert the numbers a user
     reads without opening a dialog, and so the PDF report and the tab cannot
     print different values for the same solve.
+
+    ⚠ PASS ``gamma`` WHENEVER THE POINT CAME FROM A SOLVE. It is
+    ``SweepResult.s11[i]`` — the very number the locus and the star marker are
+    drawn from — and it is AUTHORITATIVE here. Re-deriving Γ from ``(zin, z0)``
+    is correct only while the solve's own reference equals the scalar ``z0``
+    carried beside it, and on a waveguide port it does not: across the shipped
+    Ka-band horn band the TE10 modal impedance runs 621.5 Ω at 26.5 GHz down to
+    443.3 Ω at 40 GHz, while ``SweepResult.load_csv`` keeps only the first row's
+    z0. Re-deriving there put VSWR 1.24 and return loss 19.5 dB in the Smith
+    title against 1.02 and 41.2 dB on the VSWR tab of the SAME dialog, with the
+    star sitting at |Γ| = 0.009 under a caption claiming 0.106 — two tabs
+    disagreeing about one solve, which is the one thing this module exists to
+    make impossible. ``gamma=None`` remains right for a caller holding a BARE
+    impedance (the matching designer's typed load, a cable model): there the
+    impedance and its reference really are all there is.
     """
     z = complex(zin)
-    g = complex(gamma_from_z(z, z0))
+    # Γ from the solve when the caller has it; derived only for a bare load.
+    g = complex(gamma) if gamma is not None else complex(gamma_from_z(z, z0))
     return {
         "z0_ohm": float(z0),
         "z_ohm": z,

@@ -83,7 +83,11 @@ class ChtCase:
     cp_solid: float = 900.0
     n_solid: int = 20               # cells across each region
     n_fluid: int = 20
-    iterations: int = 2000
+    iterations: int = 2000          # ⚠ an exact COST, not a maximum. This
+    #                                 application has no early exit — see the
+    #                                 residualControl note in `write_cht` —
+    #                                 so every run pays all of them, and a
+    #                                 caller must not label this "max".
     width: float = 0.002            # z extent (the empty direction)
 
     # --- buoyancy ----------------------------------------------------------
@@ -262,15 +266,29 @@ def gap_nusselt(case, t_solid_mean):
     far inside the correlation window the gate asserts. A second instrument
     (a wallHeatFlux patch integral) agreed to 0.7 % when cross-checked
     (2026-08-18 bisection, step 2).
+
+    ⚠ THE `dt_gap` GUARD BELOW IS A SIGN TEST, NOT A CONVERGENCE TEST, and
+    it used to word itself as one. All it can refuse is a solid mean so cold
+    that the recovered interface sits at or below the cold face — which no
+    steady conjugate state does. A field that is merely still MOVING sails
+    straight through it: measured 2026-08-29 on the 20x30 buoyant gap case
+    (g 9.81, target_ra 1e5, l_solid 20 mm / l_fluid 5 mm), a run stopped at
+    20 iterations recovers Nu 2.03 and one run to convergence 3.79 — a 47 %
+    error, returned silently and with no complaint. Nothing on the solve
+    path establishes convergence (see the residualControl note in
+    `write_cht`), so a caller must NOT present this refusal, or its absence,
+    as a convergence verdict.
     """
     q = 2.0 * case.k_solid * (case.t_hot - t_solid_mean) / case.l_solid
     t_int = case.t_hot - q * case.r_solid
     dt_gap = t_int - case.t_cold
     if dt_gap <= 0:
         raise ValueError(
-            "recovered gap drop %.4g K is not positive — the solid mean "
-            "%.4g K is not from a converged solve of this case" %
-            (dt_gap, t_solid_mean))
+            "recovered gap drop %.4g K is not positive — a solid mean of "
+            "%.4g K puts the interface at or below the %.4g K cold face, and "
+            "no steady conjugate state does that. The field is non-physical: "
+            "it may have diverged, been stopped very early, or been read from "
+            "the wrong region" % (dt_gap, t_solid_mean, case.t_cold))
     nu = q * case.r_fluid / dt_gap
     return GapNusselt(q=q, t_interface=t_int, dt_gap=dt_gap, nu=nu,
                       ra=case.rayleigh_for(dt_gap))
@@ -751,6 +769,10 @@ def write_cht(case_dir, case=None):
                    "        preconditioner DIC;\n        tolerance 1e-10;\n"
                    "        relTol 0;\n    }\n}\n\n"
                    "SIMPLE\n{\n    nNonOrthogonalCorrectors 0;\n"
+                   # ⚠ DECLARED, NOT ENFORCED — the solid's own SIMPLE reader
+                   # takes nNonOrthogonalCorrectors and nothing else. Same
+                   # story as the fluid's, and the same reason for keeping it
+                   # anyway: see the residualControl note below.
                    "    residualControl { h 1e-6; }\n}\n\n"
                    "relaxationFactors { equations { h 1; } }\n")
         else:
@@ -762,9 +784,36 @@ def write_cht(case_dir, case=None):
             # residual was already ~1e-8, and a run took the better part of an
             # hour. Buoyant cases want the predictor ON.
             #
-            # ⚠ `residualControl` is the other half: without it the solve
-            # cannot stop when it is done, so a converged case grinds on to
-            # `endTime` regardless. Iterations become a ceiling, not a cost.
+            # ⚠ `residualControl` IS NOT A STOPPING RULE HERE. This note used
+            # to say it was ("iterations become a ceiling, not a cost") and
+            # that is FALSE — it is where the dialog's "Iterations (max)" and
+            # "Ran ≤N iterations" wording came from. chtMultiRegionSimpleFoam
+            # is built `#define NO_CONTROL` over a bare `runTime.loop()`, so
+            # it never constructs the `simpleControl` that reads
+            # residualControl; v2512's own
+            # read{Fluid,Solid}MultiRegionSIMPLEControls.H take
+            # nNonOrthogonalCorrectors, momentumPredictor and frozenFlow and
+            # NOTHING else, and `grep -rn residualControl` over that solver
+            # returns nothing. MEASURED through this writer 2026-08-29 on the
+            # 20x30 buoyant gap case: it meets every criterion below at
+            # iteration 406 and still runs all 4000 it is given, and deleting
+            # this whole block leaves the run bit-for-bit the same — 600
+            # iterations either way, T_solid_mean 344.072155426 K and
+            # Nu 3.789721 to every digit printed. So `iterations` is an exact
+            # COST, and no "SIMPLE solution converged" line is ever printed
+            # for `run_chain` to match: its per-step `converged` flag is
+            # structurally False on every conjugate run, converged or not.
+            #
+            # ⚠ KEEP THE BLOCK ANYWAY — it is the case's DECLARED criterion,
+            # and `tests/validation/openfoam_cht_convection.py` reads it back
+            # out of this file and enforces it against the solver log after
+            # the run. That gate is the only thing in the project holding a
+            # CHT solve to any convergence criterion at all, so deleting
+            # these lines does not remove a dead entry, it empties the gate
+            # and lets an unconverged solve through. If some future OpenFOAM
+            # ever DOES honour it, that gate's "it ran its full budget" check
+            # goes red first — which is the signal to revisit this, and the
+            # reason it was written to fail rather than to accept a short run.
             _put(case_dir, "system/%s/fvSolution" % region,
                  _header("dictionary", "fvSolution", "system")
                  + "solvers\n{\n"
@@ -807,6 +856,15 @@ def write_cht(case_dir, case=None):
          # ⚠ The STEADY variant. `chtMultiRegionFoam` is the transient solver
          # and demands a PIMPLE block; these schemes are steadyState, and the
          # answer wanted here is the converged one, not a history.
+         #
+         # ⚠ `writeInterval == endTime`, so exactly ONE result directory is
+         # written and there is no second snapshot to measure field drift
+         # against. That is deliberate (this is a steady solve; the history is
+         # not the answer), but it is why the evidence that the field STOPPED
+         # MOVING has to come from the solver log — `openfoam_cht_convection`
+         # parses the whole log for that reason rather than differencing time
+         # directories. Anyone lowering this to get intermediate snapshots
+         # owes that gate a look first.
          + "application     chtMultiRegionSimpleFoam;\nstartFrom       startTime;\n"
            "startTime       0;\nstopAt          endTime;\nendTime         %d;\n"
            "deltaT          1;\nwriteControl    timeStep;\nwriteInterval   %d;\n"

@@ -394,6 +394,27 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                   self.lpda_gain.valueChanged, self.lpda_tau.valueChanged,
                   self.lpda_sigma.valueChanged, self.lpda_r0.valueChanged):
             w.connect(self._recalc)
+        # ⚠ These nine were UNWIRED until 2026-08-29, and the failure was the
+        # silent kind: _recalc_horn/_recalc_ifa/_recalc_pifa ran only on page
+        # entry or a frequency/conductor-Ø change, so the Predicted panel, the
+        # schematic and the PDF report (all of which read the CACHED
+        # self._horn_design / _ifa_design / _pifa_design) kept describing the
+        # design the user had BEFORE the edit — while _build_verify_analysis
+        # and _generate read these SAME spinboxes LIVE and therefore solved and
+        # built the edited one. Measured: PIFA L1/L2 1.0 -> 2.0 at 1.892 GHz
+        # left the panel at 19.81 x 19.81 mm plate / 79.23 mm ground while
+        # Accept & Generate built 28.06 x 14.03 mm / 112.24 mm; IFA stub
+        # 0 (auto 8.02 mm) -> 6 mm left the radiator reading 22.57 mm against a
+        # built 24.59 mm; the horn page ignored Target gain entirely, which is
+        # the whole point of that page. Every settable input on every family
+        # page must reach _recalc — a number the user can type and the panel
+        # cannot see is a wrong answer that looks like a right one.
+        for w in (self.horn_gain.valueChanged,
+                  self.ifa_er.valueChanged, self.ifa_thick.valueChanged,
+                  self.ifa_stub.valueChanged, self.ifa_z.valueChanged,
+                  self.pifa_height.valueChanged, self.pifa_ratio.valueChanged,
+                  self.pifa_short.valueChanged, self.pifa_z.valueChanged):
+            w.connect(self._recalc)
         # QDialog.reject() (Esc) returns from exec() WITHOUT firing closeEvent,
         # so rely on the finished signal (fires on accept AND reject) to clean
         # up the transient verify document. _close_verify_doc is idempotent.

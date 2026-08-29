@@ -222,13 +222,35 @@ def main():
           "spawned %r" % (calls,))
 
     # ----------------------------------------------------------------- linux
+    # ⚠⚠ THIS FIXTURE USED TO FEED A RUNTIME SONAME AND ASSERT True, WHICH PINNED
+    # THE DEFECT. `libopenblas.so.0` is the versioned SONAME shipped by the
+    # RUNTIME package; a source build needs the `-dev` package, which is what
+    # provides the unversioned `libopenblas.so` the linker resolves against. A
+    # box with only the runtime present would be told its prerequisites were
+    # satisfied and would then fail at link time — which is exactly the "the
+    # preflight said it would not fail mid-compile" complaint. Corrected
+    # 2026-08-29 together with the probe: the dev entry passes, the runtime-only
+    # entry does not, and L1b below is the negative control that keeps the two
+    # apart. Do not "fix" a red here by putting the `.so.0` fixture back.
     got, calls = _probe("openblas", "linux", "posix",
-                        ldconfig="\tlibopenblas.so.0 (libc6,x86-64) => /usr/lib")
-    check("L1 linux: ldconfig lists it -> True", got is True)
+                        ldconfig="\tlibopenblas.so (libc6,x86-64) => /usr/lib")
+    check("L1 linux: ldconfig lists the DEV entry (bare .so) -> True",
+          got is True)
     check("L1 linux: consulted ldconfig, never brew",
           any(c[:1] == ["ldconfig"] for c in calls)
           and not any(c[:2] == ["brew", "--prefix"] for c in calls),
           "spawned %r" % (calls,))
+
+    # L1b ⚠ THE NEGATIVE CONTROL for the line above. Runtime SONAME only, no dev
+    # symlink: the compiler has nothing to link against, so the honest answer is
+    # False. If this ever goes green the probe has stopped distinguishing a
+    # runtime package from a build prerequisite.
+    got, _ = _probe("openblas", "linux", "posix",
+                    ldconfig="\tlibopenblas.so.0 (libc6,x86-64) => /usr/lib")
+    check("L1b linux: RUNTIME soname only (.so.0, no dev symlink) -> False",
+          got is False,
+          "a runtime package is not a build prerequisite — this is the "
+          "mid-compile failure the preflight promises to prevent")
 
     got, _ = _probe("openblas", "linux", "posix",
                     ldconfig="\tlibsomethingelse.so.2 => /usr/lib")

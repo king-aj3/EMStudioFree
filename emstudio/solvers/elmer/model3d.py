@@ -526,7 +526,38 @@ def run3d(analysis, solver, workdir=None, line_callback=None):
         # W = 1/2 L I^2 with I the SINGLE-TURN equivalent current the FEM
         # actually drives, i.e. the ampere-turns. The caller multiplies by
         # N^2 to get a physical N-turn coil's inductance.
-        nia = abs(float(coils[0]["coil"]["amp_turns"]))
+        #
+        # 'amp_turns' is the REQUEST, and Elmer means two different things by
+        # it — the same split the delivery guard below is built on. Closed:
+        # normalized over the half-plane, which counts every turn, so the
+        # request already IS the ampere-turns. Open: normalized over ONE
+        # conductor cross-section, so the request is the CONDUCTOR current and
+        # the solid's own geometric turns multiply into the drive. The energy
+        # is the energy of the field Elmer really drove, so dividing by the
+        # raw request on the open branch over-reports L by exactly g^2 — 41.4x
+        # on the 6.44-turn user helix, printed to six figures with no warning
+        # until this was found (2026-08-29).
+        coil0 = coils[0]["coil"]
+        nia = abs(float(coil0["amp_turns"]))
+        if not coil0.get("closed", True):
+            g = coil0.get("turns_geometric")
+            if g is None:
+                # No measured turn count means the ampere-turns behind this
+                # energy are unknown to within a factor of g, and L to within
+                # g^2. Report NOTHING rather than a clean six-figure number
+                # that can be tens of times wrong — the same rule
+                # _measure_geometric_turns states for the turn count itself.
+                warnings.append(
+                    "coil '{0}': the conductor's own geometric turn count "
+                    "could not be measured, so the ampere-turns behind the "
+                    "stored energy are unknown and NO inductance is reported. "
+                    "On the open branch Elmer drives the requested current "
+                    "through one conductor cross-section, so L = 2W/(I x "
+                    "turns)^2 — without the turns a value would be wrong by "
+                    "that factor squared.".format(coils[0]["name"]))
+                nia = 0.0
+            else:
+                nia *= abs(float(g))
         if nia > 0.0:
             inductance_h = 2.0 * float(energy_j) / (nia * nia)
 

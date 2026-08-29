@@ -323,37 +323,36 @@ class SolverNEC2(_SolverBase):
 class SolverElmer(_SolverBase):
     Type = "EMStudio::SolverElmer"
 
+    def _migrate_misplaced_palace_props(self, obj):
+        """Drop the three PALACE properties v1.5.0 added to this class by mistake.
+
+        ``MPIRanks`` / ``OMPThreads`` / ``Device`` are read only by
+        ``solvers/palace/runner.py``; no Elmer code has ever looked at them. On
+        an Elmer solver they were three settable-looking fields — under a
+        property group literally headed "Palace" — that could not change
+        anything, so removing them loses no setting a solve ever used. They now
+        live on :class:`SolverPalace`, where the runner can actually read them.
+
+        Runs from ``_ensure_properties``, hence also from
+        ``onDocumentRestored``: a document saved between v1.5.0 and v1.11.0
+        carries them and is cleaned the first time it is opened.
+        """
+        for _name in ("MPIRanks", "OMPThreads", "Device"):
+            if _name not in obj.PropertiesList:
+                continue
+            try:
+                obj.removeProperty(_name)
+            except Exception:               # noqa: BLE001 - as _migrate_full_2port
+                # Same rule as the Full2Port migration: a property that will
+                # not go away is cosmetic clutter, nothing reads it either way,
+                # and a migration must never stop a document from opening.
+                pass
+
     def _ensure_properties(self, obj):
         self._ensure_common(obj)
+        self._migrate_misplaced_palace_props(obj)
         props = obj.PropertiesList
         _ELMER_MODES = ["Harmonic (AC)", "Static (DC)", "3-D Magnetostatic (DC)"]
-        if "MPIRanks" not in props:
-            obj.addProperty(
-                "App::PropertyInteger", "MPIRanks", "Palace",
-                "MPI processes for the solve (palace -np N). 0 = AUTO, which "
-                "picks a sensible fraction of this machine's cores. 1 forces "
-                "serial. FEM assembly and the linear solve are the expensive "
-                "parts and both parallelise, so this is the single biggest "
-                "runtime lever Palace has.")
-            obj.MPIRanks = 0
-        if "OMPThreads" not in props:
-            obj.addProperty(
-                "App::PropertyInteger", "OMPThreads", "Palace",
-                "OpenMP threads per MPI rank (palace -nt N). Only meaningful "
-                "for an OpenMP-enabled Palace build; 1 is safe everywhere. "
-                "⚠ Threads MULTIPLY ranks — ranks x threads should not exceed "
-                "the core count or the ranks fight each other and it runs "
-                "SLOWER than serial.")
-            obj.OMPThreads = 1
-        if "Device" not in props:
-            obj.addProperty(
-                "App::PropertyEnumeration", "Device", "Palace",
-                "MFEM compute device. GPU needs a Palace BUILT with CUDA or "
-                "HIP; on a CPU-only build Palace falls back and says so, it "
-                "does not fail. Verify with Solver Setup rather than assuming "
-                "the box's GPU is usable.")
-            obj.Device = ["CPU", "GPU"]
-            obj.Device = "CPU"
         if "AnalysisType" not in props:
             obj.addProperty(
                 "App::PropertyEnumeration",
@@ -482,6 +481,53 @@ class SolverPalace(_SolverBase):
     def _ensure_properties(self, obj):
         self._ensure_common(obj)
         props = obj.PropertiesList
+        # ⚠⚠ THESE THREE WERE DECLARED ON ``SolverElmer`` FROM v1.5.0 THROUGH
+        # v1.11.0 — the class above, whose runner reads none of them — so no
+        # Palace solver object in any document ever carried them, while the
+        # release notes and HELP.md both told the user to "set MPIRanks (0 =
+        # auto), OMPThreads and Device on the solver". ``palace_argv`` then
+        # fell through to ``getattr(solver, "MPIRanks", 1)`` -> 1 -> ``-np 1``,
+        # so EVERY Palace solve started from the GUI still ran on one core:
+        # the exact defect v1.5.0 was released to remove (measured on one
+        # cavity, 346.4 s at 1 rank vs 18.3 s at 16 — 18.9x). ``Device`` was
+        # stuck at "CPU" the same way, which put the whole GPU feature
+        # (setup/accel.py, docs/PALACE_GPU_BUILD.md) out of reach from the only
+        # object it was built for. Measured after the move on a 128-core box:
+        # a default solver goes from ``-np 1`` to ``-np 16``.
+        # ⚠ The group is _GROUP, NOT the literal "Palace" these carried on the
+        # Elmer class: that label was the fingerprint of the paste into the
+        # wrong class, and on THIS object it would split the Palace solver's
+        # own settings across two groups in the property editor.
+        # ⚠ Do NOT hoist these into ``_ensure_common``. openEMS, NEC2, Elmer
+        # and OpenFOAM would each sprout three fields nothing reads, which is
+        # the defect being fixed here, spread wider.
+        if "MPIRanks" not in props:
+            obj.addProperty(
+                "App::PropertyInteger", "MPIRanks", _GROUP,
+                "MPI processes for the solve (palace -np N). 0 = AUTO, which "
+                "picks a sensible fraction of this machine's cores. 1 forces "
+                "serial. FEM assembly and the linear solve are the expensive "
+                "parts and both parallelise, so this is the single biggest "
+                "runtime lever Palace has.")
+            obj.MPIRanks = 0
+        if "OMPThreads" not in props:
+            obj.addProperty(
+                "App::PropertyInteger", "OMPThreads", _GROUP,
+                "OpenMP threads per MPI rank (palace -nt N). Only meaningful "
+                "for an OpenMP-enabled Palace build; 1 is safe everywhere. "
+                "⚠ Threads MULTIPLY ranks — ranks x threads should not exceed "
+                "the core count or the ranks fight each other and it runs "
+                "SLOWER than serial.")
+            obj.OMPThreads = 1
+        if "Device" not in props:
+            obj.addProperty(
+                "App::PropertyEnumeration", "Device", _GROUP,
+                "MFEM compute device. GPU needs a Palace BUILT with CUDA or "
+                "HIP; on a CPU-only build Palace falls back and says so, it "
+                "does not fail. Verify with Solver Setup rather than assuming "
+                "the box's GPU is usable.")
+            obj.Device = ["CPU", "GPU"]
+            obj.Device = "CPU"
         if "AnalysisType" not in props:
             obj.addProperty(
                 "App::PropertyEnumeration",
@@ -655,9 +701,30 @@ class SolverOpenFOAM(_SolverBase):
 
     ⚠ **This solver takes MINUTES, which makes it unlike every other object
     here.** The others are parameter bags read at run time; this one CACHES a
-    result, because the number it produces (``BundleFactor``) is consumed
-    inside `thermal.solve_steady`'s bisection — ~80 evaluations per ampacity
-    answer. Re-solving there would be thousands of CFD runs.
+    result, because `thermal.solve_steady` re-evaluates the film coefficient
+    ~80 times per ampacity answer and re-solving there would be thousands of
+    CFD runs.
+
+    ⚠⚠ **THE CACHED FACTOR IS REPORTED, NOT APPLIED — measured 2026-08-29.**
+    These lines used to say the number "is consumed inside solve_steady's
+    bisection"; no shipped caller has ever passed it. `solve_steady` does take
+    a ``bundle_factor=`` (wire/thermal.py:332), but `thermal.ampacity()`
+    (:437) has no such parameter and calls solve_steady without one, and the
+    Cable Designer's Thermal tab calls both bare (ui/cable_dialog.py:2141,
+    2150 and 2324) — so every ampacity, conductor temperature and heating curve the
+    product prints is still the bare Churchill-Chu number. Measured on the
+    trefoil this solver's reference case is built from (20 mm cable over
+    10 mm Cu, 90 °C class, 30 °C ambient, the 0.80 factor thermal.py:246
+    records): the product reports **382.45 A** where the solved factor gives
+    **368.16 A** — at the rating the user is shown, the conductor actually
+    sits at 94.9 °C, 4.9 K over its class. The gap is smaller than the 20 %
+    the factor suggests only because it scales the CONVECTIVE h alone;
+    radiation carries the rest and is untouched.
+    Wiring it needs a ``bundle_factor`` parameter on `ampacity()` and all
+    three Cable Designer call sites passing
+    ``solver.Proxy.factor_for(solver, d_cable)`` — every one of them outside
+    this file. Until that lands, nothing here may describe the factor as
+    derating anything.
 
     So the object holds the solved factor AND the geometry it was solved for.
     `FactorStale` compares them, because confinement and spacing are precisely
@@ -704,7 +771,10 @@ class SolverOpenFOAM(_SolverBase):
             obj.addProperty(
                 "App::PropertyFloat", "BundleFactor", _GROUP,
                 "Solved convection factor on Churchill-Chu (1.0 = the bare "
-                "correlation). Feeds wire/thermal.solve_steady",
+                "correlation). ⚠ REPORTED, NOT APPLIED: nothing reads this "
+                "back yet, so the Cable Designer's ampacity and temperatures "
+                "are still the bare correlation — optimistic, since "
+                "over-predicted cooling means over-predicted ampacity",
             )
             obj.BundleFactor = 1.0
             obj.setEditorMode("BundleFactor", 1)

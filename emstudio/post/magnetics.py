@@ -12,9 +12,12 @@ Bessel analytic, 2026-07-05):
 * coil currents are PEAK amplitudes; powers are time-averaged watts,
 * ``eddy_power_w`` is already the full-circumference value (the raw Elmer
   axisymmetric scalar is per radian — the runner multiplies by 2*pi),
-* coil impedance from linkage: Z = j*omega*lambda / I, so
-  L_eff = Re(lambda)/I and R_reflected = -omega*Im(lambda)/I (the series
-  resistance the eddy losses present to the source; equals 2P/I^2).
+* coil impedance from linkage: Z = j*omega*lambda / I, where I is the coil's
+  COMPLEX drive phasor (``current_a`` signed by ``reversed`` and rotated by
+  ``phase_deg`` — the sif writer bakes both into the source current density),
+  so L_eff = Re(lambda/I) and R_reflected = -omega*Im(lambda/I) (the series
+  resistance the eddy losses present to the source; equals 2P/I^2 for a coil
+  driven alone).
 """
 from __future__ import annotations
 
@@ -45,6 +48,34 @@ class MagneticsResult:
                 return c
         raise KeyError(name)
 
+    def _drive_phasor(self, name, magnitude=None):
+        """The coil's COMPLEX drive current: +/-I * exp(j*phase_deg).
+
+        ``current_a`` is a MAGNITUDE, but the sif writer drives the coil with
+        the sign of ``reversed`` and the rotation of ``phase_deg`` baked into
+        the source current density (``writer.coil_current_density``), so the
+        flux linkage Elmer hands back is proportional to THIS phasor, not to
+        the magnitude. Z = j*omega*lambda/I is the coil impedance only when I
+        is the same phasor that produced lambda: dividing by |I| instead made
+        a Reversed coil report a NEGATIVE L_eff and R_reflected (and
+        ``coupling_k`` then dropped the pair in silence at its l > 0 test),
+        and turned a phased multi-coil drive into L and R rotated into each
+        other — at 90 deg, R_reflected came out as -omega*L_eff. Found
+        2026-08-29; no gate had ever run the Elmer path with the Coil's
+        Reversed or PhaseDeg set, and the solver's own AnalysisType tooltip
+        tells users to toggle Reversed.
+
+        ``magnitude`` overrides ``current_a`` — the coupling cases drive an
+        absolute REFERENCE current, and the writer applies the coil's sign
+        and phase to that override too (``current_override``).
+        """
+        coil = self._coil(name)
+        amps = float(coil["current_a"] if magnitude is None else magnitude)
+        if coil.get("reversed"):
+            amps = -amps
+        phase = math.radians(float(coil.get("phase_deg", 0.0) or 0.0))
+        return complex(amps * math.cos(phase), amps * math.sin(phase))
+
     def sweep_cases(self):
         """The all-coils-excited cases, sorted by frequency."""
         out = [c for c in self.cases if c["tag"].startswith("sweep")]
@@ -71,7 +102,7 @@ class MagneticsResult:
         inductance matrix for its self-inductance instead.
         """
         freqs, ls, rs = [], [], []
-        current = float(self._coil(coil_name)["current_a"])
+        current = self._drive_phasor(coil_name)
         for c in self.sweep_cases():
             lam = c["coil_lambda"][coil_name]
             w = 2.0 * math.pi * c["freq_hz"]
@@ -80,8 +111,12 @@ class MagneticsResult:
                 ls.append(float("nan"))
                 rs.append(float("nan"))
             else:
-                ls.append(lam.real / current)
-                rs.append(-w * lam.imag / current)
+                # Z/(j*omega) = lambda/I: its real part is the effective
+                # inductance and its imaginary part carries the loss term.
+                # Complex division, NOT lam.real/|I| — see _drive_phasor.
+                z_over_jw = lam / current
+                ls.append(z_over_jw.real)
+                rs.append(-w * z_over_jw.imag)
         return freqs, ls, rs
 
     def inductance_matrix(self):
@@ -89,16 +124,20 @@ class MagneticsResult:
 
         Normalized by the coupling REFERENCE current the case actually used
         (``ref_current_a``; falls back to the operating current for older
-        results), so L/M/k are correct even for an undriven coil.
+        results), as the PHASOR the writer drove — the exciter's Reversed and
+        PhaseDeg apply to the reference current too, so a magnitude-only
+        divide handed back a negative self-inductance. See ``_drive_phasor``.
         """
         out = {}
         for c in self.coupling_cases():
             exciter = c["tag"][len("couple_"):]
-            i_exc = c.get("ref_current_a") or float(self._coil(exciter)["current_a"])
+            # `or None` keeps the old fallback: a missing/zero ref_current_a
+            # means "older result — use the operating current".
+            i_exc = self._drive_phasor(exciter, c.get("ref_current_a") or None)
             if not i_exc:
                 continue  # no reference current — cannot normalize
             for name, lam in c["coil_lambda"].items():
-                out[(exciter, name)] = lam.real / i_exc
+                out[(exciter, name)] = (lam / i_exc).real
         return out
 
     def heating_curve(self):
@@ -145,13 +184,35 @@ class MagneticsResult:
                 add("  inductance (1-turn equiv) {0:.6g} H".format(L))
                 add("  an N-turn winding driven as N*I ampere-turns has "
                     "L = {0:.6g} x N^2 H".format(L))
+            # ⚠ Print the delivered ampere-turns ALONE — never as a fraction
+            # of the coil's ``amp_turns``. The two are not in the same units
+            # on both branches: ``delivered_amp_turns`` always counts every
+            # turn, but the REQUEST means ampere-turns on a CLOSED coil and
+            # the CONDUCTOR current on an OPEN one (Elmer normalizes one
+            # conductor cross-section there). Dividing them multiplies the
+            # open branch's ratio by the solid's geometric turns, which is
+            # exactly what run3d's guard comment says must not happen: it
+            # printed a CORRECT 6.44-turn helix as "643.588 of 100
+            # ampere-turns (643.6%)" and sent the user to fix geometry that
+            # was already right. Nothing here can tell the branches apart —
+            # ``bodies`` carries neither ``closed`` nor ``turns_geometric``.
+            # The delivery CHECK belongs where the branch IS known: run3d
+            # compares conductor current against conductor current and warns
+            # outside 0.5..2.0, and those warnings are printed just below.
+            # (2026-08-29)
             got = case0.get("delivered_amp_turns") or []
             for b, d in zip(self.bodies, got):
-                if d is not None and b.get("is_coil") and b.get("amp_turns"):
-                    add("  coil '{0}': delivered {1:.6g} of {2:.6g} "
-                        "ampere-turns ({3:.1%})".format(
-                            b["name"], d, abs(float(b["amp_turns"])),
-                            d / abs(float(b["amp_turns"]))))
+                if d is not None and b.get("is_coil"):
+                    add("  coil '{0}': delivered {1:.6g} ampere-turns".format(
+                        b["name"], d))
+            # The run's own notes and warnings. This dialog shows nothing but
+            # summary_text(), so without this the delivery guard, the
+            # double-count note and the terminal-face note reached NOBODY —
+            # which is why the fabricated percentage above was the only
+            # delivery signal a user ever saw.
+            for w in case0.get("solver_warnings") or []:
+                add("")
+                add("  ⚠ {0}".format(w))
         else:
             add("EMStudio magnetics results (Elmer, axisymmetric {0})".format(
                 "static DC" if self.meta.get("static") else "harmonic"))

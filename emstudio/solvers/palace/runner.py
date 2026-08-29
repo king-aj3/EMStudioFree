@@ -2,8 +2,23 @@
 """Palace pipeline: Prepare -> Mesh -> Solve -> Results.
 
 Eigenmode was the first analysis; the module also runs driven S-parameter
-sweeps (``run_waveguide``, ``run_waveguide_brep``, ``run_coax``) and, since
-v1.10.0, reads the far-field pattern back after every driven excitation.
+sweeps (``run_waveguide``, ``run_waveguide_brep``, ``run_coax``) and reads the
+far-field pattern back off the driven run — see :func:`_read_farfields`.
+
+⚠⚠ **A pattern only comes back when the CONFIG asked Palace for one, and no
+bundled template asks yet.** Palace writes ``farfield-rE.csv`` only where
+``Boundaries.Postprocessing.FarField`` sits on an absorbing (open) boundary.
+``writer.radiation_boundaries`` builds exactly that block and NOTHING calls it:
+all three config builders tag the whole outer boundary PEC, and a closed metal
+box correctly radiates nothing. So on the shipped waveguide/coax geometries
+this read-back finds no file and the result carries no pattern.
+
+⚠ This docstring claimed the read-back unconditionally from v1.10.0 until
+2026-08-29, while the runner in fact never read a far field at all — the list
+it collected into was assigned and never used. The runner half is real now; the
+writer half (an open-domain driven config) is still missing, so until it lands
+a Palace pattern cannot reach the results dialog from a bundled template. Do
+not restate the unconditional claim here without checking the writer first.
 
 Pipeline::
 
@@ -257,6 +272,75 @@ def _excitation_list(n_ports, full_smatrix):
     return list(range(1, n + 1)) if full_smatrix else [1]
 
 
+def _read_farfields(out_dir, freq_hz, line_callback=None):
+    """Every far-field pattern Palace wrote for ONE excitation, by frequency.
+
+    Palace puts the far field in ``farfield-rE.csv`` beside that excitation's
+    ``port-S.csv``, one block per (frequency, excitation), and
+    ``parser.parse_farfield`` reads ONE block — so the sweep's own frequency
+    list is what asks for them all.
+
+    ⚠ Returns [] and never raises when there is no such file. A driven run
+    whose config never requested a far field is the NORMAL case for every
+    bundled template (closed PEC boundary, see the module docstring), and a
+    missing pattern must not turn a complete S-parameter solve into a failure.
+
+    ⚠ The same guard covers an ``NSample`` spiral: ``parse_farfield`` refuses
+    to pretend scattered samples are a grid — which is right, and it arrives as
+    a ValueError over data the S-parameters do not depend on. Say so on the log
+    and keep the sweep.
+
+    ⚠ Duplicates are dropped by the frequency that came BACK, not the one asked
+    for. ``parse_farfield`` snaps to the nearest block in the file, so a config
+    sampling the pattern at fewer points than the sweep would otherwise hand
+    the picker the same pattern several times over under different labels.
+    """
+    path = os.path.join(out_dir, parser.FARFIELD_CSV)
+    if not os.path.isfile(path):
+        return []
+    out, seen = [], set()
+    for f in freq_hz:
+        try:
+            ff = parser.parse_farfield(path, freq_hz=float(f))
+        except ValueError as exc:
+            if line_callback is not None:
+                line_callback("EMStudio: Palace wrote a far field this run "
+                              "cannot read as a pattern - %s" % exc)
+            return []
+        key = round(float(ff.freq), 6)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ff)
+    out.sort(key=lambda ff: ff.freq)
+    return out
+
+
+def _attach_farfields(result, farfields, line_callback=None):
+    """Put the patterns a driven run produced onto its SweepResult.
+
+    ``.farfields`` is the results-dialog picker's list; ``.farfield`` is the
+    single best-match pattern every existing caller reads (the 2-D cuts, the
+    3-D balloon, the PDF report). ``.farfield`` is one OF the list, not an equal
+    twin, so anything pairing them by identity agrees — the openEMS and NEC2
+    runners take the same care. No-op when the run produced none, which is what
+    the shipped closed-box templates do.
+
+    ⚠ NOT ``min_s11()``: on a FLAT band a bare argmin is mesh noise and the
+    "best match" frequency moves with the grid. ``pattern_frequency`` is the
+    shared guard, and its note has to be surfaced — the same rule the NEC2
+    runner follows.
+    """
+    if not farfields:
+        return
+    result.farfields = list(farfields)
+    f_best, flat_note = result.pattern_frequency()
+    if flat_note:
+        progress.report(line_callback, 0.90, flat_note)
+    result.farfield = min(result.farfields,
+                          key=lambda ff: abs(ff.freq - f_best))
+
+
 def _solve_excitations(info, workdir, build_cfg, ports, line_callback,
                        base=0.05, span=0.85, solver=None):
     """Run one driven solve per excitation and merge them into one S-matrix.
@@ -272,7 +356,8 @@ def _solve_excitations(info, workdir, build_cfg, ports, line_callback,
     evenly, so an N-port run's bar still moves 0 -> 1 across the whole job
     rather than resetting once per excitation.
 
-    Returns ``(freq_hz, {(observed, excited): array})``.
+    Returns ``(freq_hz, {(observed, excited): array}, [FarFieldResult])`` — the
+    patterns being empty unless the config asked Palace for a far field.
     """
     from emstudio.post.sparams import merge_excitations
 
@@ -297,7 +382,17 @@ def _solve_excitations(info, workdir, build_cfg, ports, line_callback,
                 .format(ep, port_s))
         data = parser.parse_sparams(port_s)
         runs.append((data["freq_hz"], data["s"]))
-    return merge_excitations(runs)
+        if k == 0:
+            # ⚠ The FIRST excitation only — the one whose port carries the
+            # source. Every excitation radiates its own pattern, but
+            # ``SweepResult.farfields`` is "one pattern per swept frequency"
+            # (post/sparams.py) and the results-dialog picker keys on frequency
+            # alone: pouring a full-S run's N drives in would hand it N
+            # indistinguishable entries per frequency.
+            farfields = _read_farfields(os.path.join(workdir, out),
+                                        data["freq_hz"], line_callback)
+    freqs, smat = merge_excitations(runs)
+    return freqs, smat, farfields
 
 
 def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=3,
@@ -346,8 +441,8 @@ def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=
     # count is stated once here and shared by the mesh and the config.
     n_ports = 2
     ports = _excitation_list(n_ports, full_smatrix)
-    freqs, smat = _solve_excitations(info, workdir, build_cfg, ports,
-                                     line_callback, solver=solver)
+    freqs, smat, farfields = _solve_excitations(info, workdir, build_cfg, ports,
+                                                line_callback, solver=solver)
     progress.report(line_callback, 0.90, "Reading results")
 
     freqs = np.array(freqs)
@@ -362,6 +457,7 @@ def run_waveguide(size_mm, axis=2, f1_ghz=8.0, f2_ghz=12.0, step_ghz=0.5, order=
         "analysis_type": "driven",
     })
     result.s_others = {k: np.array(v) for k, v in smat.items() if k != (1, 1)}
+    _attach_farfields(result, farfields, line_callback)
     result.save_csv(os.path.join(workdir, "port_1.csv"))
     return result
 
@@ -417,21 +513,30 @@ def run_waveguide_brep(brep_path, axis, bbox_mm, f1_ghz=8.0, f2_ghz=12.0,
     _dev = _device_of(solver, info, line_callback)
 
     def build_cfg(excite_port, output):
+        # ⚠⚠ ``device=`` AND ``ceed_backend=`` MUST reach the writer. Until
+        # 2026-08-29 this path computed _dev and then dropped it, so the
+        # writer's "CPU" default stood and a Device = GPU request solved on the
+        # CPU — SILENTLY, because _device_of only speaks up when the GPU is NOT
+        # usable, and _ceed_backend_of's MAGMA-override note was lost with it.
+        # This is the path model.py sends every BREP and every multi-port
+        # document down, i.e. the whole N-port S-matrix capability, so the
+        # timings a user would have quoted as GPU were CPU timings.
         return writer.build_driven_config(
             os.path.basename(msh), f1_ghz, f2_ghz, step_ghz, order=order,
             excite_port=excite_port,
             eps_r=eps_r, mu_r=mu_r, loss_tan=loss_tan, output=output,
             fast_sweep=fast_sweep, adaptive_tol=adaptive_tol,
             mesh_refinement=mesh_refinement, refinement_tol=refinement_tol,
-            n_ports=n_ports)
+            n_ports=n_ports,
+            device=_dev, ceed_backend=_ceed_backend_of(_dev, info, line_callback))
 
     # PHASE progress only. Palace is one long invocation and is not installed
     # on the machine this was written on, so any regex against its output
     # would be a guess; phase boundaries need no parsing and cannot be wrong.
     # Tighten to a real fraction on a box that has Palace.
     ports = _excitation_list(n_ports, full_smatrix)
-    freqs, smat = _solve_excitations(info, workdir, build_cfg, ports,
-                                     line_callback, solver=solver)
+    freqs, smat, farfields = _solve_excitations(info, workdir, build_cfg, ports,
+                                                line_callback, solver=solver)
     progress.report(line_callback, 0.90, "Reading results")
 
     freqs = np.array(freqs)
@@ -446,6 +551,7 @@ def run_waveguide_brep(brep_path, axis, bbox_mm, f1_ghz=8.0, f2_ghz=12.0,
         "analysis_type": "driven_brep",
     })
     result.s_others = {k: np.array(v) for k, v in smat.items() if k != (1, 1)}
+    _attach_farfields(result, farfields, line_callback)
     result.save_csv(os.path.join(workdir, "port_1.csv"))
     return result
 
@@ -499,8 +605,8 @@ def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=
     # A coaxial section has two ends — see build_lumped_coax_config.
     n_ports = 2
     ports = _excitation_list(n_ports, full_smatrix)
-    freqs, smat = _solve_excitations(info, workdir, build_cfg, ports,
-                                     line_callback, solver=solver)
+    freqs, smat, farfields = _solve_excitations(info, workdir, build_cfg, ports,
+                                                line_callback, solver=solver)
     progress.report(line_callback, 0.90, "Reading results")
 
     freqs = np.array(freqs)
@@ -516,6 +622,7 @@ def run_coax(a_mm, b_mm, length_mm, f1_ghz=1.0, f2_ghz=5.0, step_ghz=1.0, order=
         "z0_ohm": z0,
     })
     result.s_others = {k: np.array(v) for k, v in smat.items() if k != (1, 1)}
+    _attach_farfields(result, farfields, line_callback)
     result.save_csv(os.path.join(workdir, "port_1.csv"))
     return result
 

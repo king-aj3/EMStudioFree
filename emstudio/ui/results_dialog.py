@@ -1009,7 +1009,17 @@ class SweepResultsDialog(QtWidgets.QDialog):
                 label="{0:.4g} MHz (end)".format(self.result.freq[-1] / 1e6))
 
         i = int(np.argmin(self.result.s11_db()))
-        r = smith_mod.readout(self.result.zin[i], self.result.z0)
+        # ⚠ Pass the solver's OWN reflection coefficient, do not let readout()
+        # rebuild it from Zin. The locus, the start/end markers and the star
+        # above are all drawn from `result.s11`; recomputing Gamma from
+        # (Zin - z0)/(Zin + z0) here gave the caption a SECOND, slightly
+        # different number, so the title's VSWR and return loss disagreed with
+        # the VSWR tab and the star sat where the caption said it did not. They
+        # diverge whenever s11 did not come from that formula in the first
+        # place - a waveguide port with a per-frequency modal reference is the
+        # case that made it visible. One solve must produce one number.
+        r = smith_mod.readout(self.result.zin[i], self.result.z0,
+                              gamma=self.result.s11[i])
         ax.plot(np.real(g[i]), np.imag(g[i]), "*", markersize=13, zorder=7,
                 label="best match {0:.4g} MHz".format(self.result.freq[i] / 1e6))
         ax.plot([0.0], [0.0], "+", markersize=9, zorder=6)

@@ -13,6 +13,16 @@ whether it existed: ``results_dialog`` guarded with ``getattr``, ``cable_dialog`
 did not, and a NEC2 or Elmer result reaching that path was an AttributeError
 waiting to happen. It is a real field now, defaulting to ``{}``.
 
+⚠ **The reference impedance is PER FREQUENCY.** A lumped or microstrip port has
+one reference for the whole band and hands a scalar, but a WAVEGUIDE port's
+reference is its modal impedance Z_TE(f), which for the shipped Ka-band horn's
+WR-28 runs 621.5 Ω at 26.5 GHz down to 443.3 Ω at 40 GHz — a factor of 1.40
+across one band. ``z0_f`` is that column; ``z0`` is the single band-summary
+number the read-outs and the Touchstone ``R`` line each have room for. Until
+2026-08-29 ``load_csv`` kept only ``data[0, 5]``, so the column the openEMS deck
+writer takes care to emit per frequency survived at the first sweep point only
+and a re-save overwrote the original with that constant.
+
 ⚠ **What is in here is ONE COLUMN of the S-matrix, not the matrix.** Both
 full-wave backends solve a single excitation by construction — openEMS refuses
 anything else ("the analysis needs exactly one excited port") and Palace's driven
@@ -56,6 +66,58 @@ _CONT_INDENT = " " * 16
 FLAT_S11_SPAN_DB = 3.0
 
 
+def _z0_column(z0, freq):
+    """Reference impedance as an array parallel to ``freq``.
+
+    Accepts a scalar (one reference for the whole band — every lumped, coax and
+    microstrip port) or a per-frequency column (a waveguide port, whose modal
+    impedance Z_TE(f) = η₀/√(1−(fc/f)²) varies by 40 % across a single
+    waveguide band). Broadcasting the scalar is what keeps every existing
+    caller — and every constant-column CSV — byte-identical.
+
+    ⚠ It REFUSES a mismatched length rather than truncating or padding: a
+    reference column that is not parallel to the sweep cannot be attributed to
+    frequencies at all, and quietly using its first N entries is how a
+    misaligned reference becomes a plausible-looking S-parameter file.
+    """
+    f = np.asarray(freq, dtype=float)
+    col = np.asarray(z0, dtype=float)
+    if col.ndim == 0:
+        return np.full(f.shape, float(col))
+    col = np.ravel(col)
+    if col.size != f.size:
+        raise ValueError(
+            "z0 has %d value(s) for a %d-point sweep — a per-frequency "
+            "reference impedance must be parallel to `freq`. Pass a scalar "
+            "for one band-wide reference." % (col.size, f.size))
+    return col
+
+
+def _band_centre_z0(col, fallback, freq):
+    """The one number that stands for a whole reference column.
+
+    Taken at the sweep CENTRE, not at the first point. A dispersive column's
+    first point is the worst available summary: on WR-28 over 26.5–40 GHz it is
+    621.5 Ω, which is +40 % on the 443.3 Ω the top of the band is actually
+    referenced to, while the centre value (487.1 Ω) is never more than 22 % out
+    anywhere in the band. Constant columns — every non-waveguide port — return
+    exactly the number the caller passed, so no existing read-out moves.
+
+    ⚠ Anything normalised at ONE frequency wants :meth:`SweepResult.z0_at`
+    instead; this is a label, not a reference.
+    """
+    if col.size == 0:
+        # An empty sweep still has a nominal reference: keep what the caller
+        # passed rather than inventing 50 Ω behind their back.
+        flat = np.ravel(np.asarray(fallback, dtype=float))
+        return float(flat[0]) if flat.size else 50.0
+    if col.size == 1 or float(col.max() - col.min()) <= 0.0:
+        return float(col[0])
+    f = np.asarray(freq, dtype=float)
+    f0 = 0.5 * (float(f[0]) + float(f[-1]))
+    return float(col[int(np.argmin(np.abs(f - f0)))])
+
+
 class SweepResult:
     """One-port frequency sweep: Zin(f) and S11(f) vs a reference impedance."""
 
@@ -63,9 +125,20 @@ class SweepResult:
                  s_others=None):
         self.freq = np.asarray(freq_hz, dtype=float)
         self.zin = np.asarray(zin, dtype=complex)
-        self.z0 = float(z0)
+        #: Reference impedance PER FREQUENCY, always parallel to ``freq``.
+        #: This — not ``z0`` — is what ``s11`` is referenced to.
+        self.z0_f = _z0_column(z0, self.freq)
+        #: One band-wide reference, for the read-outs and the Touchstone ``R``
+        #: line that each carry a single number. See :func:`_band_centre_z0`.
+        self.z0 = _band_centre_z0(self.z0_f, z0, self.freq)
         if s11 is None:
-            s11 = (self.zin - self.z0) / (self.zin + self.z0)
+            # Referenced per frequency: on a waveguide port the band summary
+            # would be up to 40 % wrong at the band edge. Falls back to the
+            # scalar when zin and freq are not the same length — such a result
+            # is already malformed, and raising here would turn a caller's bug
+            # into a crash inside a constructor, where it is hardest to read.
+            ref = self.z0_f if self.z0_f.shape == self.zin.shape else self.z0
+            s11 = (self.zin - ref) / (self.zin + ref)
         self.s11 = np.asarray(s11, dtype=complex)
         self.meta = dict(meta or {})  # backend name, solve time, etc.
         #: Transmission terms, ``(to_port, from_port) -> complex array``.
@@ -191,6 +264,30 @@ class SweepResult:
         """Interpolated input reactance at a frequency."""
         return float(np.interp(freq_hz, self.freq, np.imag(self.zin)))
 
+    def z0_at(self, freq_hz):
+        """Interpolated reference impedance at a frequency.
+
+        ⚠ USE THIS, not ``z0``, wherever a number is normalised at ONE
+        frequency — a Smith read-out at the marker, a VSWR quoted at the best
+        match, a Γ recomputed from Zin. ``z0`` is a band label and is up to
+        40 % out at the edges of a waveguide band.
+        """
+        return float(np.interp(freq_hz, self.freq, self.z0_f))
+
+    def z0_is_dispersive(self, rtol=1.0e-6):
+        """True when the reference varies across the band (waveguide ports).
+
+        A reader that has room for only one reference should SAY SO when this
+        is true: a bare "normalised to z0 = 621.5 Ω" over a band that ends at
+        443.3 Ω reads as a measured fact and is not one. ``rtol`` is relative
+        so that a solver's last-bit noise on a constant column still counts as
+        constant.
+        """
+        if self.z0_f.size < 2:
+            return False
+        lo, hi = float(self.z0_f.min()), float(self.z0_f.max())
+        return (hi - lo) > rtol * max(abs(hi), 1.0)
+
     # -- persistence ------------------------------------------------------------
     CSV_HEADER = "freq_hz,re_zin,im_zin,re_s11,im_s11,z0"
 
@@ -202,7 +299,11 @@ class SweepResult:
                 np.imag(self.zin),
                 np.real(self.s11),
                 np.imag(self.s11),
-                np.full_like(self.freq, self.z0),
+                # The column, not the summary. Writing `full_like(freq, z0)`
+                # here meant a load/save round-trip OVERWROTE a waveguide
+                # run's per-frequency reference with its band-centre value —
+                # destroying the deck's own output in the user's workdir.
+                self.z0_f,
             ]
         )
         np.savetxt(path, rows, delimiter=",", header=self.CSV_HEADER, comments="")
@@ -214,7 +315,13 @@ class SweepResult:
         freq = data[:, 0]
         zin = data[:, 1] + 1j * data[:, 2]
         s11 = data[:, 3] + 1j * data[:, 4]
-        z0 = float(data[0, 5])
+        # The WHOLE column. ``float(data[0, 5])`` kept the first sweep point
+        # only, which for the Ka-band horn's WR-28 port meant every downstream
+        # normalisation used 621.5 Ω for a band whose reference reaches
+        # 443.3 Ω — the openEMS deck writer emits this column per frequency
+        # (solvers/openems/writer.py, `z0_col = np.real(np.ravel(port.ZL))`)
+        # precisely so it does not have to be a constant.
+        z0 = data[:, 5]
         return cls(freq, zin, z0=z0, s11=s11, meta=meta)
 
     # -- Touchstone -----------------------------------------------------------
@@ -321,6 +428,18 @@ class SweepResult:
                 fh.write("! One matrix ROW per line, row-major "
                          "(S11 S12 S13 ... / S21 S22 S23 ...), wrapped at "
                          "{0} pairs per line.\n".format(MAX_PAIRS_PER_LINE))
+            if self.z0_is_dispersive():
+                # Touchstone carries ONE reference impedance for the whole
+                # file; a waveguide port's is Z_TE(f). A comment is all the
+                # format allows, and silence is worse than a comment: a reader
+                # that recomputes Z from Γ and this R is 40 % out at the band
+                # edge and has no way to know. The CSV keeps the real column.
+                fh.write("! Reference impedance VARIES across this band: "
+                         "{0:g} to {1:g} ohm (waveguide modal impedance). "
+                         "R below is the band-centre value — for the exact "
+                         "per-frequency reference use the z0 column of the "
+                         "run's port CSV.\n".format(float(self.z0_f.min()),
+                                                    float(self.z0_f.max())))
             fh.write("# Hz S RI R {0:g}\n".format(self.z0))
             for k, f in enumerate(self.freq):
                 if n <= 2:

@@ -112,7 +112,17 @@ def choose_case(geometry, d_m, u_ms):
 
 def describe_wind(case, method_label, length_m):
     """What is about to be solved, in prose, before any time is spent."""
-    q = case.q_ref
+    # The TRUE dynamic pressure, in pascals — deliberately NOT `case.q_ref`.
+    # That property's NAME has drifted from its quantity: it is
+    # 1/2 rho U^2 * a_ref, a force SCALE in newtons (its own docstring says
+    # "force / q_ref = a coefficient"), because a_ref is the 2-D slab's
+    # frontal area d_ref x thickness, not unity. Printing it under a "Pa"
+    # label told the user a 16 m/s wind exerts 0.0 Pa (q_ref = 0.006 N,
+    # which formats to 0.0) where the answer is 153.6 Pa — a flat
+    # contradiction against any hand check, with nothing to say which number
+    # was wrong. Fixed 2026-08-29, with the same mislabel's consequence in
+    # `result_text` below.
+    q = 0.5 * case.rho * case.u_inf ** 2
     return ("%s section, %.0f mm across, %.2f m/s wind → Re %.3g. Method: "
             "%s. Dynamic pressure q = %.1f Pa; drag is reported as Cd, as "
             "force per metre of length, and as the total over your %.2f m. "
@@ -152,11 +162,25 @@ def result_text(case, method_label, report, forces, hist, length_m):
     unexpected one — is surfaced verbatim, always (the §8a rule: the model
     that ran is named, and a caveat is never swallowed).
     """
-    q = case.q_ref
+    # Newtons per metre of SPAN, per unit Cd. `cd` is F/q_ref by construction
+    # (parser.forces_from_log), so cd*q_ref is already the TOTAL force in
+    # newtons on the slab that was solved — and that slab is only
+    # `thickness` = d_ref/10 deep, because blockMesh spans z = 0..thickness
+    # (wind.py:349). Newtons on a d_ref/10-deep slab become newtons per metre
+    # by dividing by that span, never by multiplying by d_ref: doing the
+    # latter — as this did until 2026-08-29 — is wrong by d_ref*thickness =
+    # d_ref^2/10, which is 25,000x LOW at the shipped 20 mm defaults and low
+    # (i.e. unsafe, a mast read as unloaded) for every section under 3.16 m.
+    # Written as q_ref/thickness rather than the textbook 1/2 rho U^2 d_ref
+    # so it stays tied to the very q_ref the parser divided by; the two are
+    # algebraically identical while a_ref = d_ref*thickness. thickness is
+    # d_ref/10 with d_ref > 0 enforced in WindCase.__post_init__, so this
+    # cannot divide by zero.
+    drag_scale_n_per_m = case.q_ref / case.thickness
     parts = []
     if case.transient:
         cd = report.get("cd")
-        drag_n_per_m = cd * q * case.d_ref
+        drag_n_per_m = cd * drag_scale_n_per_m
         parts.append(
             "<b>Mean Cd %.4f → drag %.3f N per metre — %.2f N over "
             "%.2f m at %.2f m/s.</b>" % (cd, drag_n_per_m,
@@ -174,7 +198,7 @@ def result_text(case, method_label, report, forces, hist, length_m):
                          "treat Cd and St as provisional.")
     else:
         cd = forces.cd
-        drag_n_per_m = cd * q * case.d_ref
+        drag_n_per_m = cd * drag_scale_n_per_m
         parts.append(
             "<b>Cd %.4f → drag %.3f N per metre — %.2f N over %.2f m at "
             "%.2f m/s.</b>" % (cd, drag_n_per_m, drag_n_per_m * length_m,

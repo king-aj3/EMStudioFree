@@ -105,13 +105,48 @@ def imd_level_dbm(product, powers_dbm, ip_dbm):
     """Level (dBm) of an IMD product at the mixing junction.
 
     ``P = sum(|a_i|*P_i) - (order-1)*IP_order``. ``powers_dbm`` is indexed like the
-    carriers; ``ip_dbm`` is the junction's order-N output intercept point.
+    carriers; ``ip_dbm`` is the junction's order-N output intercept point — the
+    intercept of THIS product's own order N, not IP3 for everything. Callers that
+    only hold a data-sheet IP3 must route through :func:`junction_ip_for_order`,
+    which says out loud what it is assuming for the other orders.
     """
     order = product["order"]
     p = 0.0
     for c, idx in zip(product["coeffs"], product["indices"]):
         p += abs(c) * float(powers_dbm[idx])
     return p - (order - 1) * float(ip_dbm)
+
+
+def junction_ip_for_order(order, ip3_dbm, ip_by_order=None):
+    """Pick the order-N output intercept for a product. -> ``(ip_dbm, assumed)``.
+
+    Intercept points of different orders are INDEPENDENT device parameters, not
+    one number: OIP2 comes from the squared term of the junction's nonlinearity
+    and OIP3 from the cubic one, so a measured OIP3 tells you nothing about OIP2
+    (in any reasonably balanced front end OIP2 sits tens of dB ABOVE OIP3, while
+    OIP5/OIP7 sit below it). ``ip_by_order`` is therefore the honest input — a map
+    ``{order: OIP_N dBm}`` read off the device's data sheet or a PIM measurement.
+
+    Only orders missing from that map fall back to ``ip3_dbm``, and that fallback
+    is the COMMON-SATURATION approximation, not a free lunch: if every IM curve is
+    taken to converge on one saturated output P_sat, then putting P = P_sat into
+    ``P_N = N*P - (N-1)*OIP_N`` gives ``OIP_N = P_sat`` for every N — one intercept
+    for all orders. It is the only extrapolation a single number can support, and
+    it is wrong in a KNOWN direction: pessimistic for even orders (an order-2 sum
+    is reported tens of dB hot), and optimistic — the dangerous direction — for
+    orders above three, where real intercepts fall away and the true product is
+    hotter than we print. ``assumed`` is True exactly when that fallback was used,
+    so the report can flag the number instead of passing it off as a device
+    parameter it never had. Order 3 is never "assumed": ``ip3_dbm`` IS its
+    intercept.
+    """
+    order = int(order)
+    if ip_by_order:
+        try:
+            return float(ip_by_order[order]), False
+        except (KeyError, TypeError, ValueError):
+            pass  # not supplied for this order -> fall through to the assumption
+    return float(ip3_dbm), order != 3
 
 
 # --- coupling / power book-keeping ------------------------------------------
@@ -141,7 +176,8 @@ def in_band(freq_hz, rx_freq_hz, rx_bw_hz):
 
 
 # --- whole-site analysis ----------------------------------------------------
-def analyze_site(radios, isolation_db=30.0, junction_ip3_dbm=20.0, max_order=3):
+def analyze_site(radios, isolation_db=30.0, junction_ip3_dbm=20.0, max_order=3,
+                 junction_ip_by_order=None):
     """Run all four co-site checks over a list of :class:`Radio`.
 
     :param isolation_db: antenna-to-antenna isolation (dB). A scalar applied to all
@@ -152,8 +188,19 @@ def analyze_site(radios, isolation_db=30.0, junction_ip3_dbm=20.0, max_order=3):
         junction (dBm). Lower = more IMD (a passive rusty-bolt junction is far worse
         than a linear amplifier).
     :param max_order: highest intermod order to enumerate.
+    :param junction_ip_by_order: optional ``{order: OIP_N dBm}`` map for the orders
+        whose intercept is NOT the third-order one — ``{2: 50.0, 5: 10.0}`` and so
+        on. ``min_order`` is 2 and the dialog reaches order 7, so without this every
+        non-third-order level was ``sum - (N-1)*IP3``: the right formula fed the
+        wrong device parameter. Orders left out of the map fall back to
+        ``junction_ip3_dbm`` and are tagged ``ip_assumed`` in the report — see
+        :func:`junction_ip_for_order` for why that fallback is only an assumption
+        and which way it errs.
 
     Returns a report dict: ``imd``, ``desense``, ``broadband_noise``, ``cochannel``.
+    Each ``imd`` entry carries the ``ip_dbm`` its level was computed with and an
+    ``ip_assumed`` flag, so a caller can never re-quote the level without also
+    being able to see which intercept produced it.
     """
     radios = list(radios)
     labels = [r.label for r in radios]
@@ -189,7 +236,12 @@ def analyze_site(radios, isolation_db=30.0, junction_ip3_dbm=20.0, max_order=3):
             plist = [0.0] * len(tx_freqs)
             for local_i, tx_i in enumerate(tx_idx):
                 plist[local_i] = powers[tx_i]
-            level = imd_level_dbm(prod, plist, junction_ip3_dbm)
+            # the intercept must match the PRODUCT's order; IP3 is only the
+            # order-3 one, so anything else comes from the caller's map or is
+            # flagged as the common-saturation assumption
+            ip_dbm, ip_assumed = junction_ip_for_order(
+                prod["order"], junction_ip3_dbm, junction_ip_by_order)
+            level = imd_level_dbm(prod, plist, ip_dbm)
             imd.append({
                 "victim": rx.label,
                 "victim_idx": j,
@@ -197,6 +249,8 @@ def analyze_site(radios, isolation_db=30.0, junction_ip3_dbm=20.0, max_order=3):
                 "order": prod["order"],
                 "terms": product_terms(prod, tx_labels),
                 "level_dbm": level,
+                "ip_dbm": ip_dbm,
+                "ip_assumed": ip_assumed,
                 "margin_db": level - rx.rx_sens_dbm,   # >0 → above sensitivity
             })
 
@@ -281,12 +335,17 @@ def _apply_plan(radios, assignment):
 
 
 def optimize_frequency_plan(radios, tunable, candidates, isolation_db=30.0,
-                            junction_ip3_dbm=20.0, max_order=3, max_combos=50000):
+                            junction_ip3_dbm=20.0, max_order=3, max_combos=50000,
+                            junction_ip_by_order=None):
     """Search transmit-channel assignments that minimise co-site interference.
 
     :param tunable: list of radio indices whose transmit frequency may be changed.
     :param candidates: a list of candidate frequencies (Hz) applied to every tunable
         radio, or a dict ``{radio_idx: [freqs]}`` for per-radio channel lists.
+    :param junction_ip_by_order: per-order intercepts, passed straight through to
+        :func:`analyze_site`. It must be threaded through here or the search would
+        score every candidate plan with a different IMD model than the report the
+        user then reads, and pick a "best" plan for physics nobody sees.
     :returns: dict with ``assignment`` ({idx: freq}), ``cost``, ``report``,
         ``baseline_cost``/``baseline_report`` (the as-supplied plan), ``method``
         ('exhaustive'|'greedy'), ``evaluated`` (plans scored), and ``capped`` (bool).
@@ -301,7 +360,8 @@ def optimize_frequency_plan(radios, tunable, candidates, isolation_db=30.0,
 
     def cost_of(assignment):
         rep = analyze_site(_apply_plan(radios, assignment), isolation_db=isolation_db,
-                           junction_ip3_dbm=junction_ip3_dbm, max_order=max_order)
+                           junction_ip3_dbm=junction_ip3_dbm, max_order=max_order,
+                           junction_ip_by_order=junction_ip_by_order)
         return plan_cost(rep), rep
 
     base_assign = {i: radios[i].tx_freq_hz for i in tunable}
@@ -353,10 +413,15 @@ def summary_text(report):
     L.append("")
     L.append("Intermodulation hits above rx sensitivity: {0}".format(len(imd_hits)))
     for h in sorted(imd_hits, key=lambda x: -x["margin_db"])[:20]:
+        # a level computed from an ASSUMED intercept is not the same claim as one
+        # computed from the junction's own OIP_N; say which it is on the line the
+        # user reads the dBm off, not in a footnote they will scroll past
+        caveat = ("  [IP{0} assumed = IP3]".format(h["order"])
+                  if h.get("ip_assumed") else "")
         L.append("  order {0}  {1}  = {2:.6g} MHz -> rx '{3}'  {4:.1f} dBm "
-                 "({5:+.1f} dB over sens)".format(
+                 "({5:+.1f} dB over sens){6}".format(
                      h["order"], h["terms"], h["freq_hz"] / 1e6, h["victim"],
-                     h["level_dbm"], h["margin_db"]))
+                     h["level_dbm"], h["margin_db"], caveat))
     desensed = [d for d in report["desense"] if d["desensed"]]
     L.append("")
     L.append("Receiver desensitization events: {0}".format(len(desensed)))

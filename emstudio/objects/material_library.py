@@ -141,6 +141,29 @@ def apply_preset(obj, name):
     Sets Category too, because picking "Copper" and leaving the category on
     "Metal (PEC)" would silently discard the conductivity the user just chose —
     the exact defect this library exists to end.
+
+    ⚠⚠ **EVERY BRANCH WRITES EVERY FIELD**, including the ones its own category
+    never uses. Until 2026-08-29 each branch set only its own numbers, so a
+    preset was applied to whichever fields it happened to name and the rest kept
+    the PREVIOUS material's values. Copper → FR-4 left ``Conductivity`` at
+    5.8e7 on a Dielectric and ``openems/writer.py:281`` reads that field back
+    out for exactly this category (``entry["kappa"] = float(mat.Conductivity)``,
+    emitted at :757), so the tutorial patch's substrate went into the deck as
+    ``AddMaterial(..., epsilon=4.4, kappa=58000000)`` — a metal slab where the
+    user had asked for FR-4, and 5.9e9× the ~0.0098 S/m that eps_r 4.4 / tan(d)
+    0.02 actually implies at 2 GHz. The tan(d) they had just picked was thrown
+    away with it, because :753 only synthesises kappa from tan(d) when kappa is
+    zero. Nothing on screen contradicted any of it: the property editor showed
+    the right eps_r and tan(d) the whole time. Steel → PTFE was worse again
+    (mue=500 on a Teflon block), and the Dielectric → Conductor / → PEC
+    directions leave a stale eps_r/tan(d) that ``palace/model.py:57-59`` reads
+    regardless of Category.
+
+    The values written for the fields a category does not define are
+    ``material.py``'s OWN property defaults — eps_r 1, tan(d) 0, sigma 0,
+    alpha 0, mu_r 1, i.e. vacuum. That is what "this preset says nothing about
+    that" has to mean by the time a writer sees it; anything else is the
+    previous material leaking through.
     """
     entry = MATERIAL_LIBRARY.get(str(name))
     if entry is None:
@@ -153,11 +176,28 @@ def apply_preset(obj, name):
         obj.Conductivity = 0.0
         obj.ConductivityTempCoeff = 0.0
         obj.RelPermeability = 1.0
+        obj.RelPermittivity = 1.0
+        obj.LossTangent = 0.0
     elif entry["category"] == "Dielectric":
         obj.RelPermittivity = float(entry["eps_r"])
         obj.LossTangent = float(entry["tan_d"])
+        # Every dielectric in this library is an insulator and non-magnetic:
+        # its loss is carried by tan(d) ALONE. sigma and alpha go together —
+        # elmer/model.py:201 refuses an alpha with no sigma to scale.
+        obj.Conductivity = 0.0
+        obj.ConductivityTempCoeff = 0.0
+        obj.RelPermeability = 1.0
     else:
         obj.Conductivity = float(entry["sigma_s_m"])
         obj.ConductivityTempCoeff = float(entry["alpha_per_k"])
         obj.RelPermeability = float(entry.get("mu_r", 1.0))
+        # A metal's bound-charge permittivity is not a modelling input here —
+        # the conduction term carries the physics — so the previous material's
+        # eps_r/tan(d) must not survive into a solver that reads them anyway.
+        obj.RelPermittivity = 1.0
+        obj.LossTangent = 0.0
+    # ⛳ BHCurveB/BHCurveH are deliberately NOT reset: no library entry supplies
+    # a B-H table, so there is nothing to overwrite them WITH, and they are
+    # measured user data rather than a nominal constant. Clearing them needs its
+    # own decision — do not "finish the sweep" here without making it.
     return True
