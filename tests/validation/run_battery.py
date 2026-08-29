@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
@@ -445,6 +446,21 @@ def _run_gate(name, timeout_s):
     return rc, time.time() - t0, out
 
 
+#: A gate's executed-check lines. Every gate in this directory prints its
+#: results as "  ok    <what>" / "  FAIL  <what>" (see any gate's check()), so
+#: counting them measures COVERAGE rather than exit status.
+_CHECK_LINE_RE = re.compile(r"^\s*(?:ok|PASS|FAIL)\s\s", re.M)
+
+#: Gates that legitimately report COVERAGE as a summary line rather than one
+#: line per check (solve_confirm_coverage prints "205 files, 18 launch
+#: site(s) ... 6 allowlisted"). Counting zero for these is a formatting fact,
+#: not a vacuity finding - so they are named here instead of being warned
+#: about every run. ⚠ Adding a name here SILENCES the zero-coverage warning
+#: for that gate: only do it after reading the gate and confirming it really
+#: does state its coverage some other way.
+SUMMARY_COVERAGE_GATES = {"solve_confirm_coverage"}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--all", action="store_true",
@@ -471,6 +487,7 @@ def main(argv=None):
     print("EMStudio validation battery — {0} gate(s), tier: {1}".format(
         len(plan), "FAST+SOLVER" if args.all else "FAST"))
     failures, skips = [], []
+    counts = {}
     t_start = time.time()
     for name, req, timeout_s in plan:
         reason = _requirement_missing(req)
@@ -484,8 +501,21 @@ def main(argv=None):
             print("  skip  {0:<24s} — {1}".format(name, reason))
             continue
         rc, dt, out = _run_gate(name, timeout_s)
+        # ⚠⚠ COUNT WHAT THE GATE ACTUALLY EXECUTED, and print it on the PASS
+        # line too. Until 2026-08-29 this branch printed only a name and a time,
+        # and the child's stdout was kept ONLY in the failure branch — so the
+        # battery discarded, on every green run, the single piece of evidence
+        # that distinguishes a gate which checked 118 things from one which
+        # checked none and printed its own PASS banner. An audit found 32 gates
+        # of the second kind. A count is not a guarantee, but it is a number a
+        # human can read and a future check can compare against: a gate whose
+        # executed count silently drops is the shape this project keeps paying
+        # for. Read the coverage, never the exit code.
+        n_exec = len(_CHECK_LINE_RE.findall(out or ""))
+        counts[name] = n_exec
         if rc == 0:
-            print("  ok    {0:<24s} {1:6.1f}s".format(name, dt))
+            print("  ok    {0:<24s} {1:6.1f}s  {2:>4d} checks".format(
+                name, dt, n_exec))
         else:
             failures.append(name)
             print("  FAIL  {0:<24s} {1:6.1f}s (rc={2})".format(name, dt, rc))
@@ -493,6 +523,14 @@ def main(argv=None):
             for line in tail:
                 print("        | " + line)
     print("-" * 60)
+    if counts:
+        lean = sorted(n for n, c in counts.items()
+                      if c == 0 and n not in SUMMARY_COVERAGE_GATES)
+        print("executed checks: {0} across {1} gate(s)".format(
+            sum(counts.values()), len([c for c in counts.values() if c])))
+        if lean:
+            print("⚠ gates that printed ZERO per-check lines — read them, "
+                  "they may be checking nothing: {0}".format(lean))
     print("{0} ok, {1} failed, {2} skipped in {3:.1f}s".format(
         len(plan) - len(failures) - len(skips), len(failures), len(skips),
         time.time() - t_start))
