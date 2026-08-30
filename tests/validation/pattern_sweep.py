@@ -108,7 +108,7 @@ _TIER = [None]
 #: two part company. Note also what that static basis CANNOT see, and what
 #: this table exists for: on the python3 battery 25 of those 88 never run.
 TIERS = [
-    ("gate_parser",           7, None),
+    ("gate_parser",           8, None),   # 7 -> 8 on 2026-08-30: finding-26 fix added the EN-echo non-injection check
     ("gate_flat_band",        8, None),
     ("gate_writer",           6, "FreeCAD"),
     ("gate_wiring",          17, None),
@@ -229,15 +229,34 @@ def gate_parser():
            round(float(rffs[1].gain.max()), 2)) == (1.0, 5.0),
           [float(f.gain.max()) for f in rffs])
 
-    # The trap: the single-block parser on the SAME file returns one pattern
-    # whose gains are the LAST frequency's, labelled with whatever frequency it
-    # was told. It is not wrong-looking, which is the whole problem.
-    merged = parser.parse_radiation_patterns(path, 200e6)
-    check("the single-block parser DOES silently merge (why _all exists)",
-          abs(float(merged.gain.max()) - 5.0) < 1e-9
-          and abs(merged.freq - 200e6) < 1.0,
-          "gain {0} labelled {1:.0f} MHz".format(float(merged.gain.max()),
-                                                 merged.freq / 1e6))
+    # ⚠ CORRECTED 2026-08-30 (audit finding 26). This check used to assert
+    # that the single-block parser "silently merges and returns the LAST
+    # frequency's gains" — a story that was FALSE on real nec2c output (it
+    # returned the FIRST block; the blank line after the second banner killed
+    # its collector) and false of the fixed parser too. A gate that pins a
+    # wrong description of a defect is a check on the wrong claim. The
+    # single-block parser now selects the block NEAREST the requested
+    # frequency via the shared _pattern_blocks walker, and THAT is what gets
+    # pinned — each request must return that block's own gains:
+    near_lo = parser.parse_radiation_patterns(path, 200e6)
+    near_hi = parser.parse_radiation_patterns(path, 400e6)
+    near_mid = parser.parse_radiation_patterns(path, 390e6)   # nearer 400
+    check("single-block parser returns the NEAREST block's own gains "
+          "(200->1.0, 400->5.0, 390->5.0)",
+          abs(float(near_lo.gain.max()) - 1.0) < 1e-9
+          and abs(float(near_hi.gain.max()) - 5.0) < 1e-9
+          and abs(float(near_mid.gain.max()) - 5.0) < 1e-9,
+          [float(near_lo.gain.max()), float(near_hi.gain.max()),
+           float(near_mid.gain.max())])
+    # And the nec2c trailer must never be ingested as data: the real file's
+    # "DATA CARD No:  4 EN ..." follows the LAST data row with NO blank line
+    # (measured 2026-08-30 on live nec2c 1.3.1 output; the first fix attempt
+    # counted rows, swallowed the echo, and shipped a 39.4 dB peak error).
+    # First token "DATA" is non-numeric, so the walker must close the block.
+    check("no spurious theta row from the EN data-card echo",
+          float(near_hi.theta.max()) <= 180.0 and near_hi.theta.size ==
+          len(set(near_hi.theta.tolist())),
+          list(near_hi.theta[:5]))
 
 
 def _dipole_analysis(doc):

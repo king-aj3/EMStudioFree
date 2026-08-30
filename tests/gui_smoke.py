@@ -1538,7 +1538,14 @@ def _element_designer_dialog():
         "horn aperture wrong: {0:.2f} x {1:.2f} mm".format(
             hd["aperture_a1_m"] * 1e3, hd["aperture_b1_m"] * 1e3)
     htxt = dlg.perf_view.toPlainText()
-    assert "Pyramidal horn" in htxt and "gain cross-check" in htxt, \
+    # ⚠ label updated 2026-08-30: "gain cross-check" claimed independent
+    # corroboration the maths cannot give (constant +0.163 dB offset); the
+    # panel now says what it is — a same-model consistency figure — and names
+    # the design mode, both asserted here so the honest wording cannot rot
+    # back to the flattering one.
+    assert ("Pyramidal horn" in htxt
+            and "beamwidth-product consistency" in htxt
+            and "design mode" in htxt), \
         "horn read-out malformed"
     # ⚠ The independent cross-check: gain from the beamwidths must agree with
     # the aperture gain. A synthesiser whose two routes disagreed would be

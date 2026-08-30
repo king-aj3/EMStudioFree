@@ -56,9 +56,29 @@ check("optimum aspect ratio a1 = 1.5*b1",
 check("flare follows a1 = sqrt(3*lambda*rho_h)",
       abs(a["aperture_a1_m"] - math.sqrt(3 * a["wavelength_m"] * a["flare_rho_h_m"]))
       < 1e-12)
-check("flare follows b1 = sqrt(2*lambda*rho_e)",
-      abs(a["aperture_b1_m"] - math.sqrt(2 * a["wavelength_m"] * a["flare_rho_e_m"]))
-      < 1e-12)
+# ⚠⚠ REALIZABILITY, not the E-plane optimum. Until 2026-08-30 this line
+# asserted b1 = sqrt(2*lambda*rho_e) — the E-plane OPTIMUM flare — which,
+# printed beside the H-plane optimum at a1 = 1.5*b1, described a horn whose
+# two flares meet the axis 1.5x apart: no single pyramidal horn has that
+# geometry (Nikolova L18 eq. 18.42: R_E = R_H). The synthesis now derives
+# rho_e from the SHARED APEX, so the load-bearing checks are:
+_pe = math.sqrt(a["flare_rho_e_m"] ** 2 - (a["aperture_b1_m"] / 2) ** 2)
+_ph = math.sqrt(a["flare_rho_h_m"] ** 2 - (a["aperture_a1_m"] / 2) ** 2)
+check("both flares reach ONE apex (p_e/p_h %.6f; buildability)" % (_pe / _ph),
+      abs(_pe / _ph - 1.0) < 1e-9)
+check("axial_length_m is that shared axial length",
+      abs(a["axial_length_m"] - _ph) < 1e-12)
+# NEGATIVE CONTROL for the line above: the OLD (wrong) rho_e must FAIL the
+# apex condition. If this ever passes, the check above has gone vacuous.
+_rho_e_old = a["aperture_b1_m"] ** 2 / (2 * a["wavelength_m"])
+_pe_old = math.sqrt(_rho_e_old ** 2 - (a["aperture_b1_m"] / 2) ** 2)
+check("negative control: the pre-2026-08-30 rho_e FAILS the apex condition "
+      "(old p_e/p_h %.4f, must be visibly NOT 1)" % (_pe_old / _ph),
+      abs(_pe_old / _ph - 1.0) > 0.3)
+check("E-plane flare longer than its optimum, s_e %.4f in (0, 0.25) — "
+      "realized gain >= the eps_ap=0.51 estimate" % a["phase_err_e"],
+      a["flare_rho_e_m"] > _rho_e_old
+      and 0.0 < a["phase_err_e"] < 0.25)
 
 # --- beamwidth sense (the classic E/H mix-up) ------------------------------
 e0, h0 = H.beamwidths_deg(0.145, 0.0967, 0.02998)
@@ -111,6 +131,39 @@ try:
     check("zero beamwidth refused", False)
 except H.HornError:
     check("zero beamwidth refused", True)
+
+
+# --- mode (b): the TRUE Balanis optimum (added 2026-08-30) ------------------
+# Gated on the IDENTITIES both fetched sources state, never on remembered
+# numbers: realizability p_e = p_h is the equation being solved, the gain
+# round-trip closes at eps_ap ~ 0.51, and the apex-limit aspect approaches
+# sqrt(1.5) — the ratio whose SQUARE (1.5) mode (a) deliberately keeps.
+o = H.design_pyramidal_optimum(10e9, 20.0)
+check("optimum mode: p_e = p_h EXACTLY (ratio %.12f)" % (
+      o["axial_p_e_m"] / o["axial_p_h_m"]),
+      abs(o["axial_p_e_m"] / o["axial_p_h_m"] - 1.0) < 1e-9)
+check("optimum mode: gain round-trip within 0.05 dB of target "
+      "(got %.4f for 20.0)" % o["gain_dbi"],
+      abs(o["gain_dbi"] - 20.0) < 0.05)
+check("optimum mode, apex limit: aspect a1/b1 %.4f near sqrt(1.5)=1.2247 "
+      "— NOT mode (a)'s 1.5" % (o["aperture_a1_m"] / o["aperture_b1_m"]),
+      1.20 < o["aperture_a1_m"] / o["aperture_b1_m"] < 1.26)
+check("the two modes are genuinely different designs (aspects 1.5 vs ~1.22)",
+      abs(a["aperture_a1_m"] / a["aperture_b1_m"]
+          - o["aperture_a1_m"] / o["aperture_b1_m"]) > 0.2)
+# The classic WR-90 X-band case: identities must survive a REAL throat, and
+# the feed guide must actually constrain the result (negative control: the
+# apex answer and the WR-90 answer must differ).
+w = H.design_pyramidal_optimum(11e9, 22.6, feed_a_m=0.02286, feed_b_m=0.01016)
+check("WR-90 22.6 dB: p_e = p_h with a real throat (ratio %.12f)" % (
+      w["axial_p_e_m"] / w["axial_p_h_m"]),
+      abs(w["axial_p_e_m"] / w["axial_p_h_m"] - 1.0) < 1e-9)
+check("WR-90 22.6 dB: gain round-trip %.4f dBi" % w["gain_dbi"],
+      abs(w["gain_dbi"] - 22.6) < 0.05)
+o11 = H.design_pyramidal_optimum(11e9, 22.6)
+check("the feed guide CONSTRAINS the design (WR-90 chi %.4f != apex chi "
+      "%.4f)" % (w["chi"], o11["chi"]),
+      abs(w["chi"] - o11["chi"]) > 1e-3)
 
 # --- honesty ---------------------------------------------------------------
 check("design carries accuracy warnings", bool(a["warnings"]))

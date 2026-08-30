@@ -248,8 +248,92 @@ def _currents_dict(freq_hz, rows):
     }
 
 
+
+def _pattern_blocks(path):
+    """Every RADIATION PATTERNS block in the file, with its frequency label.
+
+    Returns ``[(freq_hz_or_None, [raw data-row lines]), ...]`` in file order.
+    ONE walker feeds all three pattern parsers so they cannot disagree about
+    where a block begins or ends — the disagreement is exactly how the
+    2026-08-29 audit's finding 26 happened (three hand-rolled loops, three
+    different terminator bugs).
+
+    ⚠ Block-end discipline, measured on real nec2c 1.3.1 output 2026-08-30
+    (/tmp fixture regenerated from a live run, 3-frequency dipole sweep):
+    * a BLANK line separates the banner from the column header, so "blank
+      ends the block" must not arm until a data row has been seen — the old
+      per-function loops armed on file-global state and returned the FIRST
+      block of a swept file under whatever label the caller asked for;
+    * the ``DATA CARD No:  4 EN`` trailer follows the LAST data row with NO
+      blank line in between, so a terminator must also break on a line whose
+      first token is not a number — counting rows or waiting for a blank
+      injects a spurious theta = <card number> row (a measured 39.4 dB peak
+      error in the reverted first fix attempt).
+    A line is a DATA ROW iff its first token parses as float, it yields >= 5
+    floats, and theta/phi land in their windows. After the first data row of
+    a block, the first non-data line CLOSES that block; before it, non-data
+    lines (the blank + the column headers) are simply skipped.
+    """
+    blocks = []
+    cur_f = None
+    rows = None          # None = not in a block; [] = in block, pre-data
+    armed = False        # True once the current block has >= 1 data row
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            m = _FREQ_RE.search(line)
+            if m:
+                cur_f = float(m.group(1)) * 1e6
+                rows = None
+                armed = False
+                continue
+            if "RADIATION PATTERNS" in line:
+                rows = []
+                blocks.append((cur_f, rows))
+                armed = False
+                continue
+            if rows is None:
+                continue
+            toks = line.split()
+            is_data = False
+            if toks:
+                try:
+                    float(toks[0])
+                except ValueError:
+                    is_data = False      # banners, headers, "DATA CARD No:"
+                else:
+                    nums = _FLOAT_RE.findall(line)
+                    if len(nums) >= 5:
+                        try:
+                            th, ph = float(nums[0]), float(nums[1])
+                        except ValueError:
+                            th = ph = None
+                        if th is not None and -0.01 <= th <= 180.01 \
+                                and -360.0 <= ph <= 360.0:
+                            is_data = True
+            if is_data:
+                rows.append(line)
+                armed = True
+            elif armed:
+                rows = None              # block closed by first non-data line
+                armed = False
+    return blocks
+
+
+def _nearest_block(blocks, freq_hz):
+    """The block whose frequency label is nearest ``freq_hz``.
+
+    Labelled blocks win over unlabelled ones; with no labels at all the first
+    block is returned (a single-block file with no FREQUENCY header — nec2++
+    variants). Returns ``(freq_label_or_None, rows)``.
+    """
+    labelled = [b for b in blocks if b[0] is not None]
+    if labelled:
+        return min(labelled, key=lambda b: abs(b[0] - float(freq_hz)))
+    return blocks[0]
+
+
 def parse_radiation_complex(path, freq_hz):
-    """Parse the RADIATION PATTERNS table keeping the COMPLEX field —
+    """The COMPLEX-field pattern block nearest ``freq_hz`` —
     E(theta) and E(phi) magnitude+phase, which :func:`parse_radiation_patterns`
     discards (it keeps total gain only).
 
@@ -260,40 +344,31 @@ def parse_radiation_complex(path, freq_hz):
     (LINEAR/RIGHT/LEFT) — absent on null rows, so field offsets are taken from
     the END of the numeric list, never the start.
 
+    ⚠ CORRECTED 2026-08-30 (audit finding 26): like
+    :func:`parse_radiation_patterns` this used to return the FIRST block of a
+    swept file while echoing the caller's ``freq_hz`` into the result. Block
+    selection now goes through :func:`_pattern_blocks` / :func:`_nearest_block`.
+    Rows with fewer than 11 numbers (no complex fields) are skipped, as before.
+
     Returns ``{"freq_hz", "theta", "phi", "e_theta", "e_phi"}`` with the two
     field arrays complex, shaped (n_theta, n_phi).
     """
     import numpy as np
 
+    blocks = [(f, r) for f, r in _pattern_blocks(path) if r]
+    if not blocks:
+        raise NecParseError(
+            "no complex radiation-pattern data found in {0}".format(path))
+    _f_label, lines = _nearest_block(blocks, freq_hz)
+
     rows = []
-    in_table = False
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            if "RADIATION PATTERNS" in line:
-                in_table = True
-                continue
-            if not in_table:
-                continue
-            nums = _FLOAT_RE.findall(line)
-            # a data row ends with the four field numbers; header rows do not
-            if len(nums) < 11:
-                if rows and not line.strip():
-                    # The blank line after the data block ENDS the table — the
-                    # same guard parse_radiation_patterns carries. Without it
-                    # nec2c's trailer "DATA CARD No:  4 EN  0 0 0 0 0.0E+00..."
-                    # yields 11 numbers whose first two are in the theta/phi
-                    # windows, and a spurious all-zero theta = <card no.> row
-                    # is injected into the pattern.
-                    in_table = False
-                continue
-            try:
-                th, ph = float(nums[0]), float(nums[1])
-                et_mag, et_ph, ep_mag, ep_ph = (float(x) for x in nums[-4:])
-            except ValueError:
-                continue
-            if not (-0.01 <= th <= 180.01 and -360.0 <= ph <= 360.0):
-                continue
-            rows.append((th, ph, et_mag, et_ph, ep_mag, ep_ph))
+    for line in lines:
+        nums = _FLOAT_RE.findall(line)
+        if len(nums) < 11:
+            continue                     # a row without the four field numbers
+        th, ph = float(nums[0]), float(nums[1])
+        et_mag, et_ph, ep_mag, ep_ph = (float(x) for x in nums[-4:])
+        rows.append((th, ph, et_mag, et_ph, ep_mag, ep_ph))
     if not rows:
         raise NecParseError(
             "no complex radiation-pattern data found in {0}".format(path))
@@ -311,7 +386,6 @@ def parse_radiation_complex(path, freq_hz):
             "phi": np.asarray(phis, dtype=float), "e_theta": e_th,
             "e_phi": e_ph}
 
-
 def parse_radiation_patterns_all(path):
     """EVERY radiation-pattern block in the file, one FarFieldResult each.
 
@@ -320,11 +394,13 @@ def parse_radiation_patterns_all(path):
     produced 201 pattern blocks in 7.18 s, one process. So per-frequency
     patterns cost one run, not N runs.
 
-    :func:`parse_radiation_patterns` cannot be used for that file: it pours
-    every sample it finds into ONE theta/phi grid, so a multi-frequency output
-    would silently overwrite each frequency with the next and return a single
-    plausible-looking pattern that belongs to no frequency at all. This splits
-    on the frequency marker instead.
+    Built on the same :func:`_pattern_blocks` walker as the single-block
+    parsers since 2026-08-30, so all three agree about where a block begins
+    and ends (they did not, and the disagreement was audit finding 26).
+    ⚠ Known limit, stated rather than hidden: blocks are labelled by nec2c's
+    PRINTED frequency (5 significant figures). Two sweep points closer than
+    that print identically and merge under one label — do not drive a
+    sub-100-kHz-at-GHz sweep through this path.
 
     Returns a list of ``FarFieldResult`` ordered by frequency (empty if the
     file holds no pattern blocks — an ``RP``-less deck is not an error here).
@@ -333,85 +409,57 @@ def parse_radiation_patterns_all(path):
 
     import numpy as np
 
-    blocks = []          # [[freq_hz, samples], ...]
-    cur_f = None
-    samples = None
-    in_table = False
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            m = _FREQ_RE.search(line)
-            if m:
-                # NEC2 prints the frequency header BEFORE that frequency's
-                # pattern block, so this always precedes its own samples.
-                cur_f = float(m.group(1)) * 1e6
-                in_table = False
-                continue
-            if "RADIATION PATTERNS" in line:
-                samples = []
-                blocks.append([cur_f, samples])
-                in_table = True
-                continue
-            if in_table:
-                nums = _FLOAT_RE.findall(line)
-                if len(nums) >= 5:
-                    try:
-                        th, ph, _v, _h, tot = (float(n) for n in nums[:5])
-                    except ValueError:
-                        continue
-                    if -0.01 <= th <= 180.01 and -360.0 <= ph <= 360.0:
-                        samples.append((th, ph, tot))
-                elif samples and line.strip() == "":
-                    in_table = False
-
     out = []
-    for freq_hz, samp in blocks:
-        if not samp or freq_hz is None:
+    for freq_hz, lines in _pattern_blocks(path):
+        if not lines:
             continue
-        thetas = sorted(set(s[0] for s in samp))
-        phis = sorted(set(s[1] for s in samp))
+        samples = []
+        for line in lines:
+            nums = _FLOAT_RE.findall(line)
+            th, ph, _v, _h, tot = (float(n) for n in nums[:5])
+            samples.append((th, ph, tot))
+        thetas = sorted(set(s[0] for s in samples))
+        phis = sorted(set(s[1] for s in samples))
         gain = np.full((len(thetas), len(phis)), -999.99)
         t_idx = {v: i for i, v in enumerate(thetas)}
         p_idx = {v: i for i, v in enumerate(phis)}
-        for th, ph, tot in samp:
+        for th, ph, tot in samples:
             gain[t_idx[th], p_idx[ph]] = tot
-        out.append(FarFieldResult(freq_hz, thetas, phis, gain,
+        out.append(FarFieldResult(freq_hz or 0.0, thetas, phis, gain,
                                   meta={"backend": "nec2c"}))
-    out.sort(key=lambda ff: ff.freq)
+    out.sort(key=lambda f: f.freq)
     return out
 
-
 def parse_radiation_patterns(path, freq_hz):
-    """Parse the RADIATION PATTERNS table into a FarFieldResult.
+    """The pattern block NEAREST ``freq_hz`` as a FarFieldResult.
 
     nec2c row format (verified 2026-07-05, nec2c 1.3.1):
         THETA  PHI  VERTC(dB)  HORIZ(dB)  TOTAL(dB)  ...
     Nulls print as -999.99; FarFieldResult clips them to its gain floor.
+
+    ⚠ CORRECTED 2026-08-30 (audit finding 26). On a multi-frequency file the
+    old loop returned the FIRST block — nec2c's blank line between banner and
+    column header killed its collector from block 2 on — while labelling the
+    result with the caller's ``freq_hz``: measured on a real 3-block sweep,
+    asking for 300 MHz returned the 280 MHz pattern under a confident
+    "300 MHz" label. (The module's own docstrings mis-described the failure
+    as a last-block merge, and the gate asserted THAT story — a check on the
+    wrong claim.) It now selects the block whose FREQUENCY header is nearest
+    the request, via the shared :func:`_pattern_blocks` walker.
     """
     from emstudio.post.farfield import FarFieldResult
 
-    samples = []  # (theta, phi, total_gain_db)
-    in_table = False
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            if "RADIATION PATTERNS" in line:
-                in_table = True
-                continue
-            if in_table:
-                nums = _FLOAT_RE.findall(line)
-                if len(nums) >= 5:
-                    try:
-                        th, ph, _v, _h, tot = (float(n) for n in nums[:5])
-                    except ValueError:
-                        continue
-                    # header lines contain no leading angle floats; data rows do
-                    if -0.01 <= th <= 180.01 and -360.0 <= ph <= 360.0:
-                        samples.append((th, ph, tot))
-                elif samples and line.strip() == "":
-                    # blank line after data block ends the table
-                    in_table = False
-
-    if not samples:
+    blocks = _pattern_blocks(path)
+    if not blocks or not any(rows for _f, rows in blocks):
         raise NecParseError("no radiation-pattern data found in {0}".format(path))
+    _f_label, lines = _nearest_block(
+        [(f, r) for f, r in blocks if r], freq_hz)
+
+    samples = []  # (theta, phi, total_gain_db)
+    for line in lines:
+        nums = _FLOAT_RE.findall(line)
+        th, ph, _v, _h, tot = (float(n) for n in nums[:5])
+        samples.append((th, ph, tot))
 
     import numpy as np
 

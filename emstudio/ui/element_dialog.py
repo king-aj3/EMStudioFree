@@ -415,6 +415,9 @@ class ElementDesignerDialog(QtWidgets.QDialog):
                   self.pifa_height.valueChanged, self.pifa_ratio.valueChanged,
                   self.pifa_short.valueChanged, self.pifa_z.valueChanged):
             w.connect(self._recalc)
+        # The horn design-mode combo is an input like any other — wired the
+        # moment it exists, per the rule two lines up.
+        self.horn_mode.currentIndexChanged.connect(self._recalc)
         # QDialog.reject() (Esc) returns from exec() WITHOUT firing closeEvent,
         # so rely on the finished signal (fires on accept AND reject) to clean
         # up the transient verify document. _close_verify_doc is idempotent.
@@ -598,9 +601,26 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         self.horn_gain.setValue(20.0)
         self.horn_gain.setSuffix(" dBi")
         self.horn_gain.setToolTip(
-            "Target gain. The synthesiser returns the OPTIMUM-flare aperture "
-            "for it — the shortest horn that reaches that gain.")
+            "Target gain. Both design modes hit it at eps_ap = 0.51; they "
+            "differ in what else they optimise — see the Design mode box.")
         form.addRow("Target gain", self.horn_gain)
+
+        # ⚠ TWO DESIGN MODES, and the difference is honest, not cosmetic.
+        # "Symmetric beam" keeps a1 = 1.5*b1 (near-equal E/H beamwidths) and
+        # derives the E-plane flare from the shared apex; "Shortest" is the
+        # Balanis ch.13 optimum — minimum length for the gain, mildly
+        # asymmetric beam, p_e = p_h solved exactly. The old page called the
+        # symmetric design "the shortest horn", which it never was; the label
+        # rot was found by the 2026-08-30 horn correction.
+        self.horn_mode = QtWidgets.QComboBox()
+        self.horn_mode.addItem("Symmetric beam (a1 = 1.5·b1)")
+        self.horn_mode.addItem("Shortest length (Balanis optimum)")
+        self.horn_mode.setToolTip(
+            "Symmetric beam: near-equal E/H beamwidths, a little longer. "
+            "Shortest: the true optimum-gain design (Balanis ch.13, "
+            "p_e = p_h solved exactly), beam mildly asymmetric by "
+            "construction.")
+        form.addRow("Design mode", self.horn_mode)
 
         note = QtWidgets.QLabel(
             "Uses the shared Frequency (left). Standard public aperture "
@@ -1574,7 +1594,11 @@ class ElementDesignerDialog(QtWidgets.QDialog):
 
         f = self._freq_hz()
         try:
-            design = horn_eng.design_pyramidal(f, self.horn_gain.value())
+            if self.horn_mode.currentIndex() == 1:
+                design = horn_eng.design_pyramidal_optimum(
+                    f, self.horn_gain.value())
+            else:
+                design = horn_eng.design_pyramidal(f, self.horn_gain.value())
         except Exception as exc:  # noqa: BLE001 — surfaced in the read-out
             self._horn_design = None
             self.verify_btn.setEnabled(False)
@@ -1610,12 +1634,30 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         L.append("target gain      : {0:.2f} dBi".format(d["target_gain_dbi"]))
         L.append("aperture a1 x b1 : {0:.2f} x {1:.2f} mm".format(
             d["aperture_a1_m"] * 1e3, d["aperture_b1_m"] * 1e3))
-        L.append("flare rho_e/rho_h: {0:.2f} / {1:.2f} mm".format(
+        # ⚠ "slant radius" per plane + ONE axial length — until 2026-08-30
+        # this printed the two per-plane OPTIMUM flares, whose axial lengths
+        # differ by 1.5x: a pair no single pyramidal horn can have. The
+        # engine now derives rho_e from the shared apex (see horn.py), so
+        # these numbers describe one buildable horn.
+        L.append("slant rho_e/rho_h: {0:.2f} / {1:.2f} mm (shared apex)".format(
             d["flare_rho_e_m"] * 1e3, d["flare_rho_h_m"] * 1e3))
+        if d.get("mode") == "optimum":
+            L.append("design mode      : SHORTEST (Balanis optimum, "
+                     "p_e = p_h exact; chi {0:.4f})".format(d.get("chi", 0.0)))
+            L.append("axial p_e = p_h  : {0:.2f} mm".format(
+                d.get("axial_p_e_m", 0.0) * 1e3))
+        elif d.get("axial_length_m", 0.0) > 0.0:
+            L.append("design mode      : SYMMETRIC BEAM (a1 = 1.5·b1)")
+            L.append("axial length     : {0:.2f} mm (both flares; E-plane "
+                     "phase err {1:.3f} < 0.25 opt)".format(
+                         d["axial_length_m"] * 1e3, d.get("phase_err_e", 0.0)))
         L.append("HPBW E / H       : {0:.2f} / {1:.2f} deg".format(
             d["hpbw_e_deg"], d["hpbw_h_deg"]))
-        L.append("gain cross-check : {0:.3f} dBi from the beamwidths "
-                 "(delta {1:+.3f} dB)".format(
+        # ⚠ Consistency, NOT corroboration: 26000/(thE*thH) is the same
+        # aperture model restated (constant +0.163 dB) — see horn.py's
+        # gain_from_beamwidths docstring, corrected by the 2026-08-29 audit.
+        L.append("beamwidth-product consistency: {0:.3f} dBi (same model; "
+                 "delta {1:+.3f} dB is constant by construction)".format(
                      d["gain_dbi_from_beamwidths"], d["gain_check_delta_db"]))
         L.append("aperture eff.    : {0:.2f} (optimum-flare value)".format(
             d["eps_ap"]))
