@@ -15,6 +15,78 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > next entry was written straight under the heading). It is the release safety
 > net; put it back rather than letting it go.
 
+## [1.12.0] — 2026-08-30
+
+> Pre-tag proof: the FULL `--all` battery ran complete on EXACTLY this tagged
+> commit — figures filled at tag time below. The release was committed FIRST
+> and the battery started on the release commit, so the proved tree and the
+> tag point are the same object: zero delta, nothing to argue.
+> Pre-tag proof: ⚠ PENDING — replaced with the measured verdict before the tag.
+
+### Added — validated against published works
+
+* ⭐⭐ **The external-validation record, and its public page.** Every reference
+  value the validation gates anchor on was traced back to its source on the
+  open web under strict rules of evidence — primary sources only for a
+  CONFIRMED verdict, secondary sources merely corroborate, an agent's memory
+  of a table counts for nothing, and every claimed mismatch re-verified by a
+  second pass that fetched the source itself. **172 anchors: 144 CONFIRMED
+  digit-by-digit against primary sources** (the official NIST scan of NBS
+  TN-688, the compumag TEAM Problem 7 specification, Lyn's J. Fluid Mech. 304
+  experiment, Betts & Bokhari via ERCOFTAC case 079, the Huynh thesis chamber
+  column, Belden datasheets, Pozar, Balanis — read from the PDF's embedded
+  vector geometry where the source is a chart — the ITU-R Recommendation
+  texts, NIST CODATA), 13 corroborated-only, 8 honestly unverifiable, and
+  **7 real mismatches in our own numbers — every one corrected in this
+  release and published beside its correction.**
+  * The machine-readable record ships PUBLIC as `docs/validation/anchors.json`;
+    `tools/gen_validation.py` is the only renderer (→ `docs/VALIDATION.md` and
+    the site's validation page), so the public claim cannot drift from the
+    data. The page is live at ajj3.us/apps/emstudio/validation.
+* ⭐ **A second horn design mode — the true Balanis optimum.**
+  `design_pyramidal_optimum` solves the ch.13 chain (χ iteration on the
+  realizability residual p_e − p_h itself, feed-guide dimensions included)
+  for the SHORTEST horn at a target gain; the Element Designer gains a wired
+  **Design mode** combo beside the existing symmetric-beam design. Verified
+  on identities from fetched sources, never memory: p_e/p_h = 1 to 1e-9 with
+  and without a WR-90 throat, gain round-trip within 0.015 dB, apex-limit
+  aspect → √1.5.
+
+### Fixed
+
+* **The symmetric-beam horn synthesis now prints ONE buildable horn.** The old
+  read-out quoted both per-plane optimum flares beside a1 = 1.5·b1 — a pair
+  whose flares meet the axis 1.5× apart, which no single pyramidal horn can
+  have; a builder taking both numbers literally could not assemble the parts.
+  ρ_e now derives from the SHARED APEX (E-plane phase error lands below the
+  optimum 1/4, so realized gain sits at or above the estimate); a degenerate
+  sub-wavelength regime says so instead of crashing; and the "gain
+  cross-check" that claimed independence is relabelled the same-model
+  consistency figure it is (constant +0.163 dB by construction). Horn gate
+  51 → 58 checks including a negative control proving the old ρ_e fails the
+  apex condition.
+* **The NEC2 pattern parsers select the requested frequency's block.** All
+  three now share one `_pattern_blocks` walker: a data row must LEAD with a
+  number — so nec2c's `DATA CARD No: 4 EN` trailer, which follows the last
+  data row with NO blank line and sank the first fix attempt with a measured
+  39.4 dB injected-row error, can never be ingested — and the single-block
+  parsers pick the block NEAREST the requested frequency instead of returning
+  the FIRST block of a swept file under the caller's label. Proven on real
+  nec2c output: before, requesting 300 MHz returned the 280 MHz pattern
+  labelled "300 MHz". The gate that had pinned the FALSE description of the
+  bug now pins the true behaviour (`pattern_sweep` 88 → 89 checks).
+* **The seven validation-sweep corrections**, each with its source: the LPDA
+  σ = 0.06 table re-measured from Balanis Fig 11.13's embedded vector paths
+  (hand-read values off by up to 0.010 in τ; the 8.5 dB contour never reaches
+  σ = 0.06 — that row is now labelled the extrapolation it is); the 0.469
+  sphere constant's citation corrected (the constant was always right — it is
+  Churchill's SPHERE correlation; AHTT eq. 8.33 prints the 0.492 PLATE
+  function); the vendored ITU engine relabelled **P.1812-8** on 15 surfaces
+  (the revision actually vendored, and the one in force); "64 per-dataset
+  logs" → 63 (ITU's 64th file is a combined-results CSV); the horn phase-error
+  docstring s = 1/8 → 1/4; the horn aspect derivation claim; and NBS TN-688's
+  own 2.16 dB dBd rounding documented beside the exact 2.15 the code keeps.
+
 ## [1.11.1] — 2026-08-30
 
 > Pre-tag proof: the FULL `--all` battery ran complete on EXACTLY this tree —
