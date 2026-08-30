@@ -17,11 +17,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [1.12.0] — 2026-08-30
 
-> Pre-tag proof: the FULL `--all` battery ran complete on EXACTLY this tagged
-> commit — figures filled at tag time below. The release was committed FIRST
-> and the battery started on the release commit, so the proved tree and the
-> tag point are the same object: zero delta, nothing to argue.
-> Pre-tag proof: ⚠ PENDING — replaced with the measured verdict before the tag.
+> Pre-tag proof: the FULL `--all` battery ran complete on the release commit
+> itself — **115 ok / 0 failed / 0 skipped in 21,409.8 s** (5.95 h), **3,535
+> executed checks across 105 gates**, per-gate counts recorded. The release was
+> committed FIRST and the battery started on that commit; nothing moved during
+> the run (0 modified files, 0 later commits), so the only delta between the
+> proved tree and the tag is THIS proof paragraph.
+> ⚠ Known and stated: nine freecadcmd-routed gates print no per-check lines the
+> runner can count (freecadcmd drops stdout on exit) — their pass is real, their
+> counts are the uncounted remainder. Same nine as v1.11.1; named in the log.
 
 ### Added — validated against published works
 
