@@ -15,6 +15,81 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > next entry was written straight under the heading). It is the release safety
 > net; put it back rather than letting it go.
 
+## [1.11.1] — 2026-08-30
+
+> Pre-tag proof: the FULL `--all` battery ran complete on EXACTLY this tree —
+> **115 ok / 0 failed / 0 skipped in 21,557.2 s** (5.99 h), and for the first
+> time with per-gate coverage recorded: **3,524 executed checks across 105
+> gates**. The battery was started AFTER the last code commit and the tag point
+> IS the proved tree — zero drift, no argument needed.
+> ⚠ Nine freecadcmd-routed gates print no per-check lines the runner can count
+> (freecadcmd drops stdout on exit); their pass is real but their coverage is
+> not independently countable yet. Named in the run log rather than hidden.
+
+### Fixed — an audit of every gate, every function and every published claim
+
+A three-round multi-agent audit (94 + 63 + 52 agents, every finding
+adversarially refuted before acceptance, every fix carrying a before/after
+control with real numbers) found and fixed:
+
+* **38 product defects across 26 files.** The ones a user's numbers depended on:
+  * **The reference impedance is per frequency end to end.** `load_csv` read
+    ONE CELL (`data[0,5]`) of a per-row column, so an openEMS waveguide port's
+    modal impedance was truncated to its first value and a re-save overwrote
+    the deck's own column. Verified against Pozar eq. (3.22): the column now
+    matches the analytic TE10 impedance to 0 Ω across WR-28; the normalising
+    error at 40 GHz falls from **+40.2 % to +9.9 %**. Scalar-reference ports
+    are byte-identical (sha256-verified) — no lumped/coax/microstrip number
+    moves.
+  * **Every Palace solve started from the GUI ran on ONE core.** `MPIRanks`
+    was attached to the Elmer solver's property block and never to Palace's,
+    while the Palace runner read it with a default of 1. The 18.9× released in
+    v1.5.0 never reached the GUI path.
+  * **Reported wind drag was 4–5 orders of magnitude low** (rendered as
+    0.000 N/m): the dynamic-pressure scale already contained the area and the
+    width was multiplied in a second time; the same value was labelled Pa when
+    it is newtons.
+  * **Licence:** a Gumroad HTTP 5xx locked out a paying customer (only network
+    unreachability was forgiven); a hand-written cache record granted Pro with
+    no verification at all.
+  * **The Smith caption now uses the solver's own S11** instead of rebuilding
+    Γ from Zin — the title's VSWR/return loss could disagree with the VSWR tab
+    for any port whose reference is not the naive formula's.
+  * **Nine Element Designer inputs (horn/IFA/PIFA) were connected to nothing**:
+    the predicted panel and PDF described the pre-edit design while Accept &
+    Generate built the edited one.
+  * Also: IMD levels above third order wrong by tens of dB; a material change
+    silently coarsening the FDTD mesh at metal edges; a waveguide excitation
+    imposable across the wrong aperture; open-conductor inductance tens of
+    times too large; a Reversed coil reported with negative L; assistant
+    answers fabricated beyond the sweep edge; P.1546 optional corrections
+    returning NaN; runtime-vs-dev library detection; stale material presets
+    reaching the solver; and the convection estimate's provenance claim.
+* **32 validation gates that could pass while checking nothing** — a skip path
+  that returned success, a bare `except Exception` used as a skip, checks whose
+  passing condition was a constant, and one gate asserting against its own
+  stub. Each repair proven by sabotage (RED) then revert (GREEN), each
+  re-verified independently. Net `check()` lines +39 across both rounds.
+* **The battery itself now prints what each gate executed** — per-gate check
+  counts and a total, because until now a green run discarded the only evidence
+  separating a 118-check gate from a 0-check one.
+* **Six published claims corrected** (site, Gumroad trial listing, the launch
+  forum post, a second live forum post, README/USER_MANUAL): a false "131
+  checks", a 10× overstated GPU tolerance, a licence claim the code
+  contradicts, a Yagi gain range wrong at both ends, a "published −29 dB
+  reference" that does not exist, and "ships in the public repo's CI" said of
+  two Pro-only gates.
+
+### Known and deliberately NOT fixed in this release
+
+* `nec2/parser.py` multi-block selection (latent; no shipped caller reaches
+  it): the attempted fix injected a spurious pattern row at θ = the EN card
+  number — a measured 39.40 dB error on the NORMAL path — and was reverted. A
+  correct fix needs a terminator that also breaks on the data-card echo.
+* `antenna/horn.py` circular gain cross-check and flare geometry: real, but
+  the candidate fix changed the SHIPPED horn's aspect ratio and beam symmetry —
+  a validated, published anchor. Held for an explicit design decision.
+
 ## [1.11.0] — 2026-08-27
 
 > Pre-tag proof: the FULL `--all` battery ran complete on this release's code
