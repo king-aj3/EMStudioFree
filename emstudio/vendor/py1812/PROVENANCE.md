@@ -1,7 +1,13 @@
 # Provenance — vendored Py1812
 
 - Upstream: https://github.com/eeveetza/Py1812 (Ivica Stevanovic, OFCOM) — the
-  ITU-R reference implementation of Recommendation P.1812-6.
+  ITU-R reference implementation of Recommendation P.1812-8.
+  ⚠ REVISION LABEL CORRECTED 2026-08-30: this file (and every EMStudio surface
+  quoting it) said "-6", but the pinned commit a5205e6 postdates upstream's
+  p1812-8 merge and its own README states P.1812-8 — which is the revision IN
+  FORCE (09/2025) per itu.int, where -6 is Superseded. Note upstream's
+  P1812.py docstring line ~50 still says "-6" at that commit; that is
+  upstream's stale line and stays as vendored (pristine-copy rule).
 - Vendored: 2026-07-09 from upstream commit
   a5205e6a65db27391a8ba79bd5a365e5391f9fdf (2026-05-18).
 - License: the upstream LICENSE in this directory (permissive: as-is, no
@@ -19,7 +25,7 @@
     the model module (``from . import P1812``).
   No numerical/algorithmic changes.
 - Validation: `tests/validation/p1812.py` replays the official ITU-R
-  P.1812-6 validation examples through this vendored copy (final Lb/E and the
+  P.1812-8 validation examples through this vendored copy (final Lb/E and the
   per-equation delta-Bullington intermediates).
 
 ## SPDX confirmation

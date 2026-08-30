@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""ITU-R P.1812-6 path-specific propagation + delta-Bullington (ROADMAP §6-D).
+"""ITU-R P.1812-8 path-specific propagation + delta-Bullington (ROADMAP §6-D).
 
 Thin EMStudio face over the vendored **ITU-R reference implementation**
 (``emstudio/vendor/py1812`` — Py1812 by I. Stevanovic/OFCOM; permissive
 license, PROVENANCE.md there). Two entry points:
 
-* :func:`path_loss_db` — the full P.1812-6 basic transmission loss / field
+* :func:`path_loss_db` — the full P.1812-8 basic transmission loss / field
   strength for a terrain profile (LoS+diffraction+troposcatter+ducting).
   ``dn``/``n0`` must be supplied (the ITU digital maps are NOT bundled;
   DN ~ 45 N-units/km and N0 ~ 325 are mid-latitude typicals — pass real
@@ -18,7 +18,7 @@ license, PROVENANCE.md there). Two entry points:
 Validity (Recommendation §1): 30 MHz - 6 GHz, 0.25 - 3000 km, time
 percentage 1 - 50 %. Enforced here — no silent extrapolation.
 
-Gate: ``tests/validation/p1812.py`` replays the official ITU-R SG3 P.1812-6
+Gate: ``tests/validation/p1812.py`` replays the official ITU-R SG3 P.1812-8
 validation examples (19 profiles / 63 datasets) — final Lb/Ep to 0.01 dB and
 the delta-Bullington intermediates against the official per-equation logs.
 """
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 
 def check_validity(freq_mhz, time_pct, d_km):
-    """Raise ValueError outside the P.1812-6 validity ranges."""
+    """Raise ValueError outside the P.1812-8 validity ranges."""
     if not 30.0 <= float(freq_mhz) <= 6000.0:
         raise ValueError("P.1812 validity is 30-6000 MHz (got {0:g} MHz)"
                          .format(freq_mhz))
@@ -40,7 +40,7 @@ def check_validity(freq_mhz, time_pct, d_km):
 
 def delta_bullington_intermediates(x_km, h_amsl_m, clutter_m, zone,
                                    htg_m, hrg_m, freq_ghz, dn=45.0, pol=1):
-    """Delta-Bullington diffraction (P.1812-6 §4.3.4) over a profile.
+    """Delta-Bullington diffraction (P.1812-8 §4.3.4) over a profile.
 
     Inputs mirror the Recommendation: profile distances (km) + terrain
     heights (m amsl) + representative clutter heights (m; scalar or vector;
@@ -101,7 +101,7 @@ def delta_bullington_intermediates(x_km, h_amsl_m, clutter_m, zone,
 def path_loss_db(freq_mhz, time_pct, x_km, h_amsl_m, clutter_m, zone,
                  htg_m, hrg_m, lat_t, lat_r, lon_t, lon_r, dn=45.0, n0=325.0,
                  pol=1, erp_kw=1.0, **kwargs):
-    """Full P.1812-6 basic transmission loss (dB) + field strength (dBµV/m).
+    """Full P.1812-8 basic transmission loss (dB) + field strength (dBµV/m).
 
     ``pol``: 1 horizontal, 2 vertical. ``dn``/``n0``: refractivity lapse and
     sea-level surface refractivity for the path region (the ITU digital maps

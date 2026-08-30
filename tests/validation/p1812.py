@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""Validation gate: ITU-R P.1812-6 via the vendored reference (Py1812).
+"""Validation gate: ITU-R P.1812-8 via the vendored reference (Py1812).
 
-Replays the OFFICIAL ITU-R SG3 P.1812-6 validation examples — 19 profile
+Replays the OFFICIAL ITU-R SG3 P.1812-8 validation examples — 19 profile
 files / 63 per-dataset reference logs with per-equation intermediates
 (`tests/validation/data/p1812/`, provenance in PROVENANCE.md there) — through
 the vendored engine:
@@ -112,7 +112,7 @@ def main():
 
     from emstudio.vendor.py1812 import P1812
 
-    print("EMStudio P.1812-6 validation gate (official SG3 examples)")
+    print("EMStudio P.1812-8 validation gate (official SG3 examples)")
 
     profiles_dir = os.path.join(DATA, "profiles")
     logs_dir = os.path.join(DATA, "reference_logs")

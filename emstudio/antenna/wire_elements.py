@@ -51,6 +51,14 @@ FT_PER_M = 1.0 / 0.3048   # international foot (exact)
 
 K_THIN_WIRE_DEFAULT = 0.95   # thin-wire end-effect default (ARRL class)
 DIPOLE_GAIN_DBI = 2.15       # lambda/2 dipole peak gain (0 dBd by definition)
+# ⚠ 2.15 is the EXACT value (half-wave dipole directivity 1.6409 -> 2.1508
+# dB), and it is what every modern text uses. NBS TN-688's own section 2
+# prints "increased by 2.16 dB" — the paper's rounding of the same number.
+# We keep the exact value everywhere and note the 0.01 dB difference here,
+# because it is 50x inside TN-688's stated 0.5 dB measurement accuracy and
+# changing the constant would un-anchor every other dBd surface in the repo.
+# (Found by the 2026-08-30 primary-source sweep; the NIST scan is at
+# nvlpubs.nist.gov/nistpubs/Legacy/TN/nbstechnicalnote688.pdf, doc p.1.)
 DBD_OFFSET = 2.15            # gain_dbd = gain_dbi - 2.15
 
 # Resonant (X = 0) feed resistances — textbook class values cross-checked

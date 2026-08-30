@@ -14,7 +14,10 @@ verbatim.
 
 The **optimum-gain** horn is the one designed here: the flare is chosen so the
 aperture phase error is at the classical limit that maximises gain for a given
-length (s = 1/8 in the E-plane, 3/8 in the H-plane). Aperture efficiency for
+length (s = 1/4 in the E-plane, t = 3/8 in the H-plane — Stutzman 2e p.314,
+and what this module's own rho_e = b1^2/2*lambda implies: s = b1^2/(8*lambda*
+rho_e) = 1/4. This line said "1/8" until 2026-08-30, contradicting the code
+one screen below it; caught twice, once by each audit round). Efficiency for
 that geometry is ~0.51 — the number that makes a horn a horn, and the reason a
 horn never reaches the 100 % of an ideal uniform aperture.
 

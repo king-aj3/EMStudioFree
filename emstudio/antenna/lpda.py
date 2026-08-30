@@ -40,7 +40,7 @@ from __future__ import annotations
 import math
 
 C0 = 299792458.0
-DBD_OFFSET = 2.15
+DBD_OFFSET = 2.15   # exact: 2.1508; TN-688's own text rounds it to 2.16 (see wire_elements)
 
 #: Carrel chart validity (warn outside; the charts were drawn for these
 #: ranges — anchors doc §4: gains 6.5-11 dBi, tau 0.76-0.98, sigma 0.04-0.22).
@@ -75,12 +75,22 @@ GAIN_TABLE = [
 #: Corrected-contour crossings at sigma = 0.06 (gain dBi -> tau) — the
 #: below-optimum falloff anchors used to interpolate explicit low-sigma
 #: designs (anchors doc §4).
+#: ⚠ RE-MEASURED 2026-08-30 against the PRIMARY chart (external-validation
+#: sweep). Balanis 3e Fig 11.13 is VECTOR art in the PDF, so the contours
+#: were measured from the embedded path geometry itself — axes calibrated on
+#: the chart's own tick marks by least squares (zero residual), identical in
+#: the official 4e ch11 deck. The old hand-read values were off by up to
+#: 0.010 in tau (the 7.5 dB row, 0.920 -> 0.9105). And the 8.5 dB contour
+#: TERMINATES at sigma = 0.0647 — it never reaches sigma = 0.06 at all — so
+#: that row is an EXTRAPOLATION of the row-scan trend (0.956-0.961 across
+#: sigma 0.065-0.075), kept because the interpolator needs a top anchor, and
+#: labelled here so nobody mistakes it for a published crossing.
 SIGMA006_TABLE = [
-    (6.5, 0.852),
-    (7.0, 0.887),
-    (7.5, 0.920),
-    (8.0, 0.939),
-    (8.5, 0.957),
+    (6.5, 0.8486),
+    (7.0, 0.8848),
+    (7.5, 0.9105),
+    (8.0, 0.9355),
+    (8.5, 0.9565),   # extrapolated — the published curve ends at sigma 0.0647
 ]
 
 #: Carrel's charts are drawn for element half-length/radius h/a = 125;

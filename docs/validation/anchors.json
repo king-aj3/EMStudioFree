@@ -1,0 +1,1613 @@
+{
+ "swept": "2026-08-30",
+ "method": "13 tracer agents, primary-source-only rules of evidence; every claimed mismatch adversarially re-verified by a second agent that fetched the source itself; 21 agents, 989 tool calls",
+ "counts": {
+  "traced": 172,
+  "confirmed": 144,
+  "corroborated": 13,
+  "claimed_mismatch": 7,
+  "real_mismatch": 7,
+  "unverifiable": 8
+ },
+ "anchors": [
+  {
+   "anchor": "Table 1 measured gain row: 7.1 / 9.2 / 10.2 / 12.25 / 13.4 / 14.2 dBd at booms 0.4 / 0.8 / 1.2 / 2.2 / 3.2 / 4.2 lambda",
+   "repo_value": "TN688_TABLE1 gain_dbd values 7.1, 9.2, 10.2, 12.25, 13.4, 14.2 at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/yagi.py:61-75; same row in /home/ajenkins/PycharmProjects/EMStudioPro/docs/upstream/tn688-yagi-anchors.md:39",
+   "source_value": "7.1 / 9.2 / 10.2 / 12.25 / 13.4 / 14.2 dB relative to half-wave dipole",
+   "source_kind": "primary",
+   "citation": "NBS Technical Note 688, P.P. Viezbicke, 'Yagi Antenna Design', December 1976, Table 1, document p.7 (official NIST scan, nvlpubs.nist.gov/nistpubs/Legacy/TN/nbstechnicalnote688.pdf, PDF p.17, read as page image)",
+   "verdict": "CONFIRMED",
+   "detail": "All six gain cells match the primary scan digit for digit, including the 12.25 (not 12.3) at 2.2 lambda. Note: the section-4 prose on doc p.16 rounds the same set to '7.1, 9.2, 10.2, 12.3, 13.4 and 14.2 dB' \u2014 Table 1 is the tabulated source and the repo follows it. Section 2 (doc p.1) states the measurements are reproducible to 0.2 dB and believed accurate to within 0.5 dB, which is the physical basis for the gate's +/-0.5 dB windows."
+  },
+  {
+   "anchor": "Table 1 reflector lengths: 0.482 lambda for the five booms 0.4-3.2, 0.475 lambda for 4.2",
+   "repo_value": "reflector: 0.482 (x5), 0.475 (4.2 row) at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/yagi.py:61-73; docs/upstream/tn688-yagi-anchors.md:22",
+   "source_value": "LENGTH OF REFLECTOR, lambda: 0.482, 0.482, 0.482, 0.482, 0.482, 0.475",
+   "source_kind": "primary",
+   "citation": "NBS TN-688, Table 1, doc p.7 (NIST scan PDF p.17, page image)",
+   "verdict": "CONFIRMED",
+   "detail": "Exact match, including the lone 0.475 in the 4.2-lambda column that the repo doc flags as the only reflector that differs."
+  },
+  {
+   "anchor": "Table 1 per-director lengths, all six boom columns (incl. the disputed 0.4-lambda single director 0.424 and the non-monotonic tails)",
+   "repo_value": "directors lists at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/yagi.py:62-75 \u2014 0.4:[0.424]; 0.8:[0.428,0.424,0.428]; 1.2:[0.428,0.420,0.420,0.428]; 2.2:[0.432,0.415,0.407,0.398,0.390x4,0.398,0.407]; 3.2:[0.428,0.420,0.407,0.398,0.394,0.390,0.386x9]; 4.2:[0.424,0.424,0.420,0.407,0.403,0.398,0.394,0.390x6]",
+   "source_value": "Identical, every cell: 0.4-lambda 1st director reads 0.424 in the primary scan; 2.2 column runs 0.432/0.415/0.407/0.398/0.390 0.390 0.390 0.390/0.398/0.407; 3.2 column 0.428/0.420/0.407/0.398/0.394/0.390 then 0.386 for 7th-15th; 4.2 column 0.424/0.424/0.420/0.407/0.403/0.398/0.394 then 0.390 for 8th-13th",
+   "source_kind": "primary",
+   "citation": "NBS TN-688, Table 1, doc p.7 (NIST scan PDF p.17, page image)",
+   "verdict": "CONFIRMED",
+   "detail": "Every director cell matches, including the three items most likely to be transcription errors: (1) the 0.4-lambda first director is clearly 0.424 in the scan \u2014 and Example 1 STEP 2 (doc p.17) shows 0.442 is the d/lambda=0.0042 DIAMETER-CORRECTED value, exactly the migration the repo doc blames for the Balanis Table 10.6 typo, so the repo's do-not-'correct' warning is right; (2) the 2.2-lambda non-monotonic tail 0.398/0.407 at directors 9/10 is genuinely printed; (3) the 1.2-lambda 4th director genuinely rises to 0.428. Director counts 1/3/4/10/15/13 confirmed by the table and independently by Fig 7's labels (N=1,3,4,10,15,13). Section 3.2's 'oscillatory wave pattern' language (doc p.6, top) confirms the non-monotonicity is physical."
+  },
+  {
+   "anchor": "Table 1 director-spacing row: 0.20 / 0.20 / 0.25 / 0.20 / 0.20 / 0.308 lambda",
+   "repo_value": "spacing: 0.20, 0.20, 0.25, 0.20, 0.20, 0.308 at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/yagi.py:61-73; docs/upstream/tn688-yagi-anchors.md:38",
+   "source_value": "SPACING BETWEEN DIRECTORS, IN lambda: 0.20, 0.20, 0.25, 0.20, 0.20, 0.308",
+   "source_kind": "primary",
+   "citation": "NBS TN-688, Table 1, doc p.7 (NIST scan PDF p.17, page image); 0.308 also in Example 2 GIVEN (doc p.19: '0.308 lambda = 11.2 cm') and Fig 9 legend ('13 DIR, 1 REFL, S=0.308lambda')",
+   "verdict": "CONFIRMED",
+   "detail": "Exact match, including the odd 0.25 at 1.2 lambda and 0.308 at 4.2 lambda, each corroborated in two other places in the same primary document."
+  },
+  {
+   "anchor": "Table 1 basis conditions: d/lambda = 0.0085, f = 400 MHz, reflector 0.2 lambda behind driven",
+   "repo_value": "D_REF = 0.0085 at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/yagi.py:45; reflector position 0.2 lambda at yagi.py:232 and reflector_spacing_lambda 0.2 at yagi.py:259; 400 MHz default at emstudio/templates/yagi.py:30 and f0=400e6 in tests/validation/yagi_nec2.py:55",
+   "source_value": "Table 1 footer: 'ELEMENT DIAMETER = 0.0085', 'f = 400 MHz', 'REFLECTOR SPACED 0.2lambda BEHIND DRIVEN ELEMENT'; section 2: 'All measurements were conducted at a modeling frequency of 400 MHz'; section 3.2: elements 0.0085 lambda dia (0.25 in = 0.63 cm), reflector 0.482 lambda spaced 0.2 lambda behind driven; Fig 1 shows max gain 2.6 dB at 0.2 lambda spacing",
+   "source_kind": "primary",
+   "citation": "NBS TN-688, Table 1 footer doc p.7; section 2 doc p.1; section 3.1/3.2 doc p.2; Fig 1 doc p.3 (NIST scan, page images)",
+   "verdict": "CONFIRMED",
+   "detail": "All three basis conditions confirmed in the table footer AND independently in the body text. The 0.2-lambda reflector spacing is additionally justified by the primary data itself (Fig 1's measured maximum)."
+  },
+  {
+   "anchor": "yagi_nec2.py gate regression dict: measured = {0.4: 7.1, 0.8: 9.2, 1.2: 10.2, 2.2: 12.25}",
+   "repo_value": "measured = {0.4: 7.1, 0.8: 9.2, 1.2: 10.2, 2.2: 12.25} at /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/yagi_nec2.py:140",
+   "source_value": "Table 1 gain row: 7.1 (0.4), 9.2 (0.8), 10.2 (1.20), 12.25 (2.2)",
+   "source_kind": "primary",
+   "citation": "NBS TN-688, Table 1, doc p.7 (NIST scan PDF p.17, page image)",
+   "verdict": "CONFIRMED",
+   "detail": "The four gate anchors are the primary measured values verbatim. The gate's +/-0.5 dB window is consistent with the paper's own stated accuracy ('believed accurate to within 0.5 dB', section 2)."
+  },
+  {
+   "anchor": "Fig 10 boom-correction anchors: D/lambda 0.0085 -> +0.005 lambda; D/lambda 0.035 -> +0.026 lambda (and the repo's log-linear model BOOM_B0=0.005, BOOM_SLOPE=0.03416)",
+   "repo_value": "BOOM_B0 = 0.005, BOOM_SLOPE = 0.03416 at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/yagi.py:51-52; anchors documented at docs/upstream/tn688-yagi-anchors.md:54-57",
+   "source_value": "Example 1 STEP 5 (doc p.17): 'For a boom diameter-to-wavelength ratio D/lambda = 0.0085 ... From the chart this length = 0.005 lambda'; Example 2 STEP 5 (doc p.19): 'D/lambda = 0.035 ... From the curve, determine this length = 0.026 lambda'",
+   "source_kind": "formula-recomputed",
+   "citation": "NBS TN-688, section 4 worked examples STEP 5, doc pp.17 and 19; Fig 10 doc p.10 (NIST scan, page images)",
+   "verdict": "CONFIRMED",
+   "detail": "Both anchor points are printed verbatim in the primary text (not just read off the graph). Recomputed the repo model: 0.005 + 0.03416*log10(D_ratio/0.0085) gives exactly 0.00500 at 0.0085 and 0.02600 at 0.035 \u2014 both published anchors reproduced to the digit. The log-linear FORM is the repo's own interpolation of Fig 10's straight line on the semi-log grid (TN-688 publishes only the graph); the visible Fig 10 line and data points are consistent with it. Fig 10's stated range extends to D/lambda ~0.04, matching the repo's extrapolation warning threshold; section 3.4 confirms round and square booms behaved the same, as the repo doc states."
+  },
+  {
+   "anchor": "Fig 9 diameter-compensation model: K_DIR = 0.048, K_REFL = 0.010 (lambda per decade of d/lambda)",
+   "repo_value": "K_DIR = 0.048, K_REFL = 0.010 at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/yagi.py:48-49; model documented at docs/upstream/tn688-yagi-anchors.md:63-72",
+   "source_value": "TN-688 publishes only the Fig 9 curves (doc p.9); the checkable primary digits are the worked-example endpoints: Ex.1 (d/lambda 0.0085->0.0042): directors 0.428->0.442, 0.424->0.438, reflector 0.482->0.485; Ex.2 (0.0085->0.013): directors 0.424->0.414, 0.390->0.377 (D8-D13), reflector 0.475->0.473",
+   "source_kind": "formula-recomputed",
+   "citation": "NBS TN-688, section 4 STEPs 1-4 of both examples, doc pp.17 and 19; Fig 9 doc p.9 (NIST scan, page images)",
+   "verdict": "CONFIRMED",
+   "detail": "Recomputed the repo model against every printed example digit. Example 1: model gives directors 0.4427/0.4387 vs printed 0.442/0.438 (+0.0007 lambda) and reflector 0.4851 vs 0.485 (+0.0001) \u2014 within the repo doc's claimed +/-0.001. Example 2: D1 0.4151 vs 0.414 (+0.0011), reflector 0.4732 vs 0.473 (+0.0002), worst case D8-D13 0.3811 vs 0.377 (+0.0041) \u2014 exactly the '~0.004 lambda worst' the repo doc discloses, inside the paper's own 0.003-lambda cut-tolerance scale and the gate's <0.005 threshold. The repo's honesty claim checks out: the first-order log fit is an approximation whose worst residual sits on the shortest 4.2-lambda directors, and it says so."
+  },
+  {
+   "anchor": "Worked example 1 (0.8-lambda Yagi, 50.1 MHz): full digit chain",
+   "repo_value": "docs/upstream/tn688-yagi-anchors.md:74-80 \u2014 lambda=597 cm, d/lambda=0.0042, D/lambda=0.0085 (+0.005 corr), spacing 0.2 lambda=119 cm; reflector 0.482->0.485->0.490 lambda=293 cm; D1=D3 0.428->0.442->0.447 lambda=267 cm; D2 0.424->0.438->0.443 lambda=264.5 cm",
+   "source_value": "GIVEN (doc p.16): 50.1 MHz, lambda=597 cm (235 in), d=2.54 cm, d/lambda=0.0042, D=5.1 cm, D/lambda=0.0085, spacing 0.2 lambda=119 cm; STEPs 1-5 (doc p.17): L_D1=L_D3=0.428, L_D2=0.424, L_R=0.482; uncompensated 0.442/0.438/0.485; final 0.447 lambda=267 cm, 0.443 lambda=264.5 cm, 0.490 lambda=293 cm; 50-ohm folded dipole + quarter-wave balun for the driven",
+   "source_kind": "primary",
+   "citation": "NBS TN-688, section 4 Example 1, doc pp.16-17 (NIST scan PDF pp.26-27, page images)",
+   "verdict": "CONFIRMED",
+   "detail": "Every number in the repo's transcription matches the primary text verbatim, including the cm conversions (267 / 264.5 / 293 cm) and the folded-dipole-plus-balun driven note."
+  },
+  {
+   "anchor": "Worked example 2 (4.2-lambda Yagi, 827 MHz, 13 directors): full digit chain",
+   "repo_value": "docs/upstream/tn688-yagi-anchors.md:82-87 \u2014 lambda=36.34 cm, d/lambda=0.013, D/lambda=0.035 (+0.026 corr), spacing 0.308 lambda=11.2 cm; reflector 0.499 lambda=18.1 cm; D1=D2 0.440=16.0; D3 0.435=15.8; D4 0.421=15.3; D5 0.417=15.1; D6 0.411=14.9; D7 0.407=14.8; D8-D13 0.403=14.6 cm",
+   "source_value": "GIVEN (doc p.19): 827 MHz, lambda=36.34 cm (14.3 in), d=0.48 cm, d/lambda=0.013, D=1.27 cm, D/lambda=0.035, spacing 0.308 lambda=11.2 cm; final cut lengths (doc p.21): D1=D2 0.414+0.026=0.440 lambda=16.0 cm; D3 0.435=15.8; D4 0.421=15.3; D5 0.417=15.1; D6 0.411=14.9; D7 0.407=14.8; D8-D13 0.403=14.6; L_R 0.473+0.026=0.499 lambda=18.1 cm",
+   "source_kind": "primary",
+   "citation": "NBS TN-688, section 4 Example 2, doc pp.19-21 (NIST scan PDF pp.29-31, page images)",
+   "verdict": "CONFIRMED",
+   "detail": "Every digit matches the primary text verbatim \u2014 all eight length classes in both lambda and cm."
+  },
+  {
+   "anchor": "Fig 9 design-curve letters and the flagged Table-1-vs-Fig-9 grouping discrepancy",
+   "repo_value": "curve: A/B/B/C/B/D per boom at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/yagi.py:61-73; discrepancy flag at docs/upstream/tn688-yagi-anchors.md:112-118",
+   "source_value": "Table 1 row 'DESIGN CURVE (SEE FIG. 9)': (A)(B)(B)(C)(B)(D). Fig 9's own legend box (doc p.9, repeated in Figs 20/21): (A) 0.4-lambda 1 dir; (B) 2.2-lambda 10 dir; (C) 0.8-lambda 3 dir + 1.2-lambda 4 dir + 3.2-lambda 15 dir; (D) 4.2-lambda 13 dir S=0.308; (E) 1.25-lambda 3 dir S=0.35",
+   "source_kind": "primary",
+   "citation": "NBS TN-688, Table 1 doc p.7 and Fig 9 doc p.9 (legend re-printed identically in Fig 20 doc p.18 and Fig 21 doc p.20)",
+   "verdict": "CONFIRMED",
+   "detail": "Both halves of the repo's flag are real in the primary source: the repo stores Table 1's letters verbatim (correct, matching), AND the internal B-vs-C contradiction with Fig 9's legend exists exactly as described \u2014 the legend groups 0.8/1.2/3.2 under (C) and puts 2.2 alone under (B), plus an (E)=1.25-lambda case absent from Table 1. Verified in three separate printings of the legend (Figs 9, 20, 21 \u2014 all identical). The repo correctly keys synthesis off Table 1's explicit lengths, so the ambiguity touches no shipped number."
+  },
+  {
+   "anchor": "dBd-to-dBi offset used to score the gate: 2.15 dB",
+   "repo_value": "DBD_OFFSET = 2.15 at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/wire_elements.py:54; applied as g_dbd = g_dbi - 2.15 at tests/validation/yagi_nec2.py:123 and :145",
+   "source_value": "TN-688 section 2 (doc p.1): 'If referenced to an isotropic source, the values must be increased by 2.16 dB'",
+   "source_kind": "primary",
+   "citation": "NBS TN-688, section 2, doc p.1 (NIST scan PDF p.11, page image)",
+   "verdict": "MISMATCH",
+   "detail": "A genuine last-digit difference, almost certainly immaterial: TN-688 prescribes +2.16 dB for its dBd values; the repo converts with 2.15 dB everywhere. The exact half-wave dipole directivity is 10*log10(1.6409) = 2.1508 dB, so the repo's 2.15 is the CORRECT modern rounding and TN-688's 2.16 is the older convention \u2014 but strictly, scoring NEC2 dBi against TN-688's dBd numbers per the paper's own convention would use 2.16. Net effect on every gate comparison: 0.01 dB, against windows of +/-0.5 dB and [8.3, 9.9] \u2014 no gate outcome can change. Worth a one-line comment where DBD_OFFSET meets TN-688 numbers, at most; do NOT change the constant (2.15 is physically right, and it is used self-consistently across the codebase)."
+  },
+  {
+   "anchor": "Lyn et al. (1995) Strouhal number 0.132 at Re 21,400",
+   "repo_value": "St 0.132 \u2014 tests/validation/openfoam_wind_ras.py:16 (also 'measured 0.132' at :79 and in the gate check label :164)",
+   "source_kind": "primary",
+   "source_value": "f = 1.77 +/- 0.05 Hz; St = fH/U = 0.132 +/- 0.004 (ERCOFTAC Classic Collection case 043, the official archive/description of the Lyn & Rodi LDV dataset); Tian et al. 2013 Table 3 quotes 0.132; Trias et al. 2015 Table 2 quotes 0.133",
+   "citation": "ERCOFTAC Classic Collection case043, http://cfd.mace.manchester.ac.uk/ercoftac/doku.php?id=cases:case043 (fetched, text read); Cambridge JFM 304 abstract page confirms Re ~= 21400; Tian, Ong, Yang & Myrhaug, Ocean Eng. 58 (2013) 208-216 Table 3 (publisher PDF from naoce.sjtu.edu.cn)",
+   "verdict": "CONFIRMED",
+   "detail": "The official ERCOFTAC archive of the experiment states the digit with its uncertainty (0.132 +/- 0.004). The repo's 0.132 is exactly the published central value. Trias's Table 2 quoting 0.133 sits inside the stated +/- 0.004."
+  },
+  {
+   "anchor": "Lyn et al. (1995) mean drag coefficient 2.1 at Re 21,400",
+   "repo_value": "Cd 2.1 \u2014 tests/validation/openfoam_wind_ras.py:16 (window rationale :30, 'Lyn 2.1' also at :9 and :78)",
+   "source_kind": "primary",
+   "source_value": "'At x/H = 8, the time-averaged drag coefficient was estimated from the integral of the time-averaged streamwise momentum flux to be 2.1, which agrees with accepted literature values' (ERCOFTAC case043); Tian Table 3 row 2: Lyn et al. (1995) Exp. 21,400, CD 2.1, St 0.132; Trias Table 2: Lyn 21.4e3, Cd 2.1",
+   "citation": "ERCOFTAC Classic Collection case043 (fetched); Tian et al. 2013 Table 3 (fetched primary PDF); Trias, Gorobets & Oliva 2015 Table 2 (fetched UPCommons manuscript)",
+   "verdict": "CONFIRMED",
+   "detail": "Digit confirmed in the official data archive and in two independent peer-reviewed tables. Nuance worth knowing: it is a momentum-integral ESTIMATE at x/H=8 in a ~7%-blockage rig, not a direct force-balance measurement \u2014 which is exactly why the repo's blockage-matched-domain ruling (radius_ratio 20) is sound."
+  },
+  {
+   "anchor": "Tian et al. (2013) OpenFOAM 2-D URANS k-omega SST: Cd 2.060, St 0.138, Cl,rms 1.492",
+   "repo_value": "'Cd 2.060, St 0.138, Cl,rms 1.492' \u2014 tests/validation/openfoam_wind_ras.py:19-20",
+   "source_kind": "primary",
+   "source_value": "Table 3 row 1: 'Present k-o SST 21,400 2.060 1.492 0.138'; identical in the grid/time-resolution table, case A3 (77,670 elements, DtU/H=0.004): CD 2.060, CLrms 1.492, St 0.138",
+   "citation": "Tian, Ong, Yang & Myrhaug, Ocean Engineering 58 (2013) 208-216, publisher-typeset PDF hosted by the first author's institution: https://naoce.sjtu.edu.cn/upload/1489051464214210.pdf (fetched, text extracted, tables read)",
+   "verdict": "CONFIRMED",
+   "detail": "All three digits match the paper's own tables exactly."
+  },
+  {
+   "anchor": "Trias, Gorobets & Oliva (2015) DNS at Re 22,000: Cd 2.18, St 0.132, Cl,rms 1.71",
+   "repo_value": "'Cd 2.18, St 0.132, Cl,rms 1.71 (secondary-confirmed digits; not load-bearing)' \u2014 tests/validation/openfoam_wind_ras.py:17-18",
+   "source_kind": "primary",
+   "source_value": "Table 2: 'DNS 22 0.132 2.18 0.205 1.71 1.04'; body text: 'The averaged drag value, <CD> = 2.18', 'CLrms = 1.71', spectra peak 'located at 0.132'",
+   "citation": "Author-accepted manuscript in UPC's official institutional repository (UPCommons): https://upcommons.upc.edu/server/api/core/bitstreams/80e2fadd-9adb-4778-9e8a-a06d1e4531c9/content (Computers & Fluids 123:87-98) \u2014 fetched, text extracted",
+   "verdict": "CONFIRMED",
+   "detail": "All three digits confirmed from the primary. The repo docstring's own provenance label 'secondary-confirmed' can be upgraded: the DNS paper is openly available at UPCommons and confirms Cd 2.18 / St 0.132 / Cl,rms 1.71 digit-for-digit."
+  },
+  {
+   "anchor": "Bosch & Rodi (1998) k-epsilon St 0.146 (ceiling of the asymmetric St window)",
+   "repo_value": "'just over Bosch & Rodi's k-epsilon 0.146' \u2014 tests/validation/openfoam_wind_ras.py:28",
+   "source_kind": "secondary",
+   "source_value": "Tian Table 3 row 7: 'Bosch and Rodi (1998) k-e (2D) 22,000 2.108 1.012 0.146'",
+   "citation": "Quoted in Tian et al. 2013 Table 3 (fetched primary PDF of Tian; secondary with respect to Bosch & Rodi's own paper, IJHFF 19:186, which I could not fetch)",
+   "verdict": "CORROBORATED",
+   "detail": "The digit is read from a peer-reviewed comparison table, not from Bosch & Rodi's own pages. The derived window arithmetic holds: 0.146 is +10.6% over 0.132 and Tian's 0.138 is +4.5%, matching the repo's '+4 % SST to +11 % k-epsilon' bias statement."
+  },
+  {
+   "anchor": "Williamson laminar St(Re) correlation constants: St = -3.3265/Re + 0.1816 + 1.6e-4*Re",
+   "repo_value": "constants at tests/validation/wind_transient.py:17 and :91 (williamson_st), tests/validation/openfoam_wind_transient.py:13, emstudio/solvers/openfoam/wind.py:42",
+   "source_kind": "secondary",
+   "source_value": "'St = A/Re + B + C Re ... where A= -3.3265, B = 0.1816 and C = 1.6 x 10-4', least-squares fit for Re 50-180 (Beaudan & Moin, Stanford Report TF-62, 1994, eq. 1); same constants quoted in the search-indexed abstract summary of the primary",
+   "citation": "Stanford University Report TF-62: https://web.stanford.edu/group/tfsa/TF_reports/TF-062_Beaudon.pdf (fetched, text extracted). Primary is Williamson, Phys. Fluids 31(10):2742 (1988), doi 10.1063/1.866978 \u2014 AIP returned 403; the OpenAlex abstract (fetched) confirms the paper but the constants live in the body, which I could not sight",
+   "verdict": "CORROBORATED",
+   "detail": "All three constants match digit-for-digit, with the validity range Re 50-180 bracketing the repo's Re 100/150 anchors. CITATION NIT: the repo attributes the fit to 'J. Fluid Mech. 1988' (wind_transient.py:16, openfoam_wind_transient.py:12) \u2014 the standard home of this fit is PHYSICS OF FLUIDS 31, 2742 (1988), not JFM (Williamson's related JFM paper is vol. 206, 1989; the Stanford report cites 'Williamson 1991'). The constants are right; the journal name in the comment is almost certainly wrong."
+  },
+  {
+   "anchor": "Williamson correlation evaluated: St 0.1643 at Re 100, 0.1834 at Re 150",
+   "repo_value": "'gives 0.1643 at Re 100 and 0.1834 at Re 150' \u2014 tests/validation/wind_transient.py:18; openfoam_wind_transient.py:13-14; wind.py:42-43",
+   "source_kind": "formula-recomputed",
+   "source_value": "-3.3265/100 + 0.1816 + 1.6e-4*100 = 0.164335; -3.3265/150 + 0.1816 + 1.6e-4*150 = 0.1834233",
+   "citation": "Recomputed by hand from the corroborated constants; independently, Stanford TF-62 states the equation gives 0.164 at Re 100, and Qu, Norberg, Davidson, Peng & Wang (2013, Chalmers-hosted PDF) measure St 0.1648-0.1649 at Re 100 and 0.1837-0.1841 at Re 150 in reference-quality 2-D computations",
+   "verdict": "CONFIRMED",
+   "detail": "The repo's quoted 4-digit values are the correctly rounded evaluations of its own formula, and independent published computations land within 0.4% of them."
+  },
+  {
+   "anchor": "Re-100 circular-cylinder published Cd: 'Park 1.33' and 'Liu 1.35', cluster ~1.32-1.37, gate range 1.30-1.40",
+   "repo_value": "openfoam_wind_transient.py:17 and :83-84; wind_transient.py:19-20; WIND_ANCHORS cd_range (1.30, 1.40) at wind_transient.py:83",
+   "source_kind": "secondary",
+   "source_value": "Qu et al. (2013) Table 1 (Re 100): Park et al. (1998) CD 1.33, St 0.165; full cluster 1.318-1.336 over 8 comparable-domain studies; arXiv 2205.15886: 'Park et al. [38] got it as 1.33'; Wolf Dynamics tutorial table: Liu et al. (JCP 139, 1998) 1.35 +/- 0.012",
+   "citation": "Qu, Norberg, Davidson, Peng & Wang, 'Quantitative numerical analysis of flow past a circular cylinder at Reynolds number between 50 and 200': https://www.tfd.chalmers.se/~lada/postscript_files/lixia_paper_CPL.pdf (fetched); arXiv:2205.15886 (fetched); https://www.wolfdynamics.com/wiki/tut_2D_cylinder.pdf (fetched)",
+   "verdict": "CORROBORATED",
+   "detail": "Park's 1.33 is corroborated in two fetched documents (one peer-reviewed); Liu's 1.35 in one (training material citing the JCP paper). The gate's 1.30-1.40 window comfortably contains the fetched published cluster 1.318-1.36. Primary papers (KSME Int. J. 12:1200; JCP 139:33) are paywalled."
+  },
+  {
+   "anchor": "Re-100 'Braza 1.364' specifically",
+   "repo_value": "'Braza 1.364' \u2014 openfoam_wind_transient.py:17; wind_transient.py:20",
+   "source_kind": "secondary",
+   "source_value": "The one fetched table quoting Braza et al. (1986) at Re 100 gives 1.386 +/- 0.015 (Wolf Dynamics tutorial); no fetched document this session carries 1.364 attributed to Braza",
+   "citation": "Braza, Chassaing & Ha Minh, JFM 165:79-130 (1986) is paywalled; searched arXiv comparison tables (2205.15886, 2303.09262, 1609.04364, 2210.00148, 1109.3524, 1506.01320), Wolf Dynamics, semanticscholar-hosted PDFs",
+   "verdict": "UNVERIFIABLE",
+   "detail": "Secondary sources genuinely disagree on Braza's Re-100 Cd (1.364 in several published tables per search snippets I could not fetch; 1.386 +/- 0.015 in the one I could). The digit is decorative context, not gate-load-bearing (the gate checks the 1.30-1.40 range), but if you want the comment airtight, either sight JFM 165 directly or swap the parenthetical to values verified here (e.g. 'Park 1.33, Kravchenko & Moin 1.32, Liu 1.35')."
+  },
+  {
+   "anchor": "Re-100 lift amplitude ~0.32-0.34, gate window 0.28-0.38",
+   "repo_value": "openfoam_wind_transient.py:18-19 and :85-86; wind_transient.py:21 and clamp_range (0.28, 0.38) at wind_transient.py:83",
+   "source_kind": "secondary",
+   "source_value": "Qu et al. (2013): CL'(rms) 0.225 (present D9) and 0.235 (Park) at Re 100 -> sinusoid amplitude ~0.318-0.332; Wolf Dynamics table: cl +/- 0.339 (Liu), +/- 0.333 (Guerrero), +/- 0.25 (Braza)",
+   "citation": "Qu et al. 2013 Tables 1 and 3 (fetched); Wolf Dynamics tut_2D_cylinder.pdf (fetched)",
+   "verdict": "CORROBORATED",
+   "detail": "The ~0.32-0.34 claim matches the rms-to-amplitude conversion of the peer-reviewed values; the 0.28-0.38 window brackets every fetched value except Braza's low +/-0.25 outlier, which the window's floor deliberately excludes as its shedding-exists purpose."
+  },
+  {
+   "anchor": "WIND_ANCHORS Re-150 row: cd_range (1.26, 1.40); lift amplitude ~0.52, clamp_range (0.44, 0.60)",
+   "repo_value": "wind_transient.py:84-85 (row), :78-80 ('~0.33 at Re 100, ~0.52 at Re 150'); fixture Cd 1.3283 / St 0.1835 / clamp 0.5202 are repo-measured record values",
+   "source_kind": "secondary",
+   "source_value": "Qu et al. (2013) Table 3, Re 150 (two domain sizes): CD 1.301 and 1.305; CL'(rms) 0.3529 and 0.3546 -> amplitude ~0.499-0.501; St 0.1837 and 0.1841",
+   "citation": "Qu, Norberg, Davidson, Peng & Wang 2013, Chalmers-hosted PDF (fetched)",
+   "verdict": "CORROBORATED",
+   "detail": "The published Re-150 point sits inside every repo window: Cd 1.30 in (1.26, 1.40), amplitude ~0.50 in (0.44, 0.60), St 0.1837 within 0.2% of both the Williamson value (0.1834) and the repo's recorded 0.1835. The '~0.52' amplitude phrasing is ~4% above Qu's ~0.50 \u2014 fine for a tilde value, and the repo's own measured 0.5202 is what it describes."
+  },
+  {
+   "anchor": "RAS gate windows and their inputs: St [0.125, 0.150]; Cd [1.95, 2.25] covering 'experiments 2.05-2.2, DNS 2.18, 2-D URANS 2.05-2.11'; Cl amp [1.1, 3.0] from 'published Cl,rms 0.98-1.71'",
+   "repo_value": "tests/validation/openfoam_wind_ras.py:25-36 (design), :159-170 (checks). Repo-measured results Cd 2.1304/2.1358, St 0.1356, Cl amp 2.49/2.52 (:75-84) sit inside all three",
+   "source_kind": "primary",
+   "source_value": "Tian Table 3: 2-D URANS Cd 2.060/2.108/2.05 (exactly the claimed 2.05-2.11), Cl,rms 0.984-1.6 across LES+URANS, St 0.138-0.146; Trias Table 2: DNS 2.18/1.71/0.132, experiments Lee 2.05 through Luo 2.21, Norberg/Bearman&Obasaju/Vickery all 2.1",
+   "citation": "Tian et al. 2013 Table 3 (fetched primary); Trias et al. 2015 Table 2 (fetched primary)",
+   "verdict": "CONFIRMED",
+   "detail": "Every factual input to the windows is verified in the two fetched primary tables; the windows themselves are then design choices built on the verified spread. Tiny nit: Trias lists the Luo et al. experiment at 2.21 (Re 34k), a hair over the 'experiments (2.05-2.2)' phrasing at openfoam_wind_ras.py:30 \u2014 immaterial to the [1.95, 2.25] gate. The box's measured Cd 2.13-2.14 vs Lyn 2.1 and St 0.1356 vs 0.132 (+2.7% high) match the documented URANS high-St bias direction and are inside the published spread."
+  },
+  {
+   "anchor": "Tian benchmark configuration claims: 35Hx20H domain (+/-10H lateral = 5% blockage), dt* 0.004, inlet I=2% (Lyn's rig), l=0.07H with <0.27% sensitivity",
+   "repo_value": "radius_ratio 20 = 'Tian's 5% blockage' \u2014 wind_transient.py:283-285 and openfoam_wind_ras.py:39-40; fixed_dt_star=0.004 'Tian's step' \u2014 openfoam_wind_ras.py:127 and docstring :55; 'I = 2 %, l = 0.07 d \u2014 Lyn's rig as characterised by Tian' \u2014 emstudio/solvers/openfoam/wind.py:453",
+   "source_kind": "primary",
+   "source_value": "'The size of the whole computational domain is 35H by 20H' (lateral +/-10H -> H/20H = 5% blockage, recomputed); 'turbulence intensity I=2% (Lyn et al., 1995)'; 'turbulence length l = 0.07H'; 'a much lower value (l=0.04H)... small variations (less than 0.27%)'; case A3: DtU/H = 0.004",
+   "citation": "Tian et al. 2013, section 2.2 + Table (fetched primary PDF); Lyn rig parameters independently on ERCOFTAC case043: free-stream turbulence 2%, blockage 7%, aspect ratio 9.75",
+   "verdict": "CONFIRMED",
+   "detail": "All setup provenance claims check out against the paper's own text, including the 7%-uncorrected Lyn blockage claim at openfoam_wind_ras.py:41 (ERCOFTAC parameter table says exactly 7%)."
+  },
+  {
+   "anchor": "Flat square-cylinder Cd curve: 'Norberg ~2.1 at 38k; Fage & Johansen ~2.05 at 150k'",
+   "repo_value": "tests/validation/openfoam_wind_ras.py:9; also wind.py:93-94, :251, :297",
+   "source_kind": "secondary",
+   "source_value": "Tian primary text: Fig. 6 compares CD with 'the experimental results (Norberg, 1993; Fage and Johansen, 1927)' and states R=1 results 'agree well'; Trias Table 2 lists Norberg at Re 22e3 with Cd 2.1",
+   "citation": "Tian et al. 2013 (fetched primary \u2014 but the specific digits are read off its Fig. 6, a graph, per the repo's own de-risk doc); Trias et al. 2015 Table 2 (fetched)",
+   "verdict": "CORROBORATED",
+   "detail": "The attributions are verified in the primary text and the ~2.1 level is confirmed in print at Re 22k (Trias's table); the specific graph-read pairs (2.1 @ 38k, 2.05 @ 150k) appear only as figure points, which text extraction cannot verify digit-for-digit. The tilde-qualified phrasing honestly reflects that. Norberg 1993 (JWEIA 49:187) and Fage & Johansen 1927 primaries were not fetchable."
+  },
+  {
+   "anchor": "citation: Betts & Bokhari (2000), 'Experiments on turbulent natural convection in an enclosed tall cavity', IJHFF 21(6)",
+   "repo_value": "Betts & Bokhari (2000), IJHFF 21(6) \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py:6-8",
+   "source_kind": "primary",
+   "source_value": "Crossref publisher-deposited metadata for DOI 10.1016/S0142-727X(00)00033-3: P.L. Betts, I.H. Bokhari, 'Experiments on turbulent natural convection in an enclosed tall cavity', International Journal of Heat and Fluid Flow, vol. 21, issue 6, pp. 675-683, 2000",
+   "citation": "api.crossref.org/works/10.1016/S0142-727X(00)00033-3; corroborated by ERCOFTAC Classic Collection case 079 references list (cfd.mace.manchester.ac.uk, 'Vol. 21, pp. 675-683') and by the ESI tutorial README.md which carries the same DOI",
+   "verdict": "CONFIRMED",
+   "detail": "Authors, title, journal, volume, ISSUE 6, pages and year all match digit for digit. The ESI v2512 tutorial README (installed at /usr/lib/openfoam/openfoam2512/tutorials/heatTransfer/buoyantSimpleFoam/buoyantCavity/README.md) cites the identical reference with DOI and points to ERCOFTAC case 079 as the public data source."
+  },
+  {
+   "anchor": "cavity width x height: 0.076 m x 2.18 m",
+   "repo_value": "W_M, H_M = 0.076, 2.18 \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py:55 (also docstring line 7)",
+   "source_kind": "primary",
+   "source_value": "'a tall differentially heated rectangular cavity (2.18 m high by 0.076 m wide by 0.52 m in depth)' \u2014 ERCOFTAC Classic Collection case 079 description, cfd.mace.manchester.ac.uk/ercoftac/doku.php?id=cases:case079 (fetched 2026-08-30 over HTTP; HTTPS refused). This is the official archive of the experiment's data at the authors' institution (UMIST -> University of Manchester), and the archive OpenFOAM's own README names",
+   "citation": "ERCOFTAC Classic Collection case 079; independently the ESI vendor blockMeshDict (/usr/lib/openfoam/openfoam2512/.../buoyantCavity/system/blockMeshDict:17-27) meshes 76 x 2180 mm at scale 0.001",
+   "verdict": "CONFIRMED",
+   "detail": "Both dimensions match the archive prose and the vendor mesh exactly. Caveat stated honestly: the paywalled journal PDF itself could not be fetched (ScienceDirect 403), so 'primary' here is the official experiment-data archive, not the printed page; its description text matches the paper's published abstract as echoed by every secondary source found."
+  },
+  {
+   "anchor": "0.52 m depth chosen so the midplane is near-2-D (docstring justification for 2-D RANS at z=0)",
+   "repo_value": "'B&B chose the 0.52 m depth to make the midplane near-2-D' \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py:17-19",
+   "source_kind": "primary",
+   "source_value": "'0.52 m in depth' and 'The temperature and flow fields were found to be closely two-dimensional, except close to the front and back walls'; measurements are 'on the mid-span plane (where 2-dimensionality of the flow is good)' \u2014 ERCOFTAC case 079",
+   "citation": "ERCOFTAC Classic Collection case 079, Description + Available Measurements sections; vendor blockMeshDict z runs -260..+260 mm = 0.52 m",
+   "verdict": "CONFIRMED",
+   "detail": "The 0.52 m value and the near-2-D midplane are both confirmed. One nuance: the archive states 2-dimensionality as a measured FINDING at mid-span; the docstring's phrasing that B&B 'chose' the depth to achieve it is a mild causal paraphrase (the rig descends from Dafa'Alla & Betts 1996), but the substance \u2014 midplane z=0 data are near-2-D, which is why 2-D RANS is the standard comparison \u2014 is exactly what the archive says."
+  },
+  {
+   "anchor": "Ra = 8.6e5, the lower (19.6 K) of the two cases",
+   "repo_value": "RA = 8.6e5 ('the data files' own header') \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py:57; '(the lower, 19.6 K case)' docstring line 8",
+   "source_kind": "primary",
+   "source_value": "'temperature differentials between the vertical plates of 19.6 and 39.9 C, giving Rayleigh numbers based on the cavity width of 0.86e6 and 1.43e6'; section heading 'Lower Rayleigh Number: Ra = 8.6 x 10^5' \u2014 ERCOFTAC case 079. Every one of the 14 ESI-shipped data files carries header '# Natural Convection in Tall Cavity: Ra=8.6E+5', verified by grep of the installed tree",
+   "citation": "ERCOFTAC Classic Collection case 079; /usr/lib/openfoam/openfoam2512/.../buoyantCavity/validation/exptData/*.dat headers; ESI README: 'the lower of the two plate temperature differences, 19.6 degC'",
+   "verdict": "CONFIRMED",
+   "detail": "0.86e6 = 8.6e5, matching to both printed digits; the 'lower case' identification (19.6 K vs 39.9 K) matches, and the repo's claim about where the number lives (the data files' own header) is literally true in the installed vendor tree."
+  },
+  {
+   "anchor": "wall temperatures T_HOT = 307.75 K / T_COLD = 288.15 K (34.6 / 15.0 degC), attributed to 'the tutorial's own'",
+   "repo_value": "T_HOT, T_COLD = 307.75, 288.15 \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py:56",
+   "source_kind": "primary",
+   "source_value": "Vendor artefact /usr/lib/openfoam/openfoam2512/.../buoyantCavity/0.orig/T: hot 'uniform 307.75; // 34.6 degC', cold 'uniform 288.15; // 15 degC' \u2014 read verbatim from the installed ESI v2512 tree",
+   "citation": "ESI OpenFOAM v2512 installed tutorial 0.orig/T; experimental consistency from the archive data itself: mt_z0_10_lo.dat's last point (x=75.87 mm) reads exactly 34.6 degC and the cold-side first points read 15.13 degC in BOTH the ERCOFTAC original and the ESI copy; dT = 19.6 K matches the archive's stated differential exactly",
+   "verdict": "CONFIRMED",
+   "detail": "The repo attributes these numbers to the tutorial, and the tutorial carries them digit for digit \u2014 that attribution is CONFIRMED against the vendor artefact. As EXPERIMENTAL absolute plate temperatures they are additionally consistent with the archive data's own endpoints (34.6 appears verbatim as a measured value; the ERCOFTAC prose states only the 19.6 C differential, not absolutes). 307.75 - 288.15 = 19.6 exactly."
+  },
+  {
+   "anchor": "claim: the digitised measured profiles ship INSIDE the ESI v2512 tree beside its buoyantCavity tutorial",
+   "repo_value": "docstring lines 9-12 and _expt_dir() path tutorials/heatTransfer/buoyantSimpleFoam/buoyantCavity/validation/exptData \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py:75-79, 205-206",
+   "source_kind": "primary",
+   "source_value": "Verified on this machine: /usr/lib/openfoam/openfoam2512/tutorials/heatTransfer/buoyantSimpleFoam/buoyantCavity/validation/exptData exists and holds 14 files (mt/mv at y/H = 10,30,40,50,60,70,90) \u2014 a superset of the 10 files the gate reads (heights 10,30,50,70,90). Cross-checked digit-by-digit against the ERCOFTAC originals downloaded from cfd.mace.manchester.ac.uk: 13 of 14 files are token-identical in every number; mt_z0_10_lo.dat differs",
+   "citation": "Local ESI v2512 install + ERCOFTAC case 079 per-file downloads (lib/exe/fetch.php?media=cdata:case079:low-ra:*.dat), diffed 2026-08-30",
+   "verdict": "CONFIRMED",
+   "detail": "The shipping claim is TRUE, and the vendor copies are faithful with one deliberate-looking exception the audit surfaced: ESI's mt_z0_10_lo.dat (47 rows) is the ERCOFTAC original (51 rows) with 4 points REMOVED \u2014 (40.57, 24.66), (45.65, 25.36), (50.73, 25.62), (55.81, 26.09) \u2014 points sitting 4-5 degC above their immediate neighbours' ~20.7-21.3 degC monotone trend, i.e. apparent outliers/contamination in the original file. All other rows of that file, including both walls' approach points, are digit-identical. Consequence for the gate: it compares against the vendor's cleaned copy; had it used the raw ERCOFTAC file, those 4 spurious points would inflate the y/H=0.10 temperature RMS. Nothing in the repo misstates this (the repo says the data 'come from the solver vendor', which is exactly what it reads), but 'digitised profiles' are vendor-curated, not byte-identical to the archive, in this one file."
+  },
+  {
+   "anchor": "mesh 35 x 150 = 'the tutorial's own in-plane resolution'",
+   "repo_value": "NX, NY = 35, 150 \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py:58 (docstring line 21)",
+   "source_kind": "primary",
+   "source_value": "hex (0 1 2 3 4 5 6 7) (35 150 15) simpleGrading (1 1 1) \u2014 /usr/lib/openfoam/openfoam2512/.../buoyantCavity/system/blockMeshDict:37; the tutorial's own turbulenceProperties also declares RAS kOmegaSST, the same model the gate demands of the product's writer",
+   "citation": "ESI OpenFOAM v2512 installed tutorial blockMeshDict and constant/turbulenceProperties",
+   "verdict": "CONFIRMED",
+   "detail": "35 x 150 is exactly the vendor tutorial's in-plane (x,y) resolution; the tutorial's third dimension (15 cells across the 0.52 m depth) is what EMStudio's 2-D case drops, consistent with the docstring's stated 2-D-at-midplane approach. The model choice kOmegaSST also matches the vendor's own validation setup."
+  },
+  {
+   "anchor": "profile tolerances: measured worst 4.8 % (T) / 8.7 % (V), gated at 7 % / 12 % ('~1.4x headroom')",
+   "repo_value": "TOL_T_SPAN = 0.07, TOL_V_SPAN = 0.12; 'RMS 0.92 K on a 19.6 K span = 4.8 %', 'RMS 0.024 m/s on 0.28 m/s = 8.7 %' \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py:24-25, 62-63",
+   "source_kind": "formula-recomputed",
+   "source_value": "No external source exists or could exist: these are the repo's OWN 2026-08-23 solve-vs-experiment measurements, not literature values. Recomputed internally: 0.92/19.6 = 4.69 % (quoted 4.8 % \u2014 consistent with an unrounded span), 0.024/0.28 = 8.6 % (quoted 8.7 %); headroom 0.07/0.048 = 1.46x and 0.12/0.087 = 1.38x, both honestly '~1.4x' as claimed",
+   "citation": "internal measurement, arithmetic recomputed by this audit",
+   "verdict": "UNVERIFIABLE",
+   "detail": "UNVERIFIABLE in the strict sense that no primary literature source can confirm a tolerance derived from the project's own run \u2014 and none is claimed: the docstring says the tolerances are 'quoted FROM the comparison, not chosen'. The arithmetic linking the quoted RMS values, spans, percentages and the ~1.4x headroom is self-consistent to rounding. The experimental spans they normalise by (19.6 K, and velocities of order 0.28 m/s) are consistent with the confirmed dT and with the archive velocity data (mv files peak near \u00b10.28 m/s)."
+  },
+  {
+   "anchor": "velocity-scale systematic: writer BETA = 3.3e-3 vs real ~293 K air beta ~= 3.41e-3, '~2 %' scale difference",
+   "repo_value": "docstring lines 37-40 of /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py; the constant itself: BETA = 3.3e-3 at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/solvers/openfoam/writer.py:44",
+   "source_kind": "formula-recomputed",
+   "source_value": "Ideal-gas Boussinesq expansion coefficient beta = 1/T: 1/293.15 K = 3.411e-3 K^-1, matching the docstring's 3.41e-3. Buoyant velocity scale U0 = sqrt(g*beta*dT*W) (the writer's own u_b at writer.py:269) gives sqrt(3.411/3.3) = 1.0165, i.e. ~1.7 %",
+   "citation": "recomputed from beta = 1/T (ideal gas) and the writer's own velocity-scale formula",
+   "verdict": "CONFIRMED",
+   "detail": "The 3.41e-3 figure for ~293 K air is exactly 1/T and the '~2 %' velocity-scale systematic recomputes to 1.7 % via the sqrt dependence \u2014 the docstring's rounding is on the honest (conservative) side. The docstring's further claim that the temperature comparison is scale-exact is structurally true: the gate feeds the tutorial's absolute wall temperatures, so dT and the temperature axis carry no beta dependence."
+  },
+  {
+   "anchor": "GROUND_LADDER_MEAS_HZ, L=20 mm measured resonance",
+   "repo_value": "2440e6 Hz \u2014 emstudio/antenna/pifa.py:113",
+   "source_value": "2440 MHz, Measured fr column, L=20 row",
+   "source_kind": "primary",
+   "citation": "M.-C. T. Huynh, 'A Numerical and Experimental Investigation of Planar Inverted-F Antennas for Wireless Communication Applications', M.S. thesis, Virginia Tech, Oct 19 2000, Table 5-1, pp. 73-74; official VTechWorks PDF, handle 10919/35477 (https://vtechworks.lib.vt.edu/bitstream/handle/10919/35477/Thesis.pdf)",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit match. Row reads L=20 | px 1.7 | computed 2343 | measured 2440 | BW 99/102 | gain 1.25. Column pairing (computed-first) pinned by the thesis's own 2.62% figure at L=80 (|1943-1892|/1943 = 2.6248%) and by the infinite-ground row carrying only a computed value."
+  },
+  {
+   "anchor": "GROUND_LADDER_MEAS_HZ, L=40 mm measured resonance",
+   "repo_value": "1987e6 Hz \u2014 emstudio/antenna/pifa.py:114",
+   "source_value": "1987 MHz, Measured fr column, L=40 row (px 1.8, computed 2013)",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, Table 5-1, pp. 73-74, VTechWorks handle 10919/35477",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit match against the official university-repository scan."
+  },
+  {
+   "anchor": "GROUND_LADDER_MEAS_HZ, L=60 mm measured resonance",
+   "repo_value": "1905e6 Hz \u2014 emstudio/antenna/pifa.py:115",
+   "source_value": "1905 MHz, Measured fr column, L=60 row (px 2.0, computed 1956)",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, Table 5-1, pp. 73-74, VTechWorks handle 10919/35477",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit match."
+  },
+  {
+   "anchor": "GROUND_LADDER_MEAS_HZ, L=80 mm measured resonance (also MEASURED_HZ and published_meas_80mm_hz)",
+   "repo_value": "1892e6 Hz \u2014 emstudio/antenna/pifa.py:116, emstudio/antenna/pifa.py:91, tests/validation/pifa_openems.py:54",
+   "source_value": "1892 MHz, Measured fr column, L=80 row (px 2.1, computed 1943)",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, Table 5-1, pp. 73-74, VTechWorks handle 10919/35477; \u00a75.3.2 prose quotes the 2.62% computed/measured gap for this row",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit match at all three repo sites. Independent cross-check: the thesis's stated 2.62% discrepancy equals |1943-1892|/1943 exactly, pinning 1892 as the measured value. Labeling nuance: the repo comment says 'chamber' but the thesis says the impedance/resonance measurements used an HP8720C network analyzer; the VT anechoic chamber was used for radiation patterns only. Digits unaffected."
+  },
+  {
+   "anchor": "GROUND_LADDER_MEAS_HZ, L=100 mm measured resonance (also published_meas_100mm_hz)",
+   "repo_value": "1886e6 Hz \u2014 emstudio/antenna/pifa.py:117 and emstudio/antenna/pifa.py:92",
+   "source_value": "1886 MHz, Measured fr column, L=100 row (px 2.2, computed 1928)",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, Table 5-1, pp. 73-74, VTechWorks handle 10919/35477",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit match at both repo sites."
+  },
+  {
+   "anchor": "GROUND_LADDER_MEAS_HZ, L=120 mm measured resonance",
+   "repo_value": "1899e6 Hz \u2014 emstudio/antenna/pifa.py:118",
+   "source_value": "1899 MHz, Measured fr column, L=120 row (px 2.8, computed 1950)",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, Table 5-1, pp. 73-74, VTechWorks handle 10919/35477",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit match."
+  },
+  {
+   "anchor": "GROUND_LADDER_MEAS_HZ, L=140 mm measured resonance",
+   "repo_value": "1942e6 Hz \u2014 emstudio/antenna/pifa.py:119",
+   "source_value": "1942 MHz, Measured fr column, L=140 row (px 3.5, computed 2015)",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, Table 5-1, pp. 73-74, VTechWorks handle 10919/35477",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit match. L=140 is the last measured row; rows 160/180/200/infinite carry computed values only, exactly as docs/upstream/pifa-anchors.md's dashes claim."
+  },
+  {
+   "anchor": "Non-monotonic measured trend with minimum at L=100 mm",
+   "repo_value": "minimum 1886 MHz at L=100, rising to 1899 (120) and 1942 (140) \u2014 emstudio/antenna/pifa.py:102-108 comment, tests/validation/pifa_openems.py:252, docs/upstream/pifa-anchors.md",
+   "source_value": "Measured column falls 2440-1987-1905-1892-1886 then rises 1899, 1942; minimum is the L=100 row",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, Table 5-1, pp. 73-74, VTechWorks handle 10919/35477",
+   "verdict": "CONFIRMED",
+   "detail": "The non-monotonic shape and the location of the minimum at L=100 mm are exactly as the source's measured column shows."
+  },
+  {
+   "anchor": "2343 MHz at L=20 belongs to the COMPUTED (IE3D) column, not the measured one",
+   "repo_value": "'computed 2343 MHz at L = 20' \u2014 emstudio/antenna/pifa.py:125-126; docs/upstream/pifa-anchors.md table (computed 2343 / measured 2440 at L=20)",
+   "source_value": "L=20 row: Computed fr 2343 MHz, Measured fr 2440 MHz; simulator identified as IE3D (Zeland Software) in section 5.3.2",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, Table 5-1, pp. 73-74 and section 5.3.2, VTechWorks handle 10919/35477",
+   "verdict": "CONFIRMED",
+   "detail": "Column assignment verified three independent ways: (1) extracted sub-header order 'Computed Measured'; (2) the thesis's quoted 2.62% at L=80 equals |1943-1892|/1943 exactly, so the first value of each pair is computed (note the thesis prose says simulation is 'below' measured while its own digits show computed above measured \u2014 a sign slip in the prose, but the magnitude uniquely fixes the pairing); (3) the unmeasurable infinite-ground row retains only one fr value, 1980, which must be computed. The repo doc's correction of 2026-08-27 (+18.3% is the computed column) recomputes correctly: (2343/1980-1)*100 = 18.33%."
+  },
+  {
+   "anchor": "published_mom_hz \u2014 IE3D method-of-moments resonance on infinite ground",
+   "repo_value": "1980e6 Hz \u2014 emstudio/antenna/pifa.py:90",
+   "source_value": "1980 MHz, Computed fr, 'infinite' ground-plane row (px 2.9)",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, Table 5-1, pp. 73-74, VTechWorks handle 10919/35477",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit match; the infinite row has no measured entry, consistent with the repo's labeling of this as simulation-only. (Table 5-1's L=180 computed row is also 1980 \u2014 coincidence, distinct row.)"
+  },
+  {
+   "anchor": "GROUND_SHIFT_MEAS_PCT \u2014 measured shift, 20 mm vs 80 mm ground",
+   "repo_value": "28.96 \u2014 emstudio/antenna/pifa.py:131",
+   "source_value": "(2440/1892 - 1) * 100 = 28.9641%, from the two confirmed measured digits above",
+   "source_kind": "formula-recomputed",
+   "citation": "Derived from Huynh Table 5-1 measured column (both operands CONFIRMED primary); recomputed independently: 28.96405919661733",
+   "verdict": "CONFIRMED",
+   "detail": "Both operands confirmed against the primary source and the arithmetic recomputed to more digits; 28.96 is the correct 2-decimal rounding. The doc's '+29.0 %' prose rounding is also consistent."
+  },
+  {
+   "anchor": "Ladder caveats: probe re-matched per ground size, and no measured gain published",
+   "repo_value": "px runs 1.7 mm at L=20 to 3.5 mm at L=140; 'the table publishes no measured gain at all' \u2014 emstudio/antenna/pifa.py:107-109, 126-127; docs/upstream/pifa-anchors.md px column (1.7/1.8/2.0/2.1/2.2/2.8/3.5/3.0/3.0/3.4/2.9)",
+   "source_value": "px column: 1.7, 1.8, 2.0, 2.1, 2.2, 2.8, 3.5, 3.0, 3.0, 3.4, 2.9 mm, chosen 'so that the antenna is matched to 50 ohms at resonance' (section 5.3.1); Peak Gain has a Computed sub-column only",
+   "source_kind": "primary",
+   "citation": "Huynh MS thesis, Virginia Tech 2000, section 5.3.1 p. 72 and Table 5-1 pp. 73-74, VTechWorks handle 10919/35477",
+   "verdict": "CONFIRMED",
+   "detail": "All eleven px values match digit for digit; the per-L re-matching is stated explicitly in the setup description; Table 5-1's gain heading carries a single Computed sub-column (one gain value per row), so 'no measured gain' is correct. Geometry also confirmed: 20x20 mm plate, 5 mm short width, 10 mm height, brass, measured L set {20,40,60,80,100,120,140} mm. Bandwidth digits behind the doc's 2.4:1 computed (196/81) and 2.47:1 measured (168/68) claims also match the table (BW columns 99/102, 81/68, 92/76, 93/94, 96/97, 135/109, 196/168)."
+  },
+  {
+   "anchor": "17 measured Bz points, A1-B1 line, 50 Hz, wt=0 (BZ_MEAS)",
+   "repo_value": "[-0.00049, -0.001788, -0.002213, -0.002019, -0.001567, 0.000036, 0.004364, 0.007811, 0.007155, 0.006044, 0.005391, 0.005262, 0.005381, 0.005691, 0.005924, 0.005278, 0.002761] T \u2014 tests/validation/team7_elmer.py:47-49",
+   "source_value": "Identical 17 values (tesla) in ElmerCSC/elmer-elmag TEAM7/TEAM7_A1B1.csv, fetched raw from https://raw.githubusercontent.com/ElmerCSC/elmer-elmag/main/TEAM7/TEAM7_A1B1.csv 2026-08-30; machine-compared, all 17 rows exact-float equal",
+   "source_kind": "secondary",
+   "citation": "elmer-elmag TEAM7_A1B1.csv (secondary copy). True primary: K. Fujiwara & T. Nakata, 'Results for benchmark problem 7 (asymmetrical conductor with a hole)', COMPEL 9(3) 137-154, 1990, DOI 10.1108/eb010071 \u2014 closed access (Emerald $41; Semantic Scholar/OpenAlex/CORE all report closed, no OA copy)",
+   "verdict": "CORROBORATED",
+   "detail": "Digit-for-digit match with the repo's named immediate source (the CSV), but that is a SECONDARY copy in another project's repo. The primary paper is paywalled and I could not see the numbers in any faithful reprint, so per the rules of evidence this cannot be CONFIRMED. Important provenance nuance: the gate's comment (team7_elmer.py:44) cites 'compumag problem7.pdf Table 2(a)' for these VALUES, but I read the official spec scan page-by-page \u2014 Table 2(a) there is an EMPTY response form ('To compare results, please complete Tables 2 and 3'); the official spec contains NO measured numbers, and compumag never hosted a data file (Wayback CDX: only the definition PDF). The build sheet docs/TEAM7_BUILD_SHEET.md \u00a7B.3 attributes the values correctly to the CSV; the gate comment compresses this into a misleading citation. Every third-party validation found (EMWorks, COMSOL blog + model doc, FEEN GmbH, Kovacs & Kuczmann Przeglad Elektrotechniczny 87(3):99 2011 open PDF, EPFL 2024, arXiv TEAM-7 papers) shows only overlay PLOTS citing the same COMPEL paper \u2014 none tabulates. COMSOL ships the data as multiturn_coil_asymmetric_conductor_table1.txt but only inside a COMSOL installation."
+  },
+  {
+   "anchor": "17 x positions (X_MEAS = 0.018*i, i=0..16, i.e. 0..288 mm step 18)",
+   "repo_value": "0.018*i for i in range(17) \u2014 tests/validation/team7_elmer.py:46",
+   "source_value": "Official spec Table 2(a): rows No.1-17, x(mm) = 0.0, 18.0, 36.0, ..., 288.0 (read from the scan)",
+   "source_kind": "primary",
+   "citation": "TEAM Problem 7 official definition, compumag.org/wp/wp-content/uploads/2018/06/problem7.pdf, Table 2(a), downloaded and read page-by-page 2026-08-30",
+   "verdict": "CONFIRMED",
+   "detail": "Exactly 17 points, 18 mm pitch, 0 to 288 mm \u2014 matches the primary spec's Table 2(a) row list digit for digit (verified by script against i*18.0)."
+  },
+  {
+   "anchor": "A1-B1 measurement line at y=72 mm, z=34 mm",
+   "repo_value": "save_lines [((0.0,0.072,0.034),(0.288,0.072,0.034),96)] \u2014 team7_elmer.py:112; docstring 'y = 72 mm, z = 34 mm' line 11",
+   "source_value": "Table 2(a) header: 'Bz along the line A1-B1(y=72,z=34(mm))'; Fig.4 shows A1 at (0,72), B1 at (288,72), z=34 between plate top (19) and coil bottom (49)",
+   "source_kind": "primary",
+   "citation": "compumag problem7.pdf Table 2 caption + Fig.4, read from the scan",
+   "verdict": "CONFIRMED",
+   "detail": "Line endpoints, height and orientation all match the primary spec."
+  },
+  {
+   "anchor": "Plate conductivity sigma = 3.526e7 S/m",
+   "repo_value": "\"sigma\": 3.526e7 \u2014 team7_elmer.py:90",
+   "source_value": "Table 1: 'Conductivity sigma (S/m) 3.526x10^7'; Fig.1: 'aluminum (sigma=3.526x10^7 (S/m))'",
+   "source_kind": "primary",
+   "citation": "compumag problem7.pdf Table 1 + Fig.1",
+   "verdict": "CONFIRMED",
+   "detail": "Matches the primary spec in both places it appears."
+  },
+  {
+   "anchor": "Coil excitation 2742 ampere-turns",
+   "repo_value": "\"amp_turns\": -2742.0 \u2014 team7_elmer.py:100; deck check 'Desired Coil Current = Real -2742' line 137",
+   "source_value": "Table 1: 'Exciting current I0 (AT) 2742'; Fig.1: 'coil (2742(AT))'. Sign: elmer-elmag TEAM7.sif/steady.sif/corr.sif/transient.sif all use 'Desired Coil Current = Real -2742' (fetched raw)",
+   "source_kind": "primary",
+   "citation": "compumag problem7.pdf Table 1 + Fig.1 (magnitude); ElmerCSC/elmer-elmag TEAM7 sif files (sign convention, secondary)",
+   "verdict": "CONFIRMED",
+   "detail": "Magnitude confirmed against the primary. The minus sign is not in the spec \u2014 it is the elmer-elmag sign convention tying the solver's coil orientation to the measured-data sign, corroborated by fetching all four of their sif decks."
+  },
+  {
+   "anchor": "Frequency 50 Hz (benchmark defines 50 and 200 Hz)",
+   "repo_value": "\"f_hz\": 50.0, 2 periods x 8 steps \u2014 team7_elmer.py:111; MATC 'cos(2*pi*50*t)' checked line 143",
+   "source_value": "Table 1: 'Frequency f (Hz) 50, 200'",
+   "source_kind": "primary",
+   "citation": "compumag problem7.pdf Table 1",
+   "verdict": "CONFIRMED",
+   "detail": "The gate runs the 50 Hz column only \u2014 a documented subset (its docstring says 50 Hz; the build sheet \u00a7B.4 notes elmer-elmag has no 200 Hz deck and 200 Hz would need dt=0.625 ms and a finer plate mesh). The task blurb's 'frequencies 50/200 Hz' is the benchmark definition, correctly recorded in docs/TEAM7_BUILD_SHEET.md B.1; the hard-coded BZ_MEAS is the 50 Hz wt=0 column."
+  },
+  {
+   "anchor": "Plate 294x294x19 mm with eccentric 108x108 through-hole at 18/18",
+   "repo_value": "plate origin (0,0,0) size (0.294,0.294,0.019); hole origin (0.018,0.018,-0.001) size (0.108,0.108,0.021) \u2014 team7_elmer.py:88-94",
+   "source_value": "Fig.1(a): 294 x 294 plate, hole 108 x 108 offset 18 from each of the two near edges; Fig.1(b): plate thickness 19",
+   "source_kind": "primary",
+   "citation": "compumag problem7.pdf Fig.1",
+   "verdict": "CONFIRMED",
+   "detail": "All six dimensions and the hole eccentricity match; the repo hole box overshoots the plate by 1 mm in z on both faces, which is a boolean-cut robustness trick, not a geometry change."
+  },
+  {
+   "anchor": "Racetrack coil: 150x150 window, R25/R50, 25 wide x 100 tall, 30 mm above plate (z=49..149)",
+   "repo_value": "racetrack cx0/cy0 0.144/0.050, cx1/cy1 0.244/0.150, r_in 0.025, r_out 0.050, z0 0.049, z1 0.149 \u2014 team7_elmer.py:96-98",
+   "source_value": "Fig.1: inner window 150 x 150, corner radii R25/R50, radial thickness 25, height 100, coil bottom 30 above plate top (19+30=49). Placement (outer envelope x=94..294, y=0..200) from elmer-elmag geo, consistent with official Fig.1",
+   "source_kind": "primary",
+   "citation": "compumag problem7.pdf Fig.1 (dimensions); elmer-elmag TEAM7.geo (absolute placement, secondary)",
+   "verdict": "CONFIRMED",
+   "detail": "Centerline corner arcs at (144,50)-(244,150) with r_in 25 / r_out 50 reproduce the 150x150 window with 25 mm thickness and the 200x200 outer envelope; z=49..149 matches 30 mm standoff + 100 mm height. The spec's Fig.1 plan drawing places the coil consistent with this offset placement."
+  },
+  {
+   "anchor": "wt=0 defined as instant of maximum exciting current (gate's step-16 = cosine-peak check)",
+   "repo_value": "cosine drive + 'last transient step is step 16 = t = 40 ms (wt = 0, the cosine peak)' \u2014 team7_elmer.py:143,171-172",
+   "source_value": "Spec section 5: 'At wt=0(deg), the exciting current becomes the maximum.'",
+   "source_kind": "primary",
+   "citation": "compumag problem7.pdf, section 5 'Quantities and Distributions to be Presented'",
+   "verdict": "CONFIRMED",
+   "detail": "A cosine drive makes t = 2 full periods (step 16 of 16, 40 ms at 50 Hz) coincide with maximum current = wt=0, which is exactly the instant the measured column is defined at. Also matches elmer-elmag's pline.m practice per the build sheet."
+  },
+  {
+   "anchor": "Normalization peak 7.811 mT = max|Bz_meas|",
+   "repo_value": "BZ_PEAK = max(abs(b) for b in BZ_MEAS) with comments '7.811 mT' \u2014 team7_elmer.py:13,50,196",
+   "source_value": "Recomputed: max|BZ_MEAS| = 0.007811 T (the x=126 mm point) \u2014 exact",
+   "source_kind": "formula-recomputed",
+   "citation": "Arithmetic over the 17-value array, verified by script",
+   "verdict": "CONFIRMED",
+   "detail": "The derived constant is computed in code, not hard-coded, and the quoted 7.811 mT is exactly max|BZ_MEAS|. Its correctness inherits the CORROBORATED status of the underlying array. Spec footnote: the official Table 2 asks for Gauss (78.11 G); repo/CSV store tesla \u2014 pure unit choice, no discrepancy."
+  },
+  {
+   "anchor": "'2.83% RMS' figure and NORM_PINS (0.58412768 / 1.7526977e-06)",
+   "repo_value": "'frozen from the first green run of the production writer, 2026-07-16, RMS 2.83%'; NORM_PINS \u2014 team7_elmer.py:52-54,74",
+   "source_value": "No external source exists \u2014 these are self-pinned regression values of EMStudio's own deck+mesh, explicitly distinct from elmer-elmag's published Reference Norms (5.81616403E-01 / 2.15104858E-06, which I verified verbatim in their raw TEAM7.sif)",
+   "source_kind": "none",
+   "citation": "elmer-elmag TEAM7.sif/steady.sif/corr.sif fetched raw 2026-08-30 for the adjacent published-norms cross-check (all four norms in docs/TEAM7_BUILD_SHEET.md B.4 match verbatim)",
+   "verdict": "UNVERIFIABLE",
+   "detail": "Unverifiable BY DESIGN, and correctly so: the 2.83% RMS and the norm pins are measurements of EMStudio's own pipeline, documented as such ('mesh-locked... they pin OUR pipeline, not Elmer upstream'). The externally checkable neighbors all pass: the 10% RMS gate metric is the measured-data-tier acceptance the repo set itself; the build sheet's quotes of elmer-elmag's published Reference Norms, dt=0.0025/16 steps, and -2742 drive all match the raw upstream files digit for digit. No action needed \u2014 listed so the '2.83%' in the anchor description is not mistaken for a published benchmark number."
+  },
+  {
+   "anchor": "RG-58C/U Z0 = 50 ohm nominal",
+   "repo_value": "50 ohm anchor, preset a_eff=0.418mm/b=1.4605mm/eps 2.25 \u2014 emstudio/wire/coax.py:52-57; gate |Z0-50.0|<0.15 tests/validation/cable.py:58-59",
+   "source_value": "Nom. Characteristic Impedance: 50 Ohm",
+   "citation": "Belden 8262 technical datasheet (catalog.belden.com/techdata/EN/8262_techdata.pdf, rev 0.531, 2026-02-20), Electricals table",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "Manufacturer primary datasheet prints 50 Ohm nominal. Recomputed from the repo preset: (eta0/2pi)/sqrt(2.25)*ln(1.4605/0.418) = 50.007 ohm."
+  },
+  {
+   "anchor": "RG-58C/U velocity factor 66%",
+   "repo_value": "preset note 'VF 66%' coax.py:57; gate velocity_factor(2.25)==2/3 (66.7%) cable.py:62-63",
+   "source_value": "Nom. Velocity of Prop.: 66%",
+   "citation": "Belden 8262 technical datasheet, Electricals table",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "Datasheet prints 66%; the model value 1/sqrt(2.25)=0.6667 (66.7%) is the same figure before Belden's rounding. Repo note and gate are mutually consistent."
+  },
+  {
+   "anchor": "RG-58C/U capacitance 101 pF/m (30.8 pF/ft)",
+   "repo_value": "'101 pF/m' anchor coax.py:48,57; gate |C'-101.0|<2.0 with comment 'Belden 30.8 pF/ft' cable.py:64-66",
+   "source_value": "Nom. Capacitance Cond-to-Shield: 30.8 pF/ft (101 pF/m)",
+   "citation": "Belden 8262 technical datasheet, Electricals table",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "Datasheet prints both units exactly as the repo quotes them (30.8 pF/ft = 101.05 pF/m). Repo model from the effective radius gives 100.05 pF/m, inside the gated +/-2 pF/m."
+  },
+  {
+   "anchor": "RG-58C/U attenuation 1.4 / 4.9 / 11.5 dB/100ft at 10/100/400 MHz",
+   "repo_value": "(10.0,1.4),(100.0,4.9),(400.0,11.5) dB/100ft \u2014 tests/validation/cable.py:74",
+   "source_value": "10 MHz: 1.4 dB/100ft; 100 MHz: 4.9 dB/100ft; 400 MHz: 11.5 dB/100ft",
+   "citation": "Belden 8262 technical datasheet, Attenuation table",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "All three digits match the primary datasheet exactly. Repo smooth-conductor model computes 77%/72%/63% of the published values \u2014 inside the documented one-sided 55-100% window (braid/stranding under-estimate is honest)."
+  },
+  {
+   "anchor": "RG-58C/U geometry: 19x33 20 AWG conductor 0.889 mm, PE dielectric dia 2.921 mm (b=1.4605 mm)",
+   "repo_value": "a_phy 0.4445e-3, b 1.4605e-3, '19x33 stranded', 'physical envelope 0.889 mm' \u2014 coax.py:47-49,53,55-56; cable.py:55",
+   "source_value": "Conductor: 20 AWG 19x33, nom. diameter 0.035 in (=0.889 mm); Insulation: PE, nom. diameter 0.115 in (2.92 mm) (0.115 in = 2.921 mm)",
+   "citation": "Belden 8262 technical datasheet, Construction Details",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "0.035 in = 0.8890 mm and 0.115 in = 2.9210 mm exactly reproduce the repo's a_phy and b. Materials (tinned-copper stranded centre, solid PE) also match."
+  },
+  {
+   "anchor": "RG-58 stranded-centre effective diameter factor 0.94x (a_eff 0.418 mm)",
+   "repo_value": "'classic ~0.94x effective diameter (0.836 mm)' coax.py:47-48,55-56; a_m 0.418e-3 coax.py:53",
+   "source_value": "no primary found for the 0.94 constant itself",
+   "citation": "none for the constant; its outputs check against Belden 8262 (50 ohm, 101 pF/m)",
+   "source_kind": "formula-recomputed",
+   "verdict": "UNVERIFIABLE",
+   "detail": "The 0.94 factor is a modeling convention, not a datasheet number; I found no standard-text citation for it this session. Its consequences ARE verified: 0.94*0.889=0.836 mm gives Z0 50.007 ohm and C' 100.05 pF/m, matching the Belden primaries, while the physical envelope gives 47.55 ohm as the repo documents. The gate anchors the outputs, not the factor, so nothing gated rests on unverified digits."
+  },
+  {
+   "anchor": "RG-142B/U Z0 50 ohm nominal, MIL 50+/-2 window, honest geometry 48.0 ohm",
+   "repo_value": "'50 nominal... canonical geometry honestly gives 48.0 ohm \u2014 bottom of the MIL 50+/-2 window' coax.py:60-65; gate |z142-48.0|<0.2 cable.py:88-90",
+   "source_value": "Belden 83242: Nom. Characteristic Impedance 50 Ohm; RG-142B/U spec sheet: CHARACTERISTIC IMPEDANCE 50 +/- 2 Ohms",
+   "citation": "Belden 83242 techdata (catalog.belden.com/techdata/EN/83242_techdata.pdf, rev 0.515, 2026-02-20); RG 142 B/U spec data sheet, farnell.com/datasheets/1504070.pdf (Issue 2, 29/09/2011, cites MIL-C-17/158A)",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "Both primaries print 50 nominal; the +/-2 window is printed on the UK spec sheet (MIL-DTL-17 itself not fetched). Recomputed: (eta0/2pi)/sqrt(2.04)*ln(1.475/0.470) = 48.011 ohm \u2014 just inside the 48.0 bottom edge, exactly as the repo's honesty note claims."
+  },
+  {
+   "anchor": "RG-142B/U velocity factor 70% (PTFE eps_r 2.04)",
+   "repo_value": "'VF 70%', eps_r 2.04 coax.py:60,65; gate |VF-0.700|<0.001 cable.py:91-92",
+   "source_value": "Belden 83242: Nom. Velocity of Prop. 70%",
+   "citation": "Belden 83242 techdata, Electricals table",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "1/sqrt(2.04)=0.7001 matches Belden's 70%. Note the UK spec sheet prints 69% \u2014 a source-vs-source spread of 1 point; the repo follows the Belden primary and its eps 2.04 is the exact datasheet-VF-derived value (1/0.70^2=2.0408), documented as deliberately not the generic PTFE 2.05."
+  },
+  {
+   "anchor": "RG-142B/U geometry a=0.470 mm, b=1.475 mm",
+   "repo_value": "a_m 0.470e-3, b_m 1.475e-3 \u2014 coax.py:60; cable.py:86",
+   "source_value": "Belden 83242: 19 AWG solid SCCS 0.037 in (=0.9398 mm dia), PTFE 0.116 in (2.95 mm); UK sheet: conductor 01/0.940 mm, dielectric 2.95 mm",
+   "citation": "Belden 83242 techdata Construction Details; RG 142 B/U spec sheet (farnell.com/datasheets/1504070.pdf)",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "Two independent primaries agree: conductor radius 0.9398-0.940/2 = 0.470 mm, dielectric radius 2.95/2 = 1.475 mm. Silver-plated copper-clad steel construction also matches the repo note."
+  },
+  {
+   "anchor": "RG-142 attenuation 30.51 dB/100m max at 400 MHz ('Belden-UK')",
+   "repo_value": "0.55*30.51 <= model <= 30.51, 'Belden-UK 30.5 dB/100m @ 400 MHz' \u2014 cable.py:93-95",
+   "source_value": "ATTENUATION: 30.51 dB/100 Mts MAXIMUM @ 400 MHz",
+   "citation": "RG 142 B/U specification data sheet, farnell.com/datasheets/1504070.pdf (Issue 2, 29/09/2011, ref VR1127)",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit match (30.51, printed as a MAXIMUM \u2014 one-sided gating below it is correct). Caveat: the sheet does not carry Belden branding, so the repo's 'Belden-UK' attribution is unconfirmed; it is a manufacturer-class spec sheet citing MIL-C-17/158A. Cross-check: Belden-US 83242 prints 6.9 dB/100ft = 22.64 dB/100m nominal at 400 MHz; the repo model computes 22.12 dB/100m \u2014 98% of the US nominal and 72% of the UK maximum, consistent with both."
+  },
+  {
+   "anchor": "Cat5e preset conductor: 24 AWG solid Cu, d=0.511 mm, polyolefin",
+   "repo_value": "d_m 0.511e-3, '24 AWG solid Cu, polyolefin/HDPE' \u2014 twisted_pair.py:79-82",
+   "source_value": "24 AWG Solid, BC - Bare Copper; Insulation PO - Polyolefin",
+   "citation": "Belden 1583A techdata (catalog.belden.com/techdata/EN/1583A_techdata.pdf) + full datasheet (datasheet.octopart.com/1583A-U1000-F6H-Belden-datasheet-57380.pdf, rev 2, 2007)",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "AWG size and material confirmed by the Belden primary; 0.511 mm is the exact ASTM B258 AWG formula value (0.005 in * 92^(12/39) = 0.02010 in = 0.5106 mm), recomputed."
+  },
+  {
+   "anchor": "Cat5e NVP 0.70 (Belden 1583A) -> eps_eff 2.04",
+   "repo_value": "nvp 0.70, 'NVP 0.70 (Belden 1583A) -> eps_eff 2.04' \u2014 twisted_pair.py:81,83-84",
+   "source_value": "Nominal Velocity of Propagation: 70 %",
+   "citation": "Belden 1583A full datasheet (octopart 57380), Electrical Characteristics; also 70% in current 1583A techdata Delay table",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "1/0.70^2 = 2.0408, the repo's eps_eff 2.04. This is the honest datasheet route the module documents (bulk-eps guesses put Cat5e at 114-126 ohm, outside the band)."
+  },
+  {
+   "anchor": "Cat5e insulated-conductor OD 0.993 mm ('Belden construction patent')",
+   "repo_value": "s_m 0.993e-3, 'insulated OD 0.993 mm (Belden construction patent)' \u2014 twisted_pair.py:80,82-83; long-lay 0.92 mm variant gated at 100.2 ohm cable.py:257-258",
+   "source_value": "not found; envelope only: DuPont WO1996005601A1 'no more than about 40 mils (1.02 mm)'; Belden 1583E datasheet insulation nom. dia 0.9 mm; Amphenol Cat5e 0.039 in (~1 mm)",
+   "citation": "patents.google.com US5606151A, US5734126A (Belden bonded-pair \u2014 ranges only, 24 AWG example spacing 0.035 in), WO1996005601A1; docs.rs-online.com Belden 1583E sheet",
+   "source_kind": "secondary",
+   "verdict": "UNVERIFIABLE",
+   "detail": "Searched both Belden bonded-pair patents the vendors cite (5,606,151; 5,734,126), the DuPont twisted-pair patent, USPTO full-text for '0.993 mm', and Belden/Amphenol datasheets: the exact 0.993 mm digit appears nowhere I could fetch. It sits inside the documented industry envelope (0.9-1.02 mm) and the resulting 107.7 ohm stays inside the gated 100+/-15 band, with the 0.92 mm variant separately pinned at 100.2 ohm \u2014 so the gate outcome does not rest on the unverified digit, but the preset's provenance claim could not be checked. Per-pair lay values (15 mm preset, '~9-23 mm') likewise unverified (proprietary; the claimed patent lay range was not located)."
+  },
+  {
+   "anchor": "Cat5e/Cat6 fitted impedance band 100 +/- 15 ohm (TIA/EIA-568-B.2)",
+   "repo_value": "'TIA-568 100 +/- 15 ohm fitted band' twisted_pair.py:53,74-75; gates 85<=Z0<=115 cable.py:253-261",
+   "source_value": "Fitted Impedance: 100 +/- 15 Ohms (1-100 MHz); 'Third party verified to TIA/EIA-568-B.2'",
+   "citation": "Belden 1583A full datasheet Table 2 and Belden 2412 techdata High Frequency table (both primary); TIA-568-B condensed reproduction (csd.uoc.gr copy, secondary) agrees",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "Both manufacturer primaries print the 100+/-15 fitted band the repo gates against; the repo correctly flags it as the superseded-but-still-printed TIA/EIA-568-B.2 requirement. Model values 107.74 (Cat5e) and 99.90 ohm (Cat6) recomputed and inside the band."
+  },
+  {
+   "anchor": "Cat5e mutual capacitance 49.2 pF/m at 1 kHz",
+   "repo_value": "gate 'within 15% of Belden's 49.2 (1 kHz value)' \u2014 cable.py:262-264",
+   "source_value": "Nom. Mutual Capacitance @ 1 KHz: 15 pF/ft (= 49.21 pF/m)",
+   "citation": "Belden 1583A full datasheet (octopart 57380), Electrical Characteristics",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "15 pF/ft * 3.28084 = 49.21 pF/m \u2014 the gate's 49.2. Repo model C' = 44.23 pF/m, within the gated 15% (10.1% low); the repo honestly documents the 1 kHz-ASTM-vs-RF-model caveat."
+  },
+  {
+   "anchor": "Cat5e max attenuation 22.0 dB/100m at 100 MHz",
+   "repo_value": "one-sided gate 0.55*22.0 <= model <= 22.0 \u2014 cable.py:268-271",
+   "source_value": "Max. Attenuation @ 100 MHz: 22.0 dB/100 m",
+   "citation": "Belden 1583A datasheet (both editions; primary). Same 22.0 in the TIA-568-B Cat5e cable table reproduction (csd.uoc.gr) and Superior Essex Cat6 whitepaper (both secondary)",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "The Belden primary prints exactly 22.0 (which equals the TIA/EIA-568-B.2 Cat5e horizontal-cable limit per two independent reproductions). Model computes 15.54 dB/100m = 71% \u2014 inside the one-sided window and matching the '~70%' claim in PROJECT_MEMORY."
+  },
+  {
+   "anchor": "Cat6 preset conductor + OD: 23 AWG (0.573 mm), diameter-over-insulated-conductor 1.029 mm (CommScope CS31CM)",
+   "repo_value": "d_m 0.573e-3, s_m 1.029e-3, 'CommScope CS31CM' \u2014 twisted_pair.py:90-93",
+   "source_value": "23 AWG; Diameter Over Insulated Conductor: 1.029 mm | 0.0405 in; Polyolefin",
+   "citation": "CommScope CS31CM product page (commscope.com item1427254-6) \u2014 manufacturer primary; 23 AWG solid BC also on Belden 2412 techdata",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "The 1.029 mm digit is printed verbatim on CommScope's own spec page. 0.573 mm is the exact ASTM B258 AWG-23 formula value (0.02257 in = 0.5733 mm), recomputed. Resulting Z0 99.90 ohm recomputed \u2014 the repo's 'cleanest single anchor'."
+  },
+  {
+   "anchor": "Cat6 NVP 0.70 (Belden 2412)",
+   "repo_value": "nvp 0.70, 'NVP 0.70 (Belden 2412)' \u2014 twisted_pair.py:91,93",
+   "source_value": "Nom. Velocity of Prop.: 70%",
+   "citation": "Belden 2412 techdata (catalog.belden.com/techdata/EN/2412_techdata.pdf), Delay table",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "Printed 70% on the Belden primary; eps_eff 2.0408 follows."
+  },
+  {
+   "anchor": "Cat6 max attenuation 19.8 dB/100m at 100 MHz",
+   "repo_value": "one-sided gate 0.55*19.8 <= model <= 19.8, 'the 19.8 dB/100m max' \u2014 cable.py:272-274",
+   "source_value": "Category 6 cable insertion loss (solid) @ 100 MHz: 19.8 dB/100m",
+   "citation": "TIA/EIA-568-B condensed reproduction (csd.uoc.gr/~hy435, Cablingdb, Cat6 cable table) and Superior Essex 'Category 6 Standards Overview' whitepaper (cdn.cableorganizer.com) \u2014 both SECONDARY reproductions of ANSI/TIA/EIA-568-B.2-1",
+   "source_kind": "secondary",
+   "verdict": "CORROBORATED",
+   "detail": "Two independent secondary reproductions print exactly 19.8; no faithful copy of TIA-568-B.2-1 itself was reachable (TIA store paywalled; a hosted 568-C.2 copy 502'd). Attribution nuance: 19.8 is the TIA CABLE LIMIT, not a Belden datasheet max \u2014 Belden 2412's own sheet prints a better 19.3 dB/100m at 100 MHz. The gate outcome is unaffected (model 15.43 dB/100m = 78% of 19.8, also below 19.3), but the gate/docs wording 'datasheet maxima' is loose for this one."
+  },
+  {
+   "anchor": "120-ohm RS-485 identity: 12.8 pF/ft, VF 0.66 -> 120.3 ohm",
+   "repo_value": "gate |z0_from_c_vf(12.8 pF/ft, 0.66) - 120.3| < 0.4 \u2014 cable.py:307-309",
+   "source_value": "Nom. Capacitance Cond-to-Cond 12.8 pF/ft (42.0 pF/m); Nom. Characteristic Impedance 120 Ohm; Nom. Velocity of Prop. 66%",
+   "citation": "Belden 9842 techdata (catalog.belden.com/techdata/EN/9842_techdata.pdf), Electricals",
+   "source_kind": "primary",
+   "verdict": "CONFIRMED",
+   "detail": "All three inputs printed on the Belden primary; identity recomputed 1/(0.66c * 12.8 pF/ft) = 120.35 ohm, self-consistent with the printed 120 nominal to 0.3%."
+  },
+  {
+   "anchor": "120-ohm foam-PE (11 pF/ft, VF 0.78 -> 118.5) and 78-ohm twinax (19.7 pF/ft, VF 0.66 -> 78.2; sqrt(0.12uH/19.7pF)=78.0) identity anchors",
+   "repo_value": "cable.py:310-315",
+   "source_value": "not sourced this session",
+   "citation": "none fetched",
+   "source_kind": "formula-recomputed",
+   "verdict": "UNVERIFIABLE",
+   "detail": "Adjacent to but outside the assigned group (RG-58/RG-142/Cat5e/Cat6); the arithmetic was recomputed exactly (118.50, 78.20, 78.04 ohm) but the underlying datasheets (specific foam-PE 120-ohm and 78-ohm twinax part numbers) were not identified or fetched, so the input digits 11/19.7 pF/ft and 0.12 uH/ft rest unverified here."
+  },
+  {
+   "anchor": "TE10 cutoff formula fc = c/(2a)",
+   "repo_value": "fc_wr28 = 299792458.0/(2.0*7.112e-3), commented 'TE10 cutoff = c / 2a' \u2014 tests/validation/smith.py:151; same relation implied by the WR-90 gate's kc = pi/a",
+   "source_value": "Pozar, Microwave Engineering, 4th ed. (Wiley 2012), sec. 3.3 'Rectangular Waveguide', p.113: eq (3.84) fc_mn = (1/2pi*sqrt(mu*eps))*sqrt((m*pi/a)^2+(n*pi/b)^2); eq (3.85) fc_10 = 1/(2a*sqrt(mu*eps)) \u2014 read from the archive.org scan (MicrowaveEngineeringDavidMPozar4edWiley2012, _djvu.txt)",
+   "source_kind": "primary",
+   "citation": "Pozar 4e eq (3.85), p.113; archive.org scan",
+   "verdict": "CONFIRMED",
+   "detail": "For air (mu=mu0, eps=eps0) eq (3.85) is exactly c/(2a). The scan's surrounding text ('The mode with the lowest cutoff frequency is called the dominant mode; because we have assumed a > b, the lowest cutoff frequency occurs for the TE10 mode') confirms the formula applies to the dominant mode exactly as the repo uses it."
+  },
+  {
+   "anchor": "TE10 wave impedance Z_TE = eta0/sqrt(1-(fc/f)^2), cited to Pozar sec 3.3 / eq (3.22)",
+   "repo_value": "z0_col = eta0/np.sqrt(1.0-(fc_wr28/f_ka)**2) \u2014 tests/validation/smith.py:153; docstring form Z_TE(f) = eta0/sqrt(1-(fc/f)^2) \u2014 emstudio/post/sparams.py:74; smith.py:142-145 cites 'Pozar, Microwave Engineering, sec 3.3'; CHANGELOG.md:39 cites 'Pozar eq. (3.22)'",
+   "source_value": "Pozar 4e eq (3.22): Z_TE = E_x/H_y = k*eta/beta ('which is seen to be frequency dependent'), restated for rectangular guide as eq (3.86) E_x/H_y = -E_y/H_x = k*eta/beta, where eta is the intrinsic impedance of the fill; sec 3.3 is titled 'Rectangular Waveguide'",
+   "source_kind": "primary",
+   "citation": "Pozar 4e eqs (3.22) and (3.86), sec 3.3; archive.org scan",
+   "verdict": "CONFIRMED",
+   "detail": "With beta = sqrt(k^2-kc^2) = k*sqrt(1-(fc/f)^2), k*eta/beta = eta/sqrt(1-(fc/f)^2) \u2014 the repo's spelling is algebraically identical to (3.22)/(3.86) for air-filled guide. Both the equation-number citation (3.22) in the CHANGELOG and the section citation (sec 3.3) in smith.py are accurate against the scanned book."
+  },
+  {
+   "anchor": "Free-space wave impedance eta0 = 376.730313668 ohm",
+   "repo_value": "eta0 = 376.730313668 \u2014 tests/validation/smith.py:150",
+   "source_value": "NIST CODATA 2018 archive table: 'characteristic impedance of vacuum 376.730 313 668(57) ohm' (physics.nist.gov/cuu/Constants/ArchiveASCII/allascii_2018.txt). Current CODATA 2022 (physics.nist.gov/cgi-bin/cuu/Value?z0): 376.730 313 412(59) ohm",
+   "source_kind": "primary",
+   "citation": "NIST CODATA 2018 archive ASCII table; NIST CODATA 2022 current value page",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit the CODATA 2018 recommended value. Note it is one CODATA adjustment behind: 2022 gives ...412 vs the repo's ...668 \u2014 a 2.6e-7 ohm (7e-10 relative) difference with zero engineering consequence, but if any doc claims 'current NIST value' it should say CODATA 2018."
+  },
+  {
+   "anchor": "WR-28 inside dimensions a = 7.112 mm, b = 3.556 mm",
+   "repo_value": "WR28_A_MM = 7.112, WR28_B_MM = 3.556 \u2014 emstudio/templates/horn.py:64-65; A_MM, B_MM = 7.112, 3.556 \u2014 tests/validation/waveguide_port_openems.py:69",
+   "source_value": "Pozar 4e Appendix I 'Standard Rectangular Waveguide Data': WR-28, Ka band, recommended 26.5-40.0 GHz, inside 0.280 x 0.140 in (0.711 x 0.356 cm). 0.280 in = 7.1120 mm, 0.140 in = 3.5560 mm exactly",
+   "source_kind": "primary",
+   "citation": "Pozar 4e Appendix I, p.720; archive.org scan; corroborated by everythingrf.com/tech-resources/waveguides-sizes/wr28 (7.112 x 3.556 mm) and VDI waveguide-designations PDF (7112 x 3556 um)",
+   "verdict": "CONFIRMED",
+   "detail": "The repo carries the exact inch-derived metric values; Pozar's table prints cm rounded to 3 decimals. The template's stated recommended band 26.5-40 GHz (horn.py:21) matches the Appendix I row too."
+  },
+  {
+   "anchor": "WR-28 TE10 cutoff fc = 21.077 GHz",
+   "repo_value": "'broad wall a = 7.112 mm, so fc = 21.077 GHz' \u2014 tests/validation/smith.py:144; computed exactly as 299792458/(2*7.112e-3) at smith.py:151",
+   "source_value": "Recomputed: c/(2a) = 21.076523 GHz -> rounds to 21.077. everythingRF WR-28 page: 21.077 GHz (secondary). VDI PDF: 21.1 GHz (rounded). Pozar 4e Appendix I itself prints 21.081 GHz",
+   "source_kind": "formula-recomputed",
+   "citation": "Pozar 4e eq (3.85) + Appendix I dimension; everythingrf.com/tech-resources/waveguides-sizes/wr28",
+   "verdict": "CONFIRMED",
+   "detail": "The repo's 21.077 is the exact c/2a value from the primary-confirmed formula and primary-confirmed dimension, and matches the industry tables (everythingRF). Curious footnote: Pozar's own Appendix I cutoff column prints 21.081 GHz for WR-28 \u2014 inconsistent by 4.5 MHz (0.02%) with c/2a on its own stated dimension (its WR-90 entry, by contrast, is exact). The repo is the more correct of the two; no action needed."
+  },
+  {
+   "anchor": "WR-90 inside dimensions 22.86 x 10.16 mm, X-band 8.2-12.4 GHz sweep",
+   "repo_value": "a_mm=22.86, b_mm=10.16, f1=8.0-f2=12.0 GHz \u2014 emstudio/templates/waveguide.py:14-15 (docstring line 5: '22.86 x 10.16 mm'); A_M = 22.86e-3 \u2014 tests/validation/waveguide_palace.py:29",
+   "source_value": "Pozar 4e Appendix I: 'X, 8.20-12.4, 6.557, WR-90, 0.900 x 0.400 (2.286 x 1.016)' \u2014 inside 0.900 x 0.400 in = 2.286 x 1.016 cm",
+   "source_kind": "primary",
+   "citation": "Pozar 4e Appendix I, p.720; archive.org scan; also Balanis 3e Example 13.6 and Stutzman 2e Example 7-7 both state WR90 a = 0.9 in = 2.286 cm, b = 0.4 in = 1.016 cm",
+   "verdict": "CONFIRMED",
+   "detail": "22.86 x 10.16 mm is the EIA WR-90 inside dimension digit-for-digit. The template's 8-12 GHz sweep sits inside the recommended 8.20-12.4 GHz band (slightly below band edge at the bottom, fine for a matched-guide S21 check since fc = 6.557 GHz)."
+  },
+  {
+   "anchor": "WR-90 TE10: kc = 137.4275 1/m, fc = 6.557140 GHz, 'published 6.557'",
+   "repo_value": "'a WR-90 face produces kc = 137.4275 1/m, i.e. a TE10 cutoff of 6.557140 GHz against the published 6.557 \u2014 0.0021 %' \u2014 tests/validation/waveguide_port_openems.py:5-6",
+   "source_value": "Recomputed: pi/0.02286 m = 137.427500 1/m; c/(2*0.02286) = 6.5571404 GHz. Pozar 4e Appendix I prints 6.557 GHz for WR-90",
+   "source_kind": "primary",
+   "citation": "Pozar 4e Appendix I (6.557 GHz) + eq (3.84) kc = sqrt((m*pi/a)^2+(n*pi/b)^2); recomputation",
+   "verdict": "CONFIRMED",
+   "detail": "Both digits reproduce exactly, and the 'published 6.557' the gate compares against is verbatim what Pozar's table prints. The quoted 0.0021% is just the rounding gap between 6.557140 and 6.557 \u2014 arithmetic checks out (0.00214%)."
+  },
+  {
+   "anchor": "Z_TE column across WR-28 Ka band: 621.5 ohm at 26.5 GHz, 443.3 ohm at 40 GHz, centre 487.1 ohm, factor 1.40; CHANGELOG's +40.2% -> +9.9%",
+   "repo_value": "621.5/443.3/1.40 \u2014 emstudio/post/sparams.py:19-20; 621.5/443.3/487.1 \u2014 sparams.py:101-102; same numbers in smith.py:145-147; '+40.2 % to +9.9 %' \u2014 CHANGELOG.md:40-41",
+   "source_value": "Recomputed with eta0 = 376.730313668 and fc = c/(2*7.112mm): Z_TE(26.5 GHz) = 621.5001 ohm; Z_TE(40 GHz) = 443.2543 ohm; centre point of the 51-pt 26.5-40 linspace = 487.0897 ohm; 621.5/443.25 = 1.4021 (+40.2%); 487.09/443.25 = 1.0989 (+9.9%)",
+   "source_kind": "formula-recomputed",
+   "citation": "Pozar eq (3.22)/(3.85) + NIST eta0, recomputed in python",
+   "verdict": "CONFIRMED",
+   "detail": "Every quoted digit reproduces from the primary-confirmed formula: 621.5, 443.3 (443.2543 rounds up), 487.1, the 1.40 ratio, and both CHANGELOG percentages. The sparams.py claim 'never more than 22% out anywhere in the band' also checks: 621.5/487.1 = 1.276 at the bottom edge means the centre label is at most 27.6% below the low-end reference and 9.9% above the high-end one \u2014 hmm, strictly 27.6% not 22%; but measured the other way (centre vs each point, relative to the point) max|487.1/Z-1| occurs at 26.5 GHz: 1-487.1/621.5 = 21.6%, which is the '22%'. Consistent."
+  },
+  {
+   "anchor": "Optimum H-plane flare relation a1 = sqrt(3*lambda*rho_h)",
+   "repo_value": "rho_h = a1**2/(3.0*lam) with comment 'Optimum flare: a1 = sqrt(3*lambda*rho_h)' \u2014 emstudio/antenna/horn.py:113-114; source_note horn.py:150-151",
+   "source_value": "Balanis, Antenna Theory 3rd ed. (2005), eq (13-41c): a1 ~ sqrt(3*lambda*p2), and design eq (13-58a): a1 = sqrt(3*lambda*p2) ~ sqrt(3*lambda*ph). Stutzman 2e eq (18.24 equivalent): A = sqrt(3*lambda*R0) at t = 3/8",
+   "source_kind": "primary",
+   "citation": "Balanis 3e eqs (13-41c), (13-58a), sec 13.4.3, pp.766-781; archive.org scan (AntennaTheoryAnalysisAndDesign3rdEd)",
+   "verdict": "CONFIRMED",
+   "detail": "The scan reads 'each optimum directivity occurs when a1 ~ sqrt(3*lambda*p2)' for the H-plane sectoral horn, exactly the repo relation (rho_h = Balanis's rho2/ph)."
+  },
+  {
+   "anchor": "Optimum E-plane flare relation b1 = sqrt(2*lambda*rho_e)",
+   "repo_value": "rho_e = b1**2/(2.0*lam) with comment 'b1 = sqrt(2*lambda*rho_e)' \u2014 emstudio/antenna/horn.py:113,115; source_note horn.py:151",
+   "source_value": "Balanis 3e eq (13-19a): b1 ~ sqrt(2*lambda*p1), and design eq (13-58b): b1 = sqrt(2*lambda*p1) ~ sqrt(2*lambda*pe). Nikolova L18 eq (18.37): optimum at q = B/sqrt(2*lambda*R0E) = 1",
+   "source_kind": "primary",
+   "citation": "Balanis 3e eqs (13-19a), (13-58b); archive.org scan",
+   "verdict": "CONFIRMED",
+   "detail": "'each optimum directivity occurs when b1 ~ sqrt(2*lambda*p1)' is verbatim (modulo OCR) in the scanned E-plane sectoral section; the pyramidal design procedure (13-58b) repeats it."
+  },
+  {
+   "anchor": "Optimum-horn aperture efficiency eps_ap = 0.51",
+   "repo_value": "EPS_AP_OPTIMUM = 0.51 \u2014 emstudio/antenna/horn.py:40; used in G = eps*4pi*A*B/lambda^2 at horn.py:64",
+   "source_value": "Stutzman & Thiele, Antenna Theory and Design 2nd ed., eq (7-146): eps_ap = 0.81 x 0.80 x 0.79 = 0.51, and eq (7-147): G = 0.51*(4pi/lambda^2)*A*B 'optimum pyramidal horn'; also (7-96) 'designed for optimum gain has an aperture efficiency of 51%'. Balanis 3e sec 13.4.3 says 'about 50%'",
+   "source_kind": "primary",
+   "citation": "Stutzman 2e eqs (7-96), (7-146), (7-147), pp.298-313; archive.org scan (an-th-a-des-se). Corroborated by Nikolova L18 eq (18.41): eps_a = 0.81*0.632 = 0.51",
+   "verdict": "CONFIRMED",
+   "detail": "0.51 is Stutzman's printed constant with its published decomposition (taper 0.81 x E-phase 0.80 x H-phase 0.79). Balanis rounds it to 'about 50%'. The repo's attribution 'Balanis ch.13 / Silver' would be more precisely 'Stutzman (7-146)' for this digit, but the number itself is textbook-exact."
+  },
+  {
+   "anchor": "E-plane HPBW constant 54 (theta_E = 54*lambda/b1 degrees)",
+   "repo_value": "K_E_DEG = 54.0 \u2014 emstudio/antenna/horn.py:46; used as K_E*lam/b1 at horn.py:80",
+   "source_value": "Stutzman 2e eq (7-138): HP_E = 2*sin^-1(0.47*lambda/B) ~ 0.94*lambda/B rad = 54*lambda/B deg, 'optimum', derived 'from the s = 1/4 plot in Fig. 7-16'. (The scan's OCR garbles the printed digits \u2014 fragments '47', '0.9:', '5 B' \u2014 but 0.94 rad = 53.86 deg pins the constant, and Example 7-7 (B = 14.75 cm, lambda = 3.43 cm -> HP_E ~ 12.4-12.5 deg) agrees)",
+   "source_kind": "primary",
+   "citation": "Stutzman 2e eq (7-138), p.310; archive.org scan; Example 7-7 p.315",
+   "verdict": "CONFIRMED",
+   "detail": "Constant, plane assignment (E-plane governed by the b/B aperture) and degree form all match Stutzman's optimum-horn formula. Honest caveat: the '54' digits themselves are OCR-mangled in the scan; the confirmation rests on the clean '2 sin^-1(0.47 lambda/B)' / 0.94-rad fragments plus the worked example, which pin it to 53.9-54."
+  },
+  {
+   "anchor": "H-plane HPBW constant 78 (theta_H = 78*lambda/a1 degrees)",
+   "repo_value": "K_H_DEG = 78.0 \u2014 emstudio/antenna/horn.py:47; used as K_H*lam/a1 at horn.py:80",
+   "source_value": "Stutzman 2e eq (7-124): 'HP_H = 1.36 [rad] lambda/A = 78 [deg] lambda/A, optimum' \u2014 from the t = 3/8 pattern's 3-dB point (A/lambda)*sin(theta) = 0.68. Clean in the scan: 'HP, = 1.36 ... 78 ... optimum (7-124)'",
+   "source_kind": "primary",
+   "citation": "Stutzman 2e eq (7-124), p.305; archive.org scan",
+   "verdict": "CONFIRMED",
+   "detail": "Both the 1.36-rad and 78-deg forms are legible in the primary scan, tied to the optimum t = 3/8 flare, on the A (broad/H-plane) aperture \u2014 exactly the repo's usage, including the E/H plane assignment the gate pins."
+  },
+  {
+   "anchor": "Gain-beamwidth estimate G ~ 26000/(theta_E*theta_H)",
+   "repo_value": "10*log10(26000.0/(hpbw_e_deg*hpbw_h_deg)) \u2014 emstudio/antenna/horn.py:93; described as 'the standard aperture approximation' horn.py:25,86",
+   "source_value": "Stutzman 2e eq (7-95): G ~ 26,000/(HP_E*HP_H) (degrees), presented as the practical-antenna variant of the idealized 41,253/(HP*HP) of (7-94); applied to a pyramidal horn on p.316: G = 26,000/((12.4)(14.2)) = 21.7 dB vs 21.75 design",
+   "source_kind": "primary",
+   "citation": "Stutzman 2e eq (7-95), pp.298-299 and 316; archive.org scan",
+   "verdict": "CONFIRMED",
+   "detail": "Verbatim constant and usage (gain, degrees, practical antennas). Cross-consistency recomputed: 26000/(54*78*4pi) implies eps = 0.491 vs the aperture route's 0.51, i.e. the two routes agree to 0.163 dB for any geometry \u2014 which is the repo's 'agreement to a fraction of a dB' claim, and also means the check is a constants-consistency check, not fully independent physics (the repo's own docstring already frames it correctly as corroboration)."
+  },
+  {
+   "anchor": "Docstring claim: optimum phase error 's = 1/8 in the E-plane, 3/8 in the H-plane'",
+   "repo_value": "'(s = 1/8 in the E-plane, 3/8 in the H-plane)' \u2014 emstudio/antenna/horn.py:17",
+   "source_value": "Stutzman 2e eq (7-144) context: 'The aperture efficiencies for optimum sectoral horns with s = 0.25 and t = 0.375'; design Step 4 (p.314): 'see if s = 0.25 and t = 0.375'; Nikolova L18: E-plane optimum at q = 1, i.e. s = B^2/(8*lambda*R) = 1/4; Balanis (13-19b) with b1 = sqrt(2*lambda*p1) gives s = 2*lambda*p1/(8*lambda*p1) = 1/4",
+   "source_kind": "primary",
+   "citation": "Stutzman 2e (7-144) and p.314-315; Balanis 3e (13-19a/b); archive.org scans",
+   "verdict": "MISMATCH",
+   "detail": "The classical optimum E-plane phase-error limit is s = 1/4 (90 deg), not 1/8: it follows directly from the b1 = sqrt(2*lambda*rho_e) condition the code itself implements (b1^2/(8*lambda*rho_e) = 2/8 = 1/4). The H-plane 3/8 is correct. DOC-ONLY error \u2014 the code's relations and 0.51 are the s=1/4/t=3/8 optimum, so no number the designer outputs is wrong; only line 17's docstring digit is. (1/8 = lambda/8 is probably a slip from the unrelated lambda/8 'negligible phase error' rule.)"
+  },
+  {
+   "anchor": "Aspect-ratio claim: a1 ~ 1.5*b1, 'which is what the E- and H-plane optimum flare conditions imply together'",
+   "repo_value": "'optimum-horn aspect ratio a1 ~ 1.5*b1' + derivation claim \u2014 emstudio/antenna/horn.py:99-101; baked in at horn.py:108-111 (b1 = sqrt(area/1.5), a1 = 1.5*b1); repeated in source_note horn.py:150",
+   "source_value": "The optimum flare conditions imply a1/b1 = sqrt(3*lambda*rho)/sqrt(2*lambda*rho) = sqrt(1.5) = 1.225 for equal flare lengths \u2014 i.e. a1^2 = 1.5*b1^2, not a1 = 1.5*b1. Realizable textbook optimum designs land near that: Balanis 3e Example 13.6 gives a1/b1 = 6.002/4.715 = 1.273; Stutzman 2e Example 7-7 gives 18.61/14.75 = 1.262. Neither text states a 1.5 linear ratio; both solve the quartic/iterative Pe = Ph condition instead",
+   "source_kind": "primary",
+   "citation": "Balanis 3e sec 13.4.3 + Example 13.6 (p.781-782); Stutzman 2e Example 7-7 (p.315); Nikolova L18 eq (18.42)-(18.51) (realizability RE = RH, no fixed ratio)",
+   "verdict": "MISMATCH",
+   "detail": "The derivation claim is false \u2014 the conditions 'imply together' sqrt(1.5) = 1.22 (equal-flare limit), and realizable optimum horns come out 1.26-1.27; 1.5 appears in no fetched text as the optimum ratio. Consequences are contained: gain still hits target exactly (fixed by area x 0.51) and the reported flare/beamwidth numbers are self-consistent for the shape chosen; but the synthesized horn has rho_h = 1.5*rho_e (E- and H-plane apexes that do not meet \u2014 Balanis's Pe = Ph realizability condition violated, so the part as dimensioned is not buildable as a single-apex pyramid without adjustment), and its beamwidths differ ~10% per plane from a true optimum design. Notably the shipped Mi-Wave 261A-20/599 anchor's real aspect is 39.88/27.94 = 1.427 \u2014 closer to 1.5 than to 1.22 \u2014 so 1.5 is defensible as a practical standard-gain-horn-like choice, but the docstring must stop attributing it to the optimum conditions. This bears directly on the open horn design decision: a designer trusting design_pyramidal to emit a textbook optimum horn gets a different (wider-aspect, non-realizable-apex) geometry."
+  },
+  {
+   "anchor": "Chu minimum-Q formula Q = 1/(ka)^3 + 1/(ka)",
+   "repo_value": "Q = 1/ka**3 + 1/ka at emstudio/antenna/small_antenna.py:43 (docstring :35); gate pins Q=10.0 at ka=0.5, tests/validation/small_antenna.py:53-57; UI plots the same form, emstudio/ui/small_antenna_dialog.py:621",
+   "source_kind": "secondary",
+   "source_value": "Q_Chu = 1/(ka)^3 + 1/(ka), ka << 1 (single TM10/TE10 mode) \u2014 Kim, Breinbjerg & Yaghjian, 'Electrically small magnetic dipole antennas with quality factors approaching the Chu lower bound', arXiv:0911.3822 (published IEEE Trans. AP 2010), eq (1), there attributed to Collin & Rothschild 1964",
+   "citation": "arXiv:0911.3822 eq (1); MIT RLE Technical Report 64 (Chu, 1948), dspace.mit.edu/handle/1721.1/4984; Balanis, Antenna Theory 3rd ed. eq (11-35), archive.org scan",
+   "verdict": "CORROBORATED",
+   "detail": "ANSWER TO THE TASK'S QUESTION: the repo implements the EXACT lowest-single-mode bound \u2014 the Collin-Rothschild (1964) / McLean (1996) form \u2014 not Chu's own expression. I fetched Chu's original 1948 report (MIT RLE TR-64, primary): it derives Qn from spherical-mode equivalent circuits and never prints this closed form. Balanis 3rd ed. (primary standard text, eq 11-35) prints the Chu/Hansen original form Q = (1+2(kr)^2)/[(kr)^3(1+(kr)^2)], which gives 9.6 at ka=0.5 versus the repo/McLean 10.0 (4% apart at the guardrail edge; the two converge as ka->0). The exact form the repo uses is stated as the standard 'Chu lower bound' in the peer-reviewed Kim/Breinbjerg/Yaghjian paper (eq 1). McLean's own 1996 paper (IEEE Trans. AP vol 44 no 5 pp 672-676) is paywalled everywhere I tried, so the exact form is corroborated, not primary-confirmed. Gate arithmetic recomputed: 1/0.125 + 1/0.5 = 10 exactly. The repo's 'Chu'/'Chu-Harrington' labels follow universal colloquial usage; a one-line docstring note that the closed form is McLean's exact version would make the attribution airtight."
+  },
+  {
+   "anchor": "Matched-VSWR fractional bandwidth FBW = (S-1)/(Q*sqrt(S))",
+   "repo_value": "(s-1)/(q*sqrt(s)) at emstudio/antenna/small_antenna.py:52; gate checks 0.0707 at Q=10, S=2, tests/validation/small_antenna.py:58-59",
+   "source_kind": "primary",
+   "source_value": "FBW_V(w0) = 4*sqrt(beta)*R0/(w0|Z0'|) with sqrt(beta) = (sigma-1)/(2*sqrt(sigma)) [boxed eq (7)] and Q(w0) ~= 2*sqrt(beta)/FBW_V(w0) [boxed eq (18)] => FBW_V = (sigma-1)/(sqrt(sigma)*Q)",
+   "citation": "Yaghjian & Best, 'Impedance, Bandwidth, and Q of Antennas', AFRL Hanscom, DTIC accession ADA418158 (2003 IEEE APS version of IEEE Trans. AP vol 53 no 4, 2005), eqs (4),(7),(18) read from page images of the archived DTIC PDF (Wayback snapshot of apps.dtic.mil)",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-exact match: 2*sqrt(beta)/Q with sqrt(beta)=(s-1)/(2*sqrt(s)) is identically (s-1)/(Q*sqrt(s)). The paper's half-power case (sigma=5.828, sqrt(beta)=1, FBW=2/Q) also checks. Gate value recomputed: 1/(10*sqrt(2)) = 0.07071. Validity condition in the source: Q >~ 4 and FBW << 1 \u2014 the repo applies it in the high-Q small-antenna regime where that holds."
+  },
+  {
+   "anchor": "Short dipole Rr = 20*pi^2*(L/lambda)^2 (triangular current)",
+   "repo_value": "20.0*pi**2*(L/lam)**2 at emstudio/antenna/small_antenna.py:70 (docstring :64); gate expects 1.9739 ohm at L=lambda/10, tests/validation/small_antenna.py:35-39",
+   "source_kind": "primary",
+   "source_value": "Rr = 2Prad/|I0|^2 = 20*pi^2*(l/lambda)^2 \u2014 'one-fourth of that obtained for the infinitesimal dipole as given by (4-19)'",
+   "citation": "Balanis, Antenna Theory: Analysis and Design, 3rd ed., eq (4-37), p.165, full scan at ia800501.us.archive.org (AntennaTheoryAnalysisAndDesign3rdEd)",
+   "verdict": "CONFIRMED",
+   "detail": "Verbatim equation match including the constant and the triangular-current provenance. Recomputed 20*pi^2*0.01 = 1.97392 ohm, matching the gate's printed 1.9739. Balanis Example 2.61 also confirms the companion infinitesimal-dipole field (4-26a) used below."
+  },
+  {
+   "anchor": "Short-dipole effective length le = L/2",
+   "repo_value": "le = L/2.0 at emstudio/antenna/small_antenna.py:71; gate tests/validation/small_antenna.py:40-41",
+   "source_kind": "primary",
+   "source_value": "le = -a_theta*(l/2)*sin(theta); maximum l/2 \u2014 'the effective length ... is only half (50%) of its physical length' for the small dipole (l < lambda/10) with triangular current",
+   "citation": "Balanis 3rd ed., Section 2.15 / Example 2.14 (pp. 88-89), same archive.org scan",
+   "verdict": "CONFIRMED",
+   "detail": "Exact match; Balanis Example 2.14 derives it from the (4-36a) small-dipole far field. The same triangular-current argument gives the monopole he = h/2 at small_antenna.py:140."
+  },
+  {
+   "anchor": "Short monopole Rr = 40*pi^2*(h/lambda)^2, he = h/2",
+   "repo_value": "40.0*pi**2*(h/lam)**2 at emstudio/antenna/small_antenna.py:139, he=h/2 at :140; gate expects 3.9478 ohm and exactly 2x the dipole Rr, tests/validation/small_antenna.py:43-51",
+   "source_kind": "formula-recomputed",
+   "source_value": "Z(monopole) = (1/2) Z(dipole of twice the length) \u2014 Balanis eq (4-106) states the halving and 'the same procedure can be followed for any other length'; combined with (4-37): (1/2)*20*pi^2*(2h/lambda)^2 = 40*pi^2*(h/lambda)^2",
+   "citation": "Balanis 3rd ed., eq (4-106) p.192-193 plus eq (4-37), archive.org scan",
+   "verdict": "CONFIRMED",
+   "detail": "Balanis prints the half-of-dipole rule for monopoles over perfect ground (image theory) rather than the 40*pi^2 closed form itself; the closed form follows in one line and recomputes to 3.94784 ohm at h=lambda/10, matching the gate. The gate's monopole-equals-2x-dipole-at-same-L/lambda identity is the same algebra."
+  },
+  {
+   "anchor": "Small loop Rr = 31171 * N^2 * (A/lambda^2)^2 and he = 2*pi*N*A/lambda",
+   "repo_value": "31171.0*N**2*(A/lam**2)**2 at emstudio/antenna/small_antenna.py:98, he = 2*pi*N*A/lam at :99 (docstring :92-93); gate tests/validation/small_antenna.py:75-85; same 31171 constant quoted in emstudio/solvers/nec2/writer.py:153",
+   "source_kind": "primary",
+   "source_value": "Rr = 20*pi^2*(C/lambda)^4*N^2 ~= 31,171*N^2*S^2/lambda^4 (S = area; 'the last form holds for loops of other configurations'); N^2 scaling shown in worked example (0.788 ohm single turn -> 0.788*8^2 = 50.43 ohm for 8 turns)",
+   "citation": "Balanis 3rd ed., eqs (5-24) and (5-24a) p. ~238 and Example 5.x p.241, archive.org scan; loop he cross-derived from Terman, Radio Engineers' Handbook (1943), eq (39) p.813 (loop field e = 120*pi^2*N*A*I*cos(theta)/(lambda^2*d)), worldradiohistory.com scan",
+   "verdict": "CONFIRMED",
+   "detail": "Rr constant is verbatim in Balanis including the ~=31,171 rounding; recomputed 320*pi^4 = 31170.96. N^2 scaling confirmed by Balanis's own worked example, matching the gate's 10-turns->100x check. Effective height: dividing Terman's loop field by the free-space doublet field e = 60*pi*I*le/(lambda*d) gives le = 2*pi*N*A/lambda exactly (equivalently he = Voc/E from Terman eq 40); matches the repo digit for digit."
+  },
+  {
+   "anchor": "Radiation efficiency eta = Rr/(Rr + Rloss)",
+   "repo_value": "r_rad/(r_rad+r_loss) at emstudio/antenna/small_antenna.py:55-58; gate 4/(4+4)=0.5 at tests/validation/small_antenna.py:60-61",
+   "source_kind": "primary",
+   "source_value": "e_cd = Rr/(Rr + RL) \u2014 'the ratio of the power delivered to the radiation resistance Rr to the power delivered to Rr and RL'; worked example e_cd = 0.788/(0.788+1.053)",
+   "citation": "Balanis 3rd ed., eq (2-90) p.86 and loop example p.241, archive.org scan",
+   "verdict": "CONFIRMED",
+   "detail": "Definition and arithmetic match exactly; this same (2-90) definition underpins the efficiency_ladder eta_a rung."
+  },
+  {
+   "anchor": "Monopole static capacitance C = 2*pi*eps0*h / (ln(2h/a) - 1)",
+   "repo_value": "2.0*pi*EPS0*h/(log(2h/a)-1) at emstudio/antenna/small_antenna.py:125 (docstring :117-119 calls it 'an engineering estimate'; radiated quantities do not depend on it); gate only requires the resulting L_load be finite/positive, tests/validation/small_antenna.py:71-73",
+   "source_kind": "primary",
+   "source_value": "Grover's formula C = 2*pi*eps0*l / (ln(2/D) - gamma), D = d/l (d = tube DIAMETER); at the on-ground-plane limit gamma -> 1, i.e. C = 2*pi*eps0*h/(ln(2h/d) - 1)",
+   "citation": "Rivera & Casey, 'Approximate Capacitance Formulas for Electrically Small Tubular Monopole Antennas', NUWC-NPT Technical Report 10,817 (1995), DTIC accession ADA302235, eqs (6)-(7) read from the page image (p.4), archived DTIC PDF via Wayback",
+   "verdict": "CORROBORATED",
+   "detail": "Same 2*pi*eps0*h numerator and '-1' denominator structure confirmed in a primary Navy report, but the log-argument variant differs: Grover (with d = diameter = 2a) gives ln(h/a)-1 where the repo has ln(2h/a)-1 \u2014 the repo form corresponds to C = h/(c*Za) with Schelkunoff's average characteristic impedance Za = 60(ln(2h/a)-1). For the repo's VLF example (h=100 m, a=5 mm) the two variants differ ~7% in C. Multiple engineering variants coexist in the literature; the repo correctly brands its choice an estimate and nothing downstream gates on its absolute value, so this is a documented-approximation difference, not an error."
+  },
+  {
+   "anchor": "Voltage-limited radiated power coefficient 640*pi^4/c0^2 (printed 6.95e-13) \u2014 Watt eq 2.1.10a lineage",
+   "repo_value": "pr_coeff = 640.0*pi**4/C0**2 at emstudio/antenna/small_antenna.py:204 (docstring :173-175); gate requires exact 640*pi^4/c0^2 AND within 1% of 6.95e-13, tests/validation/small_antenna.py:265-267",
+   "source_kind": "formula-recomputed",
+   "source_value": "Pr = (2*pi*f*C*V)^2 * Rr with Rr = 160*pi^2*(he/lambda)^2 => coefficient = 640*pi^4/c0^2 = 6.9365e-13 (recomputed); printed book value 6.95e-13 is that with rounding (+0.19%)",
+   "citation": "Algebraic recomputation on top of the Balanis-confirmed primitives above; Watt, VLF Radio Engineering (Pergamon 1967) print value not independently locatable on the open web",
+   "verdict": "CONFIRMED",
+   "detail": "The identity chain is exact: I = 2*pi*f*C*V through the series antenna capacitance, times the confirmed Rr(he) form, gives 640*pi^4*V^2*C^2*he^2*f^4/c0^2. Recomputed 640*97.40909/8.98755e16 = 6.9365e-13; 6.95e-13/6.9365e-13 = 1.0019, inside the gate's 1% band, so the gate's dual check (exact coefficient + printed-value proximity) is internally consistent. The printed 6.95e-13 digits themselves I could not find stated independently anywhere open (searched DTIC VLF reports, NAVELEX 0101,113 all chapters, AGARD CP-520, SPAWAR TR 1904, Google Books snippets) \u2014 the repo's own docs/upstream/watt-topload-anchors.md records page-image verification against the book, which is primary but not independent of the repo."
+  },
+  {
+   "anchor": "Voltage-limited bandwidth coefficient 320*pi^3/c0^2 (printed 1.11e-13) \u2014 Watt eq 2.1.13c lineage",
+   "repo_value": "bw_coeff = 320.0*pi**3/C0**2 at emstudio/antenna/small_antenna.py:205 (docstring :176-177); gate tests/validation/small_antenna.py:268-270",
+   "source_kind": "formula-recomputed",
+   "source_value": "b_3dB = f/Q = 2*pi*f^2*C*(Rr/eta_ts) with the confirmed Rr(he) => coefficient 320*pi^3/c0^2 = 1.10397e-13; printed 1.11e-13 (+0.55%)",
+   "citation": "Algebraic recomputation from Q = Xc/R = 1/(2*pi*f*C*R) and the confirmed Rr form; Watt print value not independently locatable",
+   "verdict": "CONFIRMED",
+   "detail": "Exact recomputation: 320*31.00628/8.98755e16 = 1.10397e-13; printed 1.11e-13 is within the gate's 1% (+0.55%). Same caveat as the Pr coefficient about the printed digits: only the repo's internal page-image verification attests the book's exact print."
+  },
+  {
+   "anchor": "Power-bandwidth product closed form 7.71e-26 * V^2 C^3 he^4 f^8 / eta (Watt eq 2.1.13l)",
+   "repo_value": "gate compares code's p_r*b_3db against 7.71e-26 closed form within 1%, tests/validation/small_antenna.py:278-283",
+   "source_kind": "formula-recomputed",
+   "source_value": "Exact product of the two exact coefficients = 204800*pi^7/c0^4 = 7.658e-26; 7.71e-26 equals the product of the two PRINTED rounded constants (6.95e-13 * 1.11e-13), +0.68% above exact",
+   "citation": "Recomputation; consistent with the repo's own note that 7.71e-26 = 6.95e-13*1.11e-13 exactly (docs/upstream/watt-topload-anchors.md)",
+   "verdict": "CONFIRMED",
+   "detail": "The gate tolerance (1%) correctly brackets the 0.68% gap between the exact-coefficient product the code computes and the rounded-constant product the book prints, so the check is sound and genuinely independent of the code path (the gate recomputes from 7.71e-26 directly). No independent open-web print of 7.71e-26 found."
+  },
+  {
+   "anchor": "Rr = 160*pi^2*(he/lambda)^2 for a monopole in terms of effective height, plus the two anonymized measured (he, f, Rr) pairs",
+   "repo_value": "docstring form at emstudio/antenna/small_antenna.py:173; gate identity check tests/validation/small_antenna.py:271-277 and measured pairs (83 m, 15.79 kc/s, 0.030 ohm), (96 m, 18.0 kc/s, 0.0524 ohm) at :293-299",
+   "source_kind": "formula-recomputed",
+   "source_value": "Identical to the confirmed 40*pi^2*(h/lambda)^2 with he = h/2, and to the uniform-current monopole by image theory; secondary literature states the same as Rr = 1580*(He/lambda)^2",
+   "citation": "Recomputation from Balanis primitives; engineering-form corroboration in secondary sources (e.g., W8JI radiation-resistance note quoting Rr = 1580(He/lambda)^2)",
+   "verdict": "CONFIRMED",
+   "detail": "Formula confirmed (160*pi^2 = 1579.14). The two measured pairs reproduce under it: 1579.14*(83/18986.2)^2 = 0.0302 ohm vs 0.030 quoted (1%), and 1579.14*(96/16655.1)^2 = 0.05246 vs 0.0524 (0.1%) \u2014 the gate's 2% tolerance is honest. The 'measured' provenance itself (early-installation data from Watt's book, deliberately anonymized per the project's no-site-names rule) could not be located in any independent open source; that sub-claim rests on the repo's page-image verification alone."
+  },
+  {
+   "anchor": "Effective height from measured field: he = 1e7 * E * d / (4*pi*I*f) (Watt eq 2.1.8b)",
+   "repo_value": "1.0e7*e*d/(4.0*pi*i*f) at emstudio/antenna/small_antenna.py:277 (docstring :269-274); gate exact-inversion check tests/validation/small_antenna.py:314-318",
+   "source_kind": "formula-recomputed",
+   "source_value": "From Balanis eq (4-26a) infinitesimal-dipole far field E_theta = j*eta*k*I0*l/(4*pi*r)*sin(theta), doubled by the ground image: E = 120*pi*I*he/(lambda*d) = 4*pi*1e-7*f*I*he/d at c = 3e8 => he = 1e7*E*d/(4*pi*I*f) exactly",
+   "citation": "Balanis 3rd ed. eq (4-26a) (quoted verbatim in Problem 2.61 of the archive.org scan) plus image theory; the 1e7 constant absorbs the engineering rounding c = 3e8 m/s",
+   "verdict": "CONFIRMED",
+   "detail": "Recomputed identity is exact: 120*pi/3e8 = 4*pi*1e-7. Cross-checked for consistency with Rr = 160*pi^2*(he/lambda)^2 and Pr = E^2*d^2/90 \u2014 the three relations close algebraically (the gate's forward/inverse check at :314-318 exercises exactly this loop)."
+  },
+  {
+   "anchor": "E = 300*sqrt(P_kW)/d_km mV/m (equivalently Pr = E^2*d^2/90) for a short vertical monopole",
+   "repo_value": "gate consistency check 300^2*1e-6/90*1e6 == 1000 W at tests/validation/small_antenna.py:319-322",
+   "source_kind": "primary",
+   "source_value": "'the radiating element is a short vertical monopole on the surface of a perfectly conducting plane Earth that radiates 1 kW, and the field strength at a distance of 1 km is 300 mV/m, corresponding to a cymomotive force of 300 V'",
+   "citation": "Recommendation ITU-R P.368-10 (08/2022), official ITU PDF (itu.int R-REC-P.368-10-202208), condition list in section 1",
+   "verdict": "CONFIRMED",
+   "detail": "Primary standards-body statement matches the gate's constant digit for digit. Recomputed from first principles too: E = sqrt(3*eta0/(4*pi)*P)/d = sqrt(90P)/d with eta0 = 120*pi (89.94 with the CODATA eta0 \u2014 the '90' is the standard engineering rounding); sqrt(90*1000) = 300 mV/m at 1 km."
+  },
+  {
+   "anchor": "Efficiency ladder eta_a = Rr/Ra, eta_as = Rr/(Ra+Ri), eta_ts = Rr/(Ra+Ri+Rt); Q(eta=1) = Xc/Rr, b = f/Q (Watt section 2.1.12)",
+   "repo_value": "emstudio/antenna/small_antenna.py:252-254 (ladder), :258-260 (Q and b floor pair); gate identity and ordering checks tests/validation/small_antenna.py:300-313",
+   "source_kind": "formula-recomputed",
+   "source_value": "Base definition eta = Rr/(Rr+Rloss) is Balanis eq (2-90) (confirmed above); Q = X/R and b = f/Q are elementary series-RLC relations; the specific three-rung Rr+Rsd+Rc+Rg / +Ri / +Rt bookkeeping is Watt's",
+   "citation": "Balanis 3rd ed. eq (2-90) for the base definition; ladder decomposition per Watt 1967 section 2.1.12 (repo page-image verified, not independently found)",
+   "verdict": "CORROBORATED",
+   "detail": "All gate arithmetic recomputed exactly (eta_a = 0.03/0.09; Q = 1200/0.03 = 40000; b = 15790/40000). The three-rung nomenclature and the historical plausibility band (10-70% system efficiency at VLF, warn above 85% below 40 kHz) are Watt-book-specific engineering judgment; no independent open statement found, but nothing in them contradicts any confirmed physics \u2014 the warning is advisory only and cannot corrupt a result."
+  },
+  {
+   "anchor": "Physical constants C0, ETA0, EPS0, MU0",
+   "repo_value": "C0 = 299792458.0, ETA0 = 376.730313668, EPS0 = 8.8541878128e-12, MU0 = 1.25663706212e-6 at emstudio/antenna/small_antenna.py:23-26 (gate re-hardcodes eps0 at tests/validation/small_antenna.py:138)",
+   "source_kind": "primary",
+   "source_value": "NIST CODATA 2022 (fetched from physics.nist.gov): Z0 = 376.730313412(59) ohm, eps0 = 8.8541878188(14)e-12 F/m, mu0 = 1.25663706127(20)e-6 N/A^2; c is exact 299792458 m/s by SI definition",
+   "citation": "physics.nist.gov/cgi-bin/cuu/Value?z0, ?ep0, ?mu0 (CODATA 2022 recommended values)",
+   "verdict": "CONFIRMED",
+   "detail": "The repo's three non-exact constants are exactly the CODATA 2018 release values (Z0 = 376.730313668(57), eps0 = 8.8541878128(13)e-12, mu0 = 1.25663706212(19)e-6). CODATA 2022 has since shifted the trailing digits by ~1e-10 relative \u2014 physically irrelevant at any engineering precision here, and only EPS0 is even used in this module (the capacitance estimate; ETA0 and MU0 are defined but unused in small_antenna.py). Worth a one-line comment noting the vintage if the module is ever touched, nothing more."
+  },
+  {
+   "anchor": "Wheeler 1947 / radiansphere relations",
+   "repo_value": "Not present: zero grep hits for 'wheeler', 'radiansphere', or 'mclean' anywhere in emstudio/ or tests/; the electrically-small thresholds used are L/lambda < 0.1 (small_antenna.py:84,159) and ka < 0.1 for the loop (:112)",
+   "source_kind": "primary",
+   "source_value": "Balanis 3rd ed. uses the same conventions: 'small dipole of length l < lambda/10' (Example 2.14) and loops 'electrically small (C < lambda/10)' (chapter 5 opening) \u2014 the loop ka < 0.1 is identically C < 0.1*lambda since C = 2*pi*a",
+   "citation": "Balanis 3rd ed., Example 2.14 and section 5.1, archive.org scan; Balanis ch. 11 confirms Wheeler's 1947/1959 papers as historical lineage only",
+   "verdict": "CONFIRMED",
+   "detail": "The task asked about Wheeler relations, but the repo hard-codes no Wheeler-specific constant (no radiation power factor, no radiansphere ka=1 threshold), so there is no Wheeler anchor to falsify. The thresholds it does use match the standard textbook conventions digit for digit."
+  },
+  {
+   "anchor": "Churchill-Chu horizontal-cylinder all-Ra correlation: Nu = {0.60 + 0.387 [Ra/(1+(0.559/Pr)^(9/16))^(16/9)]^(1/6)}^2",
+   "repo_value": "constants 0.60, 0.387, 0.559, 9/16, 16/9, 1/6, outer square \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/wire/thermal.py:215 (docstring) and :222-223 (code); restated in tests/validation/thermal.py:140-141",
+   "source_value": "AHTT v6.00 eq. (8.29), p. 430: Nu_D = {0.60 + 0.387 [Ra_D/(1+(0.559/Pr)^(9/16))^(16/9)]^(1/6)}^2 \u2014 byte-identical layout, page image read. Incropera 6th ed eq. (9.34), p. 580 and Cengel 2nd ed Table 9-1 eq. (9-25), p. 468 print the algebraically identical form 0.387 Ra^(1/6)/[1+(0.559/Pr)^(9/16)]^(8/27) \u2014 (16/9)x(1/6)=8/27; I verified the two forms agree to 7e-15",
+   "verdict": "CONFIRMED",
+   "source_kind": "primary",
+   "citation": "Lienhard & Lienhard, A Heat Transfer Textbook v6.00 (2024), eq. 8.29 p. 430, author-official PDF from ahtt.mit.edu (page image); same in v5.10 (web.archive.org snapshot of ahtt.mit.edu, 2022-01-20); Incropera et al., Fundamentals of Heat and Mass Transfer 6th ed. (Wiley 2007) eq. 9.34 p. 580 (archive.org scan, page image); Cengel, Heat Transfer: A Practical Approach 2nd ed. Table 9-1 p. 468 (archive.org scan, page image). All three cite Churchill & Chu, Int. J. Heat Mass Transfer 18(9):1049-1053 (1975), doi:10.1016/0017-9310(75)90222-7 as the origin (AHTT ref [8.8]; Incropera ref [21] verbatim 'Int. J. Heat Mass Transfer, 18, 1049, 1975')",
+   "detail": "Three standard texts print identical constants digit for digit and all cite the same 1975 IJHMT paper. The original journal PDF itself is paywalled (ScienceDirect; Semantic Scholar openAccessPdf status CLOSED), so per the closed-form rule the check is the formula against standard texts plus recomputation \u2014 done: the repo form reproduces Cengel Ex 9-1 (Nu 17.40) and AHTT Ex 8.4 (bracket 0.9265) exactly. ht library docs (secondary) also quote the same equation citing the 1975 paper."
+  },
+  {
+   "anchor": "Repo citation claim 'AHTT eq. 8.29 = Cengel 9-25' for the cylinder correlation",
+   "repo_value": "thermal.py:45 ('Churchill-Chu (AHTT eq. 8.29 = Cengel 9-25)') and thermal.py:216",
+   "source_value": "AHTT v6.00 eq. (8.29) p. 430 and Cengel 2nd ed Table 9-1 eq. (9-25) p. 468 are both the Churchill-Chu cylinder correlation with identical constants (16/9-inside vs 8/27-outside layouts, algebraically equal); Cengel Ex 9-1 itself says 'determined from Eq. 9-25'",
+   "verdict": "CONFIRMED",
+   "source_kind": "primary",
+   "citation": "AHTT v6.00 p. 430 (ahtt.mit.edu PDF, page image); Cengel 2nd ed. p. 468 Table 9-1 + p. 470 Ex 9-1 (archive.org item HeatAndMassTransferByCengel2ndEdition, page image + djvu text)",
+   "detail": "Both equation numbers verified against page images; the identity between the two printed forms verified numerically to machine precision."
+  },
+  {
+   "anchor": "Claimed 'Churchill-Chu printed range Ra 1e-6..1e12' (warned outside)",
+   "repo_value": "thermal.py:32 ('printed range is Ra 1e-6..1e12'), :216-217, and the warning text at :403-404",
+   "source_value": "No single seen source prints '1e-6..1e12' as one range. AHTT v5.10 AND v6.00 print for eq. 8.29 only '10^-6 <= Ra_D' (lower bound, NO upper bound \u2014 v5.10 checked specifically because the repo used v5-era values). Cengel Table 9-1 eq. 9-25 prints 'Ra_D <= 10^12' (no lower bound); Incropera eq. 9.34 prints 'Ra_D <~ 10^12'. ht library docs (secondary) quote the paper's own range as 1e-5..1e12",
+   "verdict": "CONFIRMED",
+   "source_kind": "primary",
+   "citation": "AHTT v6.00 p. 431 page image + AHTT v5.10 p. 431 (web.archive.org copy); Cengel 2nd ed Table 9-1 p. 468 page image; Incropera 6th ed p. 580 page image; ht.readthedocs.io conv_free_immersed (secondary)",
+   "detail": "Each bound is genuinely printed \u2014 1e-6 in AHTT (both versions), 1e12 in Cengel and Incropera \u2014 but the repo's phrase implies one printed range and it is actually a composite of its two named sources. Nothing contradicts it (AHTT gives no upper limit at all), so the warning bounds are sound; the only wrinkle is ht's claim that the 1975 paper itself says 1e-5 as the lower bound, unverifiable without the paywalled original. Cosmetic wording nuance at most, not an error."
+  },
+  {
+   "anchor": "Churchill sphere correlation: Nu = 2 + 0.589 Ra^(1/4)/[1+(0.469/Pr)^(9/16)]^(4/9), Ra_D <= 1e11, Pr >= 0.7",
+   "repo_value": "constants 2, 0.589, 0.469, 9/16, 4/9 \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/solvers/openfoam/solid.py:317+321; tests/validation/openfoam_solid.py:86-91 (with 'Ra_D <= 1e11, Pr >= 0.7'); tests/validation/openfoam_ras_solid.py:59-63",
+   "source_value": "Incropera 6th ed eq. (9.35), p. 583 (page image): Nu_D = 2 + 0.589 Ra_D^(1/4)/[1+(0.469/Pr)^(9/16)]^(4/9), 'due to Churchill [10]... Pr >= 0.7 and Ra_D <= 10^11'; Cengel 2nd ed Table 9-1 eq. (9-26), p. 468 (page image): identical equation, 'Ra_D <= 10^11 (Pr >= 0.7)'",
+   "verdict": "CONFIRMED",
+   "source_kind": "primary",
+   "citation": "Incropera 6th ed p. 583 (archive.org scan, page image; its ref [10] = Churchill, 'Free Convection Around Immersed Bodies,' Heat Exchanger Design Handbook \u00a72.5.7, Begell House 2002); Cengel 2nd ed p. 468 (archive.org scan, page image; attributes 'Churchill (1983)'); corroborated by ht library docs quoting HEDH (Schlunder ed., Hemisphere 1987): same 0.589/0.469 constants times an extra {1+7.44e-8 Ra [...]^(16/9)}^(1/12) factor \u2014 ~1 below Ra~1e11, which is exactly why the truncated textbook form carries the 1e11 limit",
+   "detail": "Constants, both restrictions, and the conduction limit Nu->2 as Ra->0 all confirmed on page images of two independent standard texts, both attributing the correlation to Churchill's HEDH chapter (the true primary, which is a for-purchase handbook I could not fetch). Digit-for-digit match with the repo."
+  },
+  {
+   "anchor": "Repo's sphere attribution 'AHTT eq. 8.33 form' next to the 0.469 constant",
+   "repo_value": "'(AHTT eq. 8.33 form), Ra_D <= 1e11, Pr >= 0.7 ... (0.469/Pr)' \u2014 tests/validation/openfoam_solid.py:86-87 and openfoam_ras_solid.py:59",
+   "source_value": "AHTT eq. (8.33) actually prints Nu_D = 2 + 0.589 Ra_D^(1/4)/[1+(0.492/Pr)^(9/16)]^(4/9) with 'Ra_D < 10^12' \u2014 constant 0.492, not 0.469; no Pr restriction stated \u2014 in BOTH v5.10 (p. 456 area, wayback copy) and v6.00 (p. 433, page image). AHTT cites its [8.11] = Raithby & Hollands, Handbook of Heat Transfer 3rd ed. 1998, ch. 4 \u2014 not Churchill",
+   "verdict": "MISMATCH",
+   "source_kind": "primary",
+   "citation": "AHTT v6.00 eq. 8.33 p. 433 (ahtt.mit.edu PDF, page image read) and AHTT v5.10 (web.archive.org copy of ahtt.mit.edu); vs Incropera 6th ed eq. 9.35 / Cengel 2nd ed eq. 9-26 which print the repo's 0.469 form",
+   "detail": "The mismatch is in the CITATION, not the physics: the repo implements Churchill's own sphere correlation (0.469 \u2014 confirmed correct against Incropera/Cengel, see previous anchor) but labels it with an AHTT equation number whose printed constant is 0.492 (the Raithby-Hollands variant, which AHTT cites instead of Churchill) and whose printed range is <1e12, not <=1e11. The two variants differ by ~0.5% in Nu (recomputed at Ra 1e7, Pr 0.71: 27.558 vs 27.422). 'Form' is defensible \u2014 same structure \u2014 but the digits, range and Pr restriction quoted alongside it are Cengel/Incropera's, so the honest citation is 'Churchill 1983 (HEDH \u00a72.5.7), as printed in Cengel Table 9-1 / Incropera eq. 9.35', not AHTT 8.33. Same loose label in both gate files."
+  },
+  {
+   "anchor": "Cengel Ex 9-1 gate values: film props (k 0.02699, nu 1.749e-5, Pr 0.7241 at Tf 318 K), Ra 1.869e6, Nu 17.40, h 5.869 W/m2K, Q_conv 443 W, Q_rad(eps=1) 553 W",
+   "repo_value": "props_cengel = (0.02699, 1.749e-5, 1.749e-5/0.7241, 0.7241); asserts Ra 1.869e6, Nu 17.40, h 5.869, Q_conv 442.6\u00b12, Q_rad 553.3\u00b11 \u2014 tests/validation/thermal.py:118-135",
+   "source_value": "Cengel 2nd ed Example 9-1 'Heat Loss from Hot Water Pipes' (pp. 470-471): 8-cm pipe, 6 m, 70/20\u00b0C, Tf 45\u00b0C; printed k = 0.02699 W/m\u00b7\u00b0C, nu = 1.749e-5 m2/s, Pr = 0.7241; Ra = 1.869e6; 'from Eq. 9-25' Nu = 17.40; h = 5.869 W/m2\u00b7\u00b0C; A_s = 1.508 m2; Q = 443 W; radiation with eps=1: 553 W",
+   "verdict": "CONFIRMED",
+   "source_kind": "primary",
+   "citation": "Cengel, Heat Transfer: A Practical Approach, 2nd ed., Example 9-1 pp. 470-471 (archive.org item HeatAndMassTransferByCengel2ndEdition, djvu full text \u2014 every digit visible)",
+   "detail": "Every printed digit matches the gate. Independently recomputed from the printed props: Ra 1.8694e6, Nu 17.3997, h 5.870, Q_conv 442.6 W, Q_rad 553.3 W \u2014 the gate's tighter internal values (442.6/553.3) are the unrounded results of the book's own arithmetic."
+  },
+  {
+   "anchor": "AHTT Ex 8.4 gate values: film props (k 0.0297, nu 2.073e-5, alpha 2.93e-5, Pr 0.707 at Tf 350 K), CC bracket 0.9265, 1-g h 13.84 W/m2K",
+   "repo_value": "props_ahtt = (0.0297, 2.073e-5, 2.93e-5, 0.707); asserts h 13.841\u00b10.1 and bracket 0.9265\u00b15e-3 \u2014 tests/validation/thermal.py:137-146",
+   "source_value": "AHTT v6.00 Example 8.4, p. 431 (page image): 5 mm wire, 127/27\u00b0C, Tf 350 K, nu 2.073e-5, alpha 2.93e-5, k 0.0297 (in the h column), Pr 0.707; Ra_D = 576.2\u00b7(g-level); underbrace beneath 0.387[576.2/(1+(0.559/0.707)^(9/16))^(16/9)]^(1/6) printed '=0.926'; table: Nu 0.480/0.542/0.639/1.061 and h 2.85/3.22/3.80/6.30 W/m2K at g-levels 1e-6/1e-5/1e-4/1e-2",
+   "verdict": "CONFIRMED",
+   "source_kind": "primary",
+   "citation": "Lienhard & Lienhard, AHTT v6.00 (2024), Example 8.4 p. 431, author-official ahtt.mit.edu PDF, page image read; v5.10 prints the same example (wayback copy)",
+   "detail": "Recomputed: Ra(1g) 576.24 vs printed 576.2; bracket 0.92647 vs printed 0.926 (gate's 0.9265 is the unrounded value); every printed table row reproduces exactly from eq. 8.29 (Nu 0.480/0.542/0.639/1.061, h 2.85/3.22/3.80/6.30). The 1-g h = 13.84 is NOT printed in the book (its table stops at 1e-2 g) \u2014 it is the same formula evaluated at g-level 1: (0.6+0.9265)^2 \u00d7 0.0297/0.005 = 13.841, recomputed and matching the gate. The repo's note that these are 'v5-era values' \u2014 v6.00 prints the identical props here, so no drift."
+  },
+  {
+   "anchor": "Morgan power-law cross-check bands: Nu = C\u00b7Ra^n with (1e-2..1e2: 1.02, 0.148), (1e2..1e4: 0.850, 0.188), (1e4..1e7: 0.480, 0.250)",
+   "repo_value": "morgan = ((1e-2,1e2,1.02,0.148),(1e2,1e4,0.850,0.188),(1e4,1e7,0.480,0.250)) \u2014 tests/validation/thermal.py:160-161 (used as a \u00b125% oracle on Churchill-Chu at :159-169)",
+   "source_value": "Incropera 6th ed Table 9.1 p. 580 (page image), 'Constants of Equation 9.33 ... [20]=Morgan': 1e-2\u20131e2: C 1.02 n 0.148; 1e2\u20131e4: 0.850, 0.188; 1e4\u20131e7: 0.480, 0.250 (outer bands 0.675/0.058 and 0.125/0.333 unused by the repo). Energies 2021 (Cieslinski et al.) prints the identical four bands: 'B = 1.02 and m = 0.148, 10^-2 < Ra <= 10^2; B = 0.85 and m = 0.188 ...; B = 0.48 and m = 0.25, 10^4 < Ra <= 10^7' citing Morgan, Adv. Heat Transf. 1975, 11, 199-263",
+   "verdict": "CORROBORATED",
+   "source_kind": "secondary",
+   "citation": "Incropera 6th ed Table 9.1 p. 580 (archive.org scan, page image); Cieslinski, Smolen & Sawicka, 'Free Convection Heat Transfer from Horizontal Cylinders', Energies 2021, 14, 559, doi:10.3390/en14030559 (open-access PDF via psecommunity.org LAPSE mirror). Primary = Morgan, Advances in Heat Transfer vol. 11 (1975), pp. 199-263 \u2014 Elsevier serial, not openly fetchable",
+   "detail": "Two independent reprints (a standard text and a peer-reviewed 2021 paper) agree digit for digit with the repo, both citing Morgan 1975; the primary itself was not viewable, so this stays corroboration rather than confirmation. The repo's side-claim that Churchill-Chu 'reads slightly LOW vs Morgan at low Ra' (thermal.py:217) is also corroborated by Energies 2021: 'the correlation of Churchill and Chu gives lower values of Nu' (attributed to Morgan's own comparison)."
+  },
+  {
+   "anchor": "sigma_opt = 0.243*tau - 0.051 (optimum-spacing design line)",
+   "repo_value": "0.243*tau - 0.051 \u2014 emstudio/antenna/lpda.py:94",
+   "source_kind": "primary",
+   "source_value": "ARRL Antenna Book 21st ed. ch.10 Eq 8: 'sigma_opt = 0.243*tau - 0.051' (open mirror scan qrz.ru/schemes/contribute/arrl/chap10.pdf); line drawn on the corrected Carrel chart",
+   "citation": "Cebik/ARRL Antenna Book 21st ed. (2007) ch.10 Eq 8; overlay-verified on Balanis 3e Fig 11.13 (p.631) and the official Wiley 4e companion ch11.pptx chart",
+   "verdict": "CONFIRMED",
+   "detail": "The straight-line fit is NOT in Carrel's primary (there the optimum line is graphical, Fig 11/Fig 65). I plotted 0.243*tau-0.051 over the Balanis 3e print AND the official 4e companion viewgraph at 300 dpi: it lies exactly on the printed dashed 'Optimum sigma' line across tau 0.76-1.0 (indistinguishable at ~0.0005 sigma). ARRL prints the identical coefficients as Eq 8; Stroobandt (hamwaves.com/lpda) corroborates with the same citation."
+  },
+  {
+   "anchor": "cot(alpha) = 4*sigma/(1-tau)",
+   "repo_value": "4.0*sigma/(1.0-tau) \u2014 emstudio/antenna/lpda.py:218",
+   "source_kind": "primary",
+   "source_value": "Carrel 1961 IRE paper eq (24): tan alpha = (1-tau)/(4*sigma), printed p.65; thesis Table 4: sigma = (1/4)(1-tau)cot(alpha)",
+   "citation": "R. Carrel, 'The Design of Log-Periodic Dipole Antennas', IRE Intl. Convention Record vol.9 (1961) pp.61-75, eq (24) p.65 (hamwaves.com scan, page read visually); Carrel thesis (archive.org AnalysisAndDesignOfTheLogPeriodicAntenna) Table 4 p.146; Balanis 3e eq (11-28)",
+   "verdict": "CONFIRMED",
+   "detail": "Read visually from the primary scan, digit for digit. Algebraically identical to the repo form."
+  },
+  {
+   "anchor": "B_ar = 1.1 + 7.7*(1-tau)^2*cot(alpha)",
+   "repo_value": "1.1 + 7.7*(1.0-tau)**2*cot_alpha \u2014 emstudio/antenna/lpda.py:220",
+   "source_kind": "primary",
+   "source_value": "Carrel thesis eq (64) p.69: B_ar = 1.1 + 30.7*sigma*(1-tau) [= 7.675*(1-tau)^2*cot(a)]; Carrel's own Figure 80 caption p.149: 'B_ar = 1.1 + 7.7(1-tau)^2 cot(alpha)'; Balanis 3e eq (11-29); ARRL Eq 13",
+   "verdict": "CONFIRMED",
+   "citation": "Carrel thesis (AD0264558 scan via archive.org), eq 64 read visually on p.69, Fig 80 caption read visually on p.149; Balanis 3e p.632; ARRL ch.10 Eq 13",
+   "detail": "The 7.7-cot form is Carrel's OWN (Fig 80 nomograph caption + Table 4), so it is better-sourced than the repo's anchors doc claims ('ARRL eq 13'). Two caveats from the primary: (a) Table 4 p.146 misprints the third form as 'tan alpha' \u2014 a typo, inconsistent with eq 64 and Fig 80; (b) the thesis restricts the fit: 'its use should be restricted to tau >= 0.875' \u2014 the repo (like Balanis at 0.865 and ARRL at 0.885... and 0.8) applies it over the whole chart range 0.76-0.98. Also note 30.7/4 = 7.675, which Carrel himself rounds to 7.7 \u2014 a ~0.3% difference in the second term."
+  },
+  {
+   "anchor": "B_s = B*B_ar and N = 1 + ln(B_s)/ln(1/tau)",
+   "repo_value": "b_s = B*b_ar; n_exact = 1 + log(b_s)/log(1/tau) \u2014 emstudio/antenna/lpda.py:221-222",
+   "source_kind": "primary",
+   "source_value": "Carrel 1961 paper eq (25): B_s = B*B_ar and eq (27): N = 1 + log(B_s)/log(1/tau), printed p.65",
+   "citation": "Carrel IRE Convention Record 1961, eqs (25),(27), p.65 read visually; Balanis 3e eqs (11-30),(11-32); thesis Table 4",
+   "verdict": "CONFIRMED",
+   "detail": "Exact match to the primary, read visually from the scan."
+  },
+  {
+   "anchor": "Boom length L = (lambda_max/4)*(1 - 1/B_s)*cot(alpha), with l1 = lambda_max/2",
+   "repo_value": "boom_carrel = (lam_max/4)*(1 - 1/b_s)*cot_alpha \u2014 emstudio/antenna/lpda.py:244; l1 = lam_max/2 at :238",
+   "source_kind": "primary",
+   "source_value": "Carrel 1961 paper eq (26): L/lambda_max = (1/4)(1 - 1/B_s)cot(alpha), and 'the length of the first element is always made equal to lambda_max/2' \u2014 both printed p.65",
+   "citation": "Carrel IRE Convention Record 1961, eq (26) and adjacent text, p.65 read visually; Balanis 3e eqs (11-31),(11-31a)",
+   "verdict": "CONFIRMED",
+   "detail": "Both the closed form and the l1 = lambda_max/2 convention are verbatim in the primary."
+  },
+  {
+   "anchor": "Za = 120*(ln(h/a) - 2.25)",
+   "repo_value": "120.0*(log(h_over_a) - 2.25) \u2014 emstudio/antenna/lpda.py:261",
+   "source_kind": "primary",
+   "source_value": "Carrel 1961 paper eqs (23) and (28): Za = 120(ln h/a - 2.25), printed p.65 (appears twice); thesis Table 4",
+   "citation": "Carrel IRE Convention Record 1961, eqs (23)/(28), p.65 read visually; Balanis 3e eq (11-33); ARRL ch.10",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-exact in the primary. Note on the h/a reading for constant-diameter arrays: Balanis Example 11.1 computes Za from the LONGEST element's l/d (145.816 -> 327.88 ohm), matching the repo's longest-element choice (lpda.py:256, commented at :246-252); Carrel assumes constant h/a; ARRL's Fig 4 caption reads the ratio 'for the element at the feed point' \u2014 the repo documents exactly this divergence and its NEC2 justification."
+  },
+  {
+   "anchor": "sigma' = sigma/sqrt(tau) and feeder design form Z0 = R0*t + R0*sqrt(t^2+1), t = R0/(8*sigma'*Za)",
+   "repo_value": "sigma_prime = sigma/sqrt(tau); feeder_z0 = r0*t + r0*sqrt(t*t+1) \u2014 emstudio/antenna/lpda.py:262,266-267",
+   "source_kind": "primary",
+   "source_value": "Carrel 1961 paper eq (22): sigma' = sigma/sqrt(tau); eq (29): Z0/R0 = 1/(8 sigma' Za/R0) + sqrt[1/(8 sigma' Za/R0)^2 + 1]; eq (21) analysis form R0 = Z0/sqrt(1+Z0/(4 sigma' Za)) \u2014 all printed p.65",
+   "citation": "Carrel IRE Convention Record 1961, eqs (21),(22),(29), p.65 read visually; thesis Table 4 (p.146) same forms",
+   "verdict": "CONFIRMED",
+   "detail": "Eq (29) is algebraically identical to the repo's t-form (multiply through by R0). Recomputed the repo's quoted 73.1-ohm feeder for the tau .865/sigma .158, d=10mm, R0=65 design: Za=405.2, sigma'=0.1699, Z0=73.12 \u2014 matches the docstring/anchors doc."
+  },
+  {
+   "anchor": "BT_DERATE_DB = 1.0 (Butson-Thompson corrected labels = Carrel original - 1.0 dB)",
+   "repo_value": "BT_DERATE_DB = 1.0 \u2014 emstudio/antenna/lpda.py:55 (applied :186,:200)",
+   "source_kind": "primary",
+   "source_value": "Balanis 3e Fig 11.13 note (p.631): initial curves '1-2 dB too high... They have been reduced by an average of 1 dB (see P.C. Butson and G.T. Thompson...)'; body text: cause is a sin(theta)-vs-1/sin(theta) error in Carrel's E-plane pattern; label sets measured: original chart 7.5-12.0 dB, corrected chart 6.5-11.0 dB \u2014 exactly -1.0 dB per contour",
+   "citation": "Balanis, Antenna Theory 3e (2005) sec.11.4.3 + Fig 11.13 note, read in full from the .edu-hosted copy; Carrel 1961 Fig 11 (p.70) label set read visually; corroborated by Lazaridis et al. 2016 Radio Science (eprints.hud.ac.uk/29722): 'contour curves... shown in [Balanis], as they have been corrected by [Butson et al., 1976]'; B&T = IEEE TAP AP-24(1):105-106, Jan 1976, doi:10.1109/TAP.1976.1141278",
+   "verdict": "CONFIRMED",
+   "detail": "The 1.0 dB constant is defined in the repo against the Balanis-figure calibration, and Balanis states the implemented reduction is 1 dB (average) \u2014 plus the label sets differ by exactly 1.0 dB contour-for-contour. Also primary-confirmed the root cause is Kraus's beamwidth product: Carrel eq (18) p.64 reads 'D in decibels = 10 log 41253/((BW_E)(BW_H))'. Caveats: (1) the Butson-Thompson note itself is IEEE-paywalled \u2014 not fetched (see 'searched'); (2) the repo comment's 'same curve geometry... verified curve-for-curve' is stronger than I could establish: my pixel measurements of the 1961 IRE scan put its curves up to ~0.015 tau away from the Balanis redraw at sigma=0.06 (photocopy distortion cannot be excluded); no shipped constant depends on this, since both tables are read from the corrected chart directly."
+  },
+  {
+   "anchor": "GAIN_TABLE: corrected dBi -> tau on the optimum line (9 rows, 7.0->0.780 ... 11.0->0.967)",
+   "repo_value": "[(7.0,0.780),(7.5,0.822),(8.0,0.865),(8.5,0.897),(9.0,0.919),(9.5,0.931),(10.0,0.944),(10.5,0.955),(11.0,0.967)] \u2014 emstudio/antenna/lpda.py:63-73",
+   "source_kind": "primary",
+   "source_value": "Pixel-measured crossings of each contour with the printed Optimum-sigma line on the corrected chart: 7.0->0.7790, 7.5->0.8227, 8.0->0.8651, 8.5->0.8956, 9.0->0.9173, 9.5->0.9297, 10.0->0.9440, 10.5->0.9560, 11.0->0.9677 (identical on both printings)",
+   "citation": "Balanis 3e Fig 11.13 (p.631, 300-dpi render of the .edu-hosted PDF) and the official Wiley 4e companion ch11.pptx Fig 11.13 slide \u2014 two independent printings, measured identically; the 8.0->0.865 row additionally stated in Balanis Example 11.1 text ('for D0 = 8 dB the optimum sigma is 0.157 and the corresponding tau is 0.865')",
+   "verdict": "CONFIRMED",
+   "detail": "All nine rows agree with the measured chart within |delta tau| <= 0.002 \u2014 inside the repo's stated +-0.005 graph-read tolerance. Method: calibrated the chart frame (tau 1.0-0.76, sigma 0.04-0.22), scanned along the optimum line at +-offsets to avoid the dashed line's own pixels."
+  },
+  {
+   "anchor": "SIGMA006_TABLE: corrected-contour crossings at sigma = 0.06 (5 rows)",
+   "repo_value": "[(6.5,0.852),(7.0,0.887),(7.5,0.920),(8.0,0.939),(8.5,0.957)] \u2014 emstudio/antenna/lpda.py:78-84",
+   "source_kind": "primary",
+   "source_value": "Pixel-measured crossings at sigma=0.06 on the corrected chart (Balanis 3e print AND official 4e ch11.pptx, identical): 6.5->0.8486, 7.0->0.8848, 7.5->0.9105, 8.0->0.9355, 8.5->0.9565 (curve end; row scans at sigma 0.065/0.070/0.075 extrapolate 0.956-0.961)",
+   "citation": "Balanis Fig 11.13, both printings, 300-dpi pixel measurement with clean-row cross-checks at sigma 0.065/0.070/0.075; consistency check: ARRL ch.10 worked example reads its (original-calibration) chart as 8.0 dBi at sigma 0.06 / tau 0.885 = corrected 7.0 at ~0.885-0.887, agreeing with the 7.0 row and the 1.0 dB derate",
+   "verdict": "MISMATCH",
+   "detail": "One row is out of tolerance: the 7.5 dB contour crosses sigma=0.06 at tau ~0.9105 +-0.002 (three clean rows extrapolate 0.9106; direct row 0.9105; identical in both printings), vs the repo's 0.920 \u2014 off by ~0.009, twice the repo's own +-0.005 claim. 0.920 is where the printed '7.5 dB' TEXT LABEL sits, suggesting the label position was read instead of the curve. The 8.0 row (repo 0.939 vs measured 0.9355, delta 0.0035) leans the same direction but stays inside +-0.005. Rows 6.5 (0.852 vs 0.8486), 7.0 (0.887 vs 0.8848) and 8.5 (0.957 vs 0.9565) are within +-0.004. Impact: _gain_for_tau_sigma (lpda.py:134-151) interpolates toward these anchors for below-optimum sigma; near tau~0.91 the corrected design gain reads ~0.1-0.15 dB low. No effect on optimum-line (gain-driven) designs."
+  },
+  {
+   "anchor": "HA_REF = 125 (charts drawn at h/a = 125)",
+   "repo_value": "HA_REF = 125.0 \u2014 emstudio/antenna/lpda.py:88",
+   "source_kind": "primary",
+   "source_value": "Carrel 1961 paper p.64: 'In this figure [Fig 11] Z0 equals 100 ohms and h/a equals 125'; Fig 11 caption p.70: 'h/a = 125'",
+   "citation": "Carrel IRE Convention Record 1961, p.64 text and Fig 11 caption read visually; ARRL ch.10 Fig 4 caption ('length to diameter ratio of 125') corroborates",
+   "verdict": "CONFIRMED",
+   "detail": "Confirmed against the published paper the repo follows \u2014 BUT the sibling primary conflicts: Carrel's thesis prints the same chart as Figure 65 with caption (read visually, p.118) 'Z0 = 100, ZT = short at h1/2, h/a = 177', and its design chapter says the chart 'is based on Z0 = 100 ohms and Za = 350' [Za=350 => h/a = 175] and 'if the ratio h/a is much different than 177 a correction must be made'. So the repo's anchors doc line 113 ('\"177\" is unsubstantiated') is itself wrong \u2014 177 is Carrel's own thesis caption. The paper (125) vs thesis (177) discrepancy is half a doubling, worth ~0.1 dB at the shipped slope; the shipped 125 matches the published paper and every standard text."
+  },
+  {
+   "anchor": "HA_SLOPE = -0.2 dB per doubling of h/a, valid 50 < h/a < 10000",
+   "repo_value": "HA_SLOPE_DB_PER_DOUBLING = -0.2 \u2014 emstudio/antenna/lpda.py:89; range check 50..10000 at :280",
+   "source_kind": "primary",
+   "source_value": "Carrel 1961 paper sec.7: 'for each doubling of h/a... the directivity decreases by about 0.2 db in the range 50 < h/a < 10000'",
+   "citation": "Carrel IRE Convention Record 1961 p.64 (OCR text, context verified); ARRL ch.10 Fig 4 caption repeats it verbatim ('0.2 dB... in the range 50 to 10000')",
+   "verdict": "CONFIRMED",
+   "detail": "Matches the published paper exactly. Sibling-primary conflict again: the thesis (p.153) says 'about 0.1 db for each doubling' citing its Figure 71 (tau .888/sigma .089 curve, ~1.2 dB over 100<h/a<100,000 \u2014 I rendered Fig 71 and the curve supports ~0.1 average, steepening to ~0.18/doubling above h/a~800). The repo ships the paper's figure, as do ARRL and common practice."
+  },
+  {
+   "anchor": "Chart validity: gains 6.5-11 dBi, TAU_MIN/TAU_MAX = 0.76/0.98, SIGMA_MIN = 0.04",
+   "repo_value": "TAU_MIN,TAU_MAX = 0.76,0.98; SIGMA_MIN = 0.04 \u2014 emstudio/antenna/lpda.py:47-48",
+   "source_kind": "primary",
+   "source_value": "Corrected chart contour label set: 6.5,7,7.5,8,8.5,9,9.5,10,10.5,11 dB (extracted as vector text from the Balanis figure); Carrel original Fig 11 tau axis runs .98-.76, sigma axis .04-.21 (read visually); Balanis axes tau 1.0-0.76, sigma 0.04-0.22",
+   "citation": "Balanis 3e Fig 11.13 (axis/label text extracted from the PDF page itself); Carrel 1961 Fig 11 p.70 read visually; Carrel p.64: 'For values of sigma less than .05 the directivity falls off rapidly'",
+   "verdict": "CONFIRMED",
+   "detail": "The 6.5-11 dBi corrected span and both axis ranges check out; the repo's 0.98 upper tau cap matches the ORIGINAL chart's axis (the Balanis redraw extends the axis to 1.0 but the repo's comment 'drawn to 1.0' in the anchors doc covers that). Carrel's primary also warns below sigma .05, consistent with the repo's SIGMA_MIN warning plus the separate below-0.06 extrapolation warning at :146-150."
+  },
+  {
+   "anchor": "Worked-example chain (54-216 MHz classic): cot(a) 4.68, B_ar 1.757, B_s 7.03, N_exact 14.44, boom 5.5-5.6 m; printed chain alpha 12.13deg, B_ar 1.753, B_s 7.01, N 14.43, L 5.541 m, Za 327.88 ohm, sigma' 0.169, exact Z0 55.96 ohm",
+   "repo_value": "docstring emstudio/antenna/lpda.py:29-33; gated in tests/validation/element_designer.py:553-624 (values at :566-611)",
+   "source_kind": "primary",
+   "source_value": "Balanis 3e Example 11.1 (pp.634-635), read in full: sigma=0.157/tau=0.865 for 8 dB; alpha=12.13deg; B_ar=1.753; B_s=7.01; N=14.43 '(14 or 15 elements)'; lambda_max=5.556 m (c=3e8); L=5.541 m; l/d=145.816; Za=327.88 ohm; sigma'=0.169; graph-read Z0~1.2*Rin=60 ohm; s=(3/4)cosh(60/120)=0.846 in",
+   "citation": "Balanis, Antenna Theory 3e, Example 11.1, .edu-hosted copy (jontalle.web.engr.illinois.edu), full solution text read; independent recomputation from the primary-confirmed formulas",
+   "verdict": "CONFIRMED",
+   "detail": "Every printed-chain digit matches Balanis exactly, and I recomputed both chains myself from the formulas: sigma=0.158 gives cot(a)=4.6815, B_ar=1.7570, B_s=7.0279, N=14.4451, boom 5.5730 m (c exact) / 5.5769 (c=3e8); sigma=0.157 gives alpha=12.13deg, B_ar=1.7528, B_s=7.0112, N=14.4287, L=5.5394-5.541 m; Za(145.816)=327.88, sigma'=0.16881, exact Z0(R0=50)=55.96 \u2014 all agree with the repo docstring, the gate windows, and Balanis. The 55.96-ohm 'exact Z0' is the closed-form value where Balanis graph-reads 60; the repo documents that distinction correctly. The sigma=0.158 'companion code' chain digits are consistent with the linearized fit 0.237838*tau-0.047484 quoted in the anchors doc (gives 0.15825 at tau .865 \u2014 recomputed), though I could not fetch the companion MATLAB log_perd.m itself to verify that fit's coefficients."
+  },
+  {
+   "anchor": "N rounding rule: fractional part > ~0.3 rounds up",
+   "repo_value": "n = int(n_exact) + (1 if frac > 0.3 else 0) \u2014 emstudio/antenna/lpda.py:226",
+   "source_kind": "primary",
+   "source_value": "ARRL Antenna Book ch.10: 'If the fractional value is significant, more than about 0.3, increase the value to the next higher integral number' (chapter text near its Eq 14)",
+   "citation": "ARRL Antenna Book 21st ed. ch.10 (open mirror scan); Stroobandt hamwaves.com/lpda states the same rule; Balanis prints '(14 or 15 elements)' leaving the choice open",
+   "verdict": "CONFIRMED",
+   "detail": "A display/rounding convention, sourced to the standard text that defines it. Balanis's printed example is agnostic ('14 or 15'), consistent with the repo's gate comment. The anchors-doc claim that Balanis's companion code floors to 14 was not independently verified (code not fetched)."
+  },
+  {
+   "anchor": "Terminating stub: short at <= lambda_max/8 behind element 1, optional",
+   "repo_value": "documented in warnings/anchors doc; engine ships no stub \u2014 emstudio/antenna/lpda.py:337-341 warnings; docs/upstream/lpda-carrel-anchors.md:115-116",
+   "source_kind": "primary",
+   "source_value": "Carrel 1961 paper p.65: 'the feeder termination ZT is a short circuit a distance of lambda_max/8 or less behind element number one. In several cases a short circuit at the terminals of element number one yielded satisfactory results'",
+   "citation": "Carrel IRE Convention Record 1961 p.65 read visually; thesis sec.4.2.2 adds the rationale (ZT stays inductive at the lowest frequencies)",
+   "verdict": "CONFIRMED",
+   "detail": "Verbatim in the primary, including the optionality."
+  },
+  {
+   "anchor": "De Vito-Stracca: correction optimism grows to ~2 dB at the high-gain corner (>= 9.5 dBi warning)",
+   "repo_value": "comment at emstudio/antenna/lpda.py:53-54 and warning at :126-130",
+   "source_kind": "secondary",
+   "source_value": "Balanis 3e: the error 'is variable and leads to 1-2 dB higher directivities' (the 1 dB reduction being an average); De Vito & Stracca papers verified as citations only: IEEE TAP 21(3):303-308 (1973) doi:10.1109/TAP.1973.1140476 and TAP 22(5):714-718 (1974) doi:10.1109/TAP.1974.1140881",
+   "citation": "Balanis 3e sec.11.4.3 (fetched); Stroobandt reference list (fetched) for the exact De Vito-Stracca bibliographic data",
+   "verdict": "CORROBORATED",
+   "detail": "The 'variable, up to ~2 dB' shape of the claim is corroborated by Balanis's 1-2 dB statement, and the warning is conservative engineering. But the specific attribution (that De Vito-Stracca localize the worst error to the high-gain corner / high Z0 / thin elements) could not be checked against their papers \u2014 both are IEEE-paywalled and no open scan was found."
+  },
+  {
+   "anchor": "DBD_OFFSET = 2.15 dB (dBi -> dBd)",
+   "repo_value": "DBD_OFFSET = 2.15 \u2014 emstudio/antenna/lpda.py:43",
+   "source_kind": "formula-recomputed",
+   "source_value": "10*log10(1.641) = 2.151 dB (half-wave dipole directivity); ARRL Fig 4 caption uses 2.14 dB for the same conversion",
+   "citation": "Standard closed form, recomputed; ARRL ch.10 Fig 4 caption (fetched) quotes 2.14",
+   "verdict": "CONFIRMED",
+   "detail": "2.15 is the conventional textbook rounding of 2.151 (Balanis's 1.643 gives 2.156). ARRL's 2.14 in the same chapter shows the printed literature itself varies by 0.01 dB here; immaterial."
+  },
+  {
+   "anchor": "py452 vendored revision = ITU-R P.452-18, from eeveetza/Py452 pinned commit",
+   "repo_value": "\"Recommendation ITU-R P.452-18\" + commit c047331... (2025-08-19) \u2014 emstudio/vendor/py452/PROVENANCE.md:5, P452.py docstring line 40",
+   "source_kind": "primary",
+   "source_value": "itu.int R-REC-P.452 page: P.452-18 (10/2023) is 'In force (Main)'; upstream README at pinned commit: 'implementation of Recommendation ITU-R P.452-18'; GitHub API confirms commit exists, dated 2025-08-19T15:46:49Z",
+   "citation": "https://www.itu.int/rec/R-REC-P.452/en; https://github.com/eeveetza/Py452 @ c047331990d35288300d0865802c98123aa21d3c",
+   "verdict": "CONFIRMED",
+   "detail": "Revision label current and correct. Vendored P452.py diffs from upstream by exactly 30 lines, all the documented lazy digital-maps shim \u2014 the 'no numerical/algorithmic changes' provenance claim holds."
+  },
+  {
+   "anchor": "P.452 wrapper validity constants: 0.1-50 GHz, time 0.001-50 %",
+   "repo_value": "0.1 <= f <= 50.0 GHz and 0.001 <= p <= 50 % \u2014 emstudio/coverage/p452.py:27-31",
+   "source_kind": "primary",
+   "source_value": "P.452-18 \u00a71: 'tested for radio stations operating in the frequency range of about 0.1 GHz to 50 GHz' and 'time percentages over the range 0.001 <= p <= 50%'",
+   "citation": "R-REC-P.452-18-202310-I PDF downloaded from itu.int, Annex 1 \u00a71 (pdftotext lines 337-342)",
+   "verdict": "CONFIRMED",
+   "detail": "Both bounds match the Recommendation digit for digit. The gate's 60 GHz rejection check is proper per this scope."
+  },
+  {
+   "anchor": "p452 official validation set: 17 profiles / 595 cases, reference Lb 194.24974628",
+   "repo_value": "595 cases asserted (tests/validation/p452.py:203), data in tests/validation/data/p452/ (test_result_flat_land_100km.csv row 1: Lb 194.24974628); TUTORIALS.md:1461-1464 quotes '595 official ITU validation cases' and 'official 194.24974628'",
+   "source_kind": "primary",
+   "source_value": "ITU's own 'Validation examples for Recommendation ITU-R P.452-18 - Ver 18.0.zip' downloaded from itu.int: all 34 repo CSVs byte-identical (34/34), 194.24974628 verbatim in ITU's file; 17 result files x 35 rows = 595 counted",
+   "citation": "https://www.itu.int/en/ITU-R/study-groups/rsg3/... Validation examples for Recommendation ITU-R P.452-18 - Ver 18.0.zip (README dated 16.05.24, OFCOM copyright notice)",
+   "verdict": "CONFIRMED",
+   "detail": "Every mirrored file matches ITU's published set byte-for-byte (also byte-identical to the eeveetza/p452 pinned commit the PROVENANCE cites). Gate run live: PASS, 'wrapper reproduces the official case \u2014 194.249746 vs 194.24974628'."
+  },
+  {
+   "anchor": "TUTORIALS.md p452 gate quality claim: worst deviation 5.0e-09 dB",
+   "repo_value": "'worst basic-transmission-loss deviation 5.0e-09 dB' \u2014 docs/TUTORIALS.md:1461-1462",
+   "source_kind": "formula-recomputed",
+   "source_value": "Live gate run on this box: 'Lb + 8 sub-model losses match <= 1e-6 dB on every case \u2014 0 cases over; worst 5.00e-09 dB (test_profile_flat_land_100km.csv)'",
+   "citation": "python3 tests/validation/p452.py executed 2026-08-30 against the ITU-verified data with installed digital maps",
+   "verdict": "CONFIRMED",
+   "detail": "Reproduced exactly, against reference data proven byte-identical to ITU's published Ver 18.0 zip."
+  },
+  {
+   "anchor": "TUTORIALS.md tutorial-31 table incl. 131.78 dB (2 GHz, 50 km, smooth earth)",
+   "repo_value": "165.67/165.67/165.68 at p=50; 142.42/137.00/131.78 at p=1; 128.07/127.05/126.30 at p=0.01 \u2014 docs/TUTORIALS.md:1438-1441; '10.64 dB at p = 1 %' at line 1446",
+   "source_kind": "formula-recomputed",
+   "source_value": "Recomputed all 9 cells via emstudio.coverage.p452.path_loss_db with the dialog's documented defaults (linspace(0,50,51) at 0 m AMSL, htg 30 m/hrg 10 m, 51.5N -0.12E to 52.2N 0.13E, zones 2/1/3): every cell reproduces to the printed 0.01 dB, incl. 131.78; 142.42-131.78 = 10.64 confirmed",
+   "citation": "emstudio/ui/link_dialog.py:208-221 (profile construction + defaults); engine byte-verified against the WP3M reference implementation and gate-validated to 5e-09 dB",
+   "verdict": "CONFIRMED",
+   "detail": "Digit-for-digit reproduction through the ITU-approved reference engine. One wording looseness: the tutorial says the profile 'is a real member of the official validation set' \u2014 the official flat_land profiles are 5/100/1000 km at 101+ points, not this 50 km/51-point run; the terrain (flat land, 0 m AMSL) matches the official flat_land family but the sentence overstates literal membership."
+  },
+  {
+   "anchor": "py1546 vendored revision = ITU-R P.1546-6, WP3K reference implementation",
+   "repo_value": "\"Recommendation ITU-R P.1546-6\" + commit e235629... (2025-08-19) \u2014 emstudio/vendor/py1546/PROVENANCE.md:5",
+   "source_kind": "primary",
+   "source_value": "itu.int: P.1546-6 (08/2019) 'In force (Main)'; upstream README at pinned commit: 'python software implementation of Recommendation ITU-R P.1546-6 ... corresponds to the reference version of the code approved by ITU-R Working Party 3K'; commit exists (2025-08-19T15:51:29Z)",
+   "citation": "https://www.itu.int/rec/R-REC-P.1546/en; https://github.com/eeveetza/Py1546 @ e235629009ab1a12a33fc4a8fb5612f2883ecb5b",
+   "verdict": "CONFIRMED",
+   "detail": "Current revision. Vendored P1546.py diff vs upstream (CRLF-normalized) is exactly the 3 documented changes: lazy matplotlib import + two np.mat->np.asmatrix patches. No numerical changes."
+  },
+  {
+   "anchor": "P.1546 wrapper validity constants: 30-4000 MHz, 1-50 %, 1-1000 km, heff <= 3000 m",
+   "repo_value": "emstudio/coverage/p1546.py:51-62",
+   "source_kind": "primary",
+   "source_value": "P.1546-6 Scope: '30 MHz to 4 000 MHz ... paths up to 1 000 km length for effective transmitting antenna heights less than 3 000 m'; Annex: 'not valid for field strengths exceeded for percentage times outside the range from 1% to 50%'",
+   "citation": "R-REC-P.1546-6-201908-I PDF downloaded from itu.int (Scope, and \u00a7time-interpolation text)",
+   "verdict": "CONFIRMED",
+   "detail": "All four bounds match the Recommendation."
+  },
+  {
+   "anchor": "p1546 official validation set: 24 profiles / 52 reference field strengths, worst 0.000000 dB",
+   "repo_value": "24 profiles + combined_results_reference.csv (52 rows) \u2014 tests/validation/data/p1546/; gate asserts <= 0.01 dB (tests/validation/p1546.py:214); TUTORIALS.md:633 '52 datasets, all 24 official profiles, worst 0.000000 dB'",
+   "source_kind": "primary",
+   "source_value": "ITU's official 'Validation examples for Recommendation ITU-R P.1546-6 - Ver 6.2' zip downloaded from itu.int: all 24 profiles byte-identical; all 52 reference AND predicted field-strength values numerically identical to ITU's combined_results.csv (worst |delta| = 0 exactly)",
+   "citation": "https://www.itu.int/en/ITU-R/study-groups/rsg3/rwp3m/Validation%20Example/R19-WP3K-C-0264!N05-P2!ZIP-E.zip (Ver 6.2, README dated 2022)",
+   "verdict": "CONFIRMED",
+   "detail": "The repo's reference CSV is byte-identical to the pinned Py1546 repo copy and value-identical (0 delta on all 52) to ITU's own published file. Gate run live: PASS, worst 0.000000 dB. The PROVENANCE's 'v6.2 set' designation matches the version ITU's SG3 page lists today."
+  },
+  {
+   "anchor": "py1812 vendored revision label: repo says P.1812-6",
+   "repo_value": "'the ITU-R reference implementation of Recommendation P.1812-6' \u2014 emstudio/vendor/py1812/PROVENANCE.md:4 (also emstudio/coverage/p1812.py:2,29 and tests/validation/p1812.py:2)",
+   "source_kind": "primary",
+   "source_value": "itu.int: P.1812-6 (09/2021) SUPERSEDED \u2014 in force is P.1812-8 (09/2025). The pinned upstream commit a5205e6 (2026-05-18) postdates upstream's 'eeveetza-p1812-8' merge (2026-02-25: Ct argument removed, Gtx/Grx added, README changed to 'Recommendation ITU-R P.1812-8')",
+   "citation": "https://www.itu.int/rec/R-REC-P.1812/en; https://github.com/eeveetza/Py1812 commit history + README @ a5205e6a65db27391a8ba79bd5a365e5391f9fdf",
+   "verdict": "MISMATCH",
+   "detail": "The vendored engine is the post-P.1812-8 upstream code (verified: only the 30-line lazy-maps shim differs from the pinned commit), but every EMStudio surface labels it P.1812-6 \u2014 a superseded revision two behind the in-force one. Mitigations, both verified: (a) upstream's own internal docstrings still say 'P.1812-6' (their staleness, faithfully vendored \u2014 one even reads 'P.1812-67'); (b) the official reference VALUES are unchanged across the revisions \u2014 ITU's published v8.0 logs match the repo's 63 logs with zero delta on Lb and Ep, and 3 spot-checked pre-8-era logs carry identical numbers. So the physics gate-checked is right; the revision label on it is wrong/stale."
+  },
+  {
+   "anchor": "P.1812 wrapper validity constants: 30-6000 MHz, 1-50 %, 0.25-3000 km",
+   "repo_value": "emstudio/coverage/p1812.py:30-37",
+   "source_kind": "primary",
+   "source_value": "P.1812-6 Scope: '30 MHz to 6 000 MHz ... 1% <= p <= 50% ... path lengths from 0.25 km up to about 3 000 km'",
+   "citation": "R-REC-P.1812-6-202109-S PDF downloaded from itu.int (Scope; \u00a71 repeats all three)",
+   "verdict": "CONFIRMED",
+   "detail": "All three bounds match the -6 text; P.1812-8's title carries the same 30 MHz-6 GHz range, so the constants survive the revision-label issue above."
+  },
+  {
+   "anchor": "p1812 official validation set: 19 profiles / 63 datasets, worst 0.000000 dB Lb and Ep",
+   "repo_value": "gate asserts n_cases == 63 (tests/validation/p1812.py:176) over 19 profiles (line 120); TUTORIALS.md:634",
+   "source_kind": "primary",
+   "source_value": "All 82 repo data files (19 profiles + 63 logs) byte-identical to the pinned upstream commit; every one of the 63 Lb/Ep pairs zero-delta against ITU's own published P_1812_8.zip validation logs (ITU file b2iseac_1.csv: Lb 129.0969126, Ep 49.84494546 \u2014 matches repo b2iseac_0_log.csv exactly; all 63 compared, worst |delta| = 0)",
+   "citation": "https://www.itu.int/en/ITU-R/study-groups/rsg3/rwp3m/Software%20Products/P_1812_8.zip (downloaded from itu.int, dated 2026-06-15)",
+   "verdict": "CONFIRMED",
+   "detail": "Gate run live: PASS, worst 0.000000 dB on Lb, Ep, and the sampled delta-Bullington intermediates (16 cases). ITU indexes logs 1-based, the repo 0-based; the pairing is exact."
+  },
+  {
+   "anchor": "p1812 data PROVENANCE wording: '64 per-dataset logs' and 'Ver 6.1 set'",
+   "repo_value": "tests/validation/data/p1812/PROVENANCE.md:4-5",
+   "source_kind": "primary",
+   "source_value": "63 log files exist on disk and 63 exist at the pinned upstream commit; ITU's current published validation folder holds 64 files = 63 per-dataset logs + 1 combined_results.csv. ITU's SG3 page today lists the P.1812 validation set only as version 8.0 (no 6.1 visible)",
+   "citation": "local ls + GitHub tree @ a5205e6 + itu.int P_1812_8.zip listing",
+   "verdict": "MISMATCH",
+   "detail": "Two small doc slips in one file: the log count is 63, not 64 (64 is the folder's file count including the combined summary); and the mirrored logs are upstream's post-P.1812-8 regeneration (value-identical to the v8.0 ITU set, and to the 6.1-era values where checked), so calling them 'Ver 6.1 set' is stale labeling, consistent with the revision-label mismatch above. The gate's own count (63) is correct."
+  },
+  {
+   "anchor": "py2001 vendored revision = ITU-R P.2001-6",
+   "repo_value": "'Recommendation ITU-R P.2001-6' + commit a4d61a0... (2025-11-21) \u2014 emstudio/vendor/py2001/PROVENANCE.md:5; P2001.py header 'Modified on Fri 21 Nov 2025 to update the version number (IS) to ITU-R P.2001-6'",
+   "source_kind": "primary",
+   "source_value": "itu.int: P.2001-6 (09/2025) 'In force (Main)'; pinned upstream commit exists with message 'P.2001 ver6.0' (2025-11-21T16:47:17Z); upstream README at pin: 'Recommendation ITU-R P.2001-6'; ITU SG3 page lists P.2001 software/validation at version 6.0",
+   "citation": "https://www.itu.int/rec/R-REC-P.2001/en; https://github.com/eeveetza/Py2001 @ a4d61a056bad606d1147ff0c441511762ee9fb24",
+   "verdict": "CONFIRMED",
+   "detail": "Current revision, correctly labeled. Vendored code differs from upstream by exactly the 30-line lazy-maps shim. Two cosmetic notes: the vendored docstring still says 'P.2001-4' at P2001.py lines 47 and 395 (upstream's own incomplete version-string sweep), and the data PROVENANCE's parenthetical 'the upstream README labels the set P.2001-4' (tests/validation/data/p2001/PROVENANCE.md:13) is not true of the pinned README, which says -6."
+  },
+  {
+   "anchor": "P.2001 wrapper validity constants: 0.03-50 GHz, Tpc in (0,100), 3-1000 km",
+   "repo_value": "emstudio/coverage/p2001.py:28-35; gate also asserts Tpc=0 rejected (tests/validation/p2001.py:129-134)",
+   "source_kind": "primary",
+   "source_value": "P.2001-6 \u00a71.1: 'Frequency: 30 MHz to 50 GHz'; 'most accurate from about 3 km to 1 000 km'; time percentage 'in the range 0% to 100%', internally limited 0.00001-99.99999%. The strict exclusivity (0,100) is the reference implementation's own guard: vendored P2001.py:130 'if not (Tpc > 0 and Tpc < 100): raise'",
+   "citation": "R-REC-P.2001-6-202509-I PDF downloaded from itu.int (\u00a71.1 'range of applicability')",
+   "verdict": "CONFIRMED",
+   "detail": "Frequency and distance bounds match the Rec verbatim. The open interval on Tpc is slightly stricter than the Rec's '0% to 100%' input wording but exactly mirrors the WP3M reference implementation's check \u2014 the wrapper is faithful to the reference code, which is the right thing to be faithful to."
+  },
+  {
+   "anchor": "p2001 official validation set: 2 x 2215 = 4430 cases; worst 1.17e-12 dB; wrapper 101.263441 vs 101.2634406454913",
+   "repo_value": "tests/validation/p2001.py:100 asserts 4430; TUTORIALS.md:1501-1503 quotes '4,430 official ITU validation cases (worst deviation 1.17e-12 dB)' and '101.263441 dB vs the official 101.2634406454913'",
+   "source_kind": "primary",
+   "source_value": "Repo data (gunzipped) byte-identical to the pinned Py2001 commit (sha256 match both results files, both profiles); against ITU's own P_2001_6.zip examples (itu.int, dated 2026-02-24): final Lb identical on all 4430 rows (only differences anywhere: one header name Grt vs Gtx and <=1.2e-05 print-precision on one intermediate column). 2215 rows per profile counted in both",
+   "citation": "https://www.itu.int/en/ITU-R/study-groups/rsg3/rwp3m/Software%20Products/P_2001_6.zip",
+   "verdict": "CONFIRMED",
+   "detail": "Gate run live: PASS \u2014 'all 4430 official cases replayed', 'worst 1.17e-12 dB', 'wrapper reproduces the official case \u2014 101.263441 vs 101.2634406454913'. All three TUTORIALS figures reproduce exactly, and the official value sits verbatim in ITU's published file."
+  },
+  {
+   "anchor": "TUTORIALS tutorial-32 P.2001 figures: 165.67 dB both engines at p=50; sea-inland -23.06 dB at 1 %, -13.92 dB at 0.01 %",
+   "repo_value": "docs/TUTORIALS.md:1489-1491",
+   "source_kind": "formula-recomputed",
+   "source_value": "Recomputed via emstudio.coverage.p2001.path_loss_db (same 50 km smooth-earth run, zones 4/3/1): p=50 gives 165.67 for all three zones (P.452 run gives 165.67-165.68 \u2014 the cross-engine agreement claim holds); sea-inland = -23.06 dB at p=1 and -13.92 dB at p=0.01, both exact",
+   "citation": "engines byte-verified against the WP3M reference implementations and gate-validated against ITU data the same session",
+   "verdict": "CONFIRMED",
+   "detail": "All three cells reproduce digit-for-digit through two independently validated engines."
+  },
+  {
+   "anchor": "Radio-zone code claim: 'P.452 numbers them 1 coastal / 2 inland / 3 sea, P.2001 uses 1 sea / 3 coastal / 4 inland'",
+   "repo_value": "docs/TUTORIALS.md:1451-1453; emstudio/ui/link_dialog.py:178-181 _ZONE_CODES {p452: Inland 2/Coastal 1/Sea 3; p2001: Inland 4/Coastal 3/Sea 1}",
+   "source_kind": "primary",
+   "source_value": "ITU's own P.452-18 validation profile header (byte-verified from the itu.int zip): 'zone: 1=Coastal Land/2=Inland/3=Sea'; official P.2001 profiles use zone values {1,3,4} with the reference implementation defining '1 = Sea, 3 = Coastal Land, 4 = Inland' (vendored P2001.py:61). The Recs themselves use letter codes (Table 2 / Table D.1: A1 coastal, A2 inland, B sea \u2014 verified in both PDFs); the integers are the reference implementations' input convention, used by the ITU-published validation data",
+   "citation": "itu.int P.452-18 Ver 18.0 zip profile CSVs; R-REC-P.452-18 Table 2; R-REC-P.2001-6 Table D.1; reference-implementation docstrings",
+   "verdict": "CONFIRMED",
+   "detail": "Both encodings and the incompatibility warning are correct; the dialog's mapping matches both official conventions. The p=1% zone spread the tutorial quotes (10.64 dB) also recomputes exactly."
+  },
+  {
+   "anchor": "Patch tutorial geometry: 32x40 mm patch, 60x60x1.524 mm epsR 3.38 substrate, feed at x=-6 mm, 50-ohm lumped port, MUR x6, 1-3 GHz / 401-point sweep",
+   "repo_value": "32 x 40 mm patch, 60 x 60 x 1.524 mm, epsR 3.38, feed -6 mm \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/patch_openems.py:4-6 and /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/templates/patch.py:4-7,28-29,55 (FrequencyPoints=401), 66 (RelPermittivity=3.38)",
+   "source_kind": "primary",
+   "source_value": "patch_width=32, patch_length=40, substrate_width=60, substrate_length=60, substrate_thickness=1.524, substrate_epsR=3.38, feed_pos=-6, feed_R=50, BC ['MUR']x6, f=np.linspace(max(1e9,f0-fc),f0+fc,401) with f0=2e9, fc=1e9 (i.e. 1-3 GHz, 401 pts)",
+   "citation": "raw.githubusercontent.com/thliebig/openEMS/master/python/Tutorials/Simple_Patch_Antenna.py ((c) 2015-2023 Thorsten Liebig), fetched 2026-08-30; same values shown verbatim on https://docs.openems.de/python/openEMS/Tutorials/Simple_Patch_Antenna.html",
+   "verdict": "CONFIRMED",
+   "detail": "Every geometry digit, the port resistance, the boundary set and the 401-point 1-3 GHz post-processing sweep match the upstream file exactly. The repo's attribution to 'Liebig, openEMS project' (templates/patch.py:4-5) matches the file's copyright header. Note the openEMS WIKI hosts an OLDER variant (30 mm patch, feed -5.5, feed width 2) \u2014 the repo correctly anchors to the current Simple_Patch_Antenna.py, not the wiki geometry."
+  },
+  {
+   "anchor": "Patch resonance 'near 2.4 GHz' is the openEMS project's own published result",
+   "repo_value": "'produces an S11 dip near 2.4 GHz' + gate window 2.30-2.50 GHz \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/patch_openems.py:6,66; 'reproducing the openEMS tutorial's published ~2.4 GHz reference' \u2014 docs/USER_MANUAL.md:1450; docs/TUTORIALS.md:118-119",
+   "source_kind": "primary",
+   "source_value": "Published far-field figure titled 'Frequency: 2.43 GHz'; published S11 figure shows a single dip at ~2.43 GHz reaching approx -27 dB (read off the project's own generated plots)",
+   "citation": "https://docs.openems.de/_images/Simp_Patch_Pattern.png and https://docs.openems.de/_images/Simp_Patch_S11.png, the figures embedded in https://docs.openems.de/python/openEMS/Tutorials/Simple_Patch_Antenna.html \u2014 downloaded and read visually 2026-08-30",
+   "verdict": "CONFIRMED",
+   "detail": "The tutorial's code and docs TEXT state no resonance number, but the docs page's own generated figures do: the pattern plot title is 'Frequency: 2.43 GHz' (the resonance openEMS's own run found), and the S11 plot dips at the same frequency. 2.43 GHz is 'near 2.4 GHz', sits inside the repo's 2.30-2.50 GHz gate window, and is 0.2% from the repo's own measured 2.435 GHz. The published pattern also peaks at ~4.8 dBi at theta=0 (boresight), inside the repo's 4.5-9.5 dBi far-field gate (patch_openems.py:77)."
+  },
+  {
+   "anchor": "-29 dB patch S11 depth is EMStudio's own measurement, NOT an openEMS-published figure (the case the audit caught)",
+   "repo_value": "'S11 dip of about -29 dB at 2.435 GHz' \u2014 docs/USER_MANUAL.md:101, with the caveat 'our own measurement, not a published figure' at USER_MANUAL.md:1450 and README.md:208-210; PROJECT_MEMORY.md:42-44 records the correction",
+   "source_kind": "primary",
+   "source_value": "openEMS's own published S11 figure bottoms at approx -26.8 dB (visual read; no dB depth is stated in text anywhere in the tutorial code, docs page, or wiki)",
+   "citation": "https://docs.openems.de/_images/Simp_Patch_S11.png (published figure); tutorial code and https://docs.openems.de/python/openEMS/Tutorials/Simple_Patch_Antenna.html text checked \u2014 no textual S11 depth",
+   "verdict": "CONFIRMED",
+   "detail": "Confirmed in the direction the audit ruled: openEMS publishes no -29 dB anywhere (their own figure reads approx -27 dB), so -29 dB is correctly flagged in README/USER_MANUAL as EMStudio's own measurement, and the gate asserts only < -10 dB. RESIDUAL FINDING: /home/ajenkins/PycharmProjects/EMStudioPro/docs/launch/forum-post-v180-draft.md:7 still says the patch 'reproduces its published -29 dB S11 reference at 2.435 GHz' \u2014 the exact misattribution the audit corrected on README/USER_MANUAL survives in that launch draft."
+  },
+  {
+   "anchor": "IFA published reference geometry, all 11 dimensions (inverted_f.m)",
+   "repo_value": "board 80x80x1.5 mm, epsR 4.3, h=8, l=22.5, w1=4, w2=2.5, wf=1, fp=4, e=10 (mm) \u2014 /home/ajenkins/PycharmProjects/EMStudioPro/docs/upstream/ifa-anchors.md:26-38 and emstudio/antenna/ifa.py:65-81 (REFERENCE dict, metres)",
+   "source_kind": "primary",
+   "source_value": "substrate.width=80; substrate.length=80; substrate.thickness=1.5; substrate.epsR=4.3; ifa.h=8; ifa.l=22.5; ifa.w1=4; ifa.w2=2.5; ifa.wf=1; ifa.fp=4; ifa.e=10",
+   "citation": "raw.githubusercontent.com/thliebig/openEMS/master/matlab/examples/antennas/inverted_f.m ((C) 2013 Stefan Mahr), fetched 2026-08-30 \u2014 202 lines, byte-identical (diff clean) to the local install copy at ~/opt/openEMS/share/openEMS/matlab/examples/antennas/inverted_f.m",
+   "verdict": "CONFIRMED",
+   "detail": "Every one of the 11 values matches the upstream file digit for digit, and the engine's REFERENCE dict (metres) is a faithful 1e-3 conversion of all of them including feed_gap_m=0.5e-3. The repo's location claim also holds: the file is in matlab/examples/antennas/, not Tutorials/, and the (C) 2013 Stefan Mahr attribution matches the header."
+  },
+  {
+   "anchor": "IFA reference solver setup: tan-d 1e-3 at 2.45 GHz, 50-ohm lumped port exciting [0 1 0] over a 0.5 mm gap, f0 2.5 GHz / fc 1 GHz, MUR x6, mesh lambda_min/20",
+   "repo_value": "kappa = 1e-3*2*pi*2.45e9*EPS0*epsR; 50-ohm lumped port; excitation f0 2.5 GHz, fc 1 GHz; MUR; lambda_min/20; 0.5 mm port slice \u2014 docs/upstream/ifa-anchors.md:40-44,74-78; emstudio/antenna/ifa.py:74-78; emstudio/templates/ifa.py:157-160",
+   "source_kind": "primary",
+   "source_value": "substrate.kappa = 1e-3 * 2*pi*2.45e9 * EPS0*substrate.epsR; feed.R = 50; AddLumpedPort(..., feed.R, start, stop, [0 1 0], true) spanning [0 0 0]+tl to [ifa.wf 0.5 0]+tl (a 0.5 mm y-slice, feed element starting at y=0.5); f0 = 2.5e9; fc = 1e9; BC = {'MUR' x6}; SmoothMesh(mesh, c0/(f0+fc)/unit/20)",
+   "citation": "Same upstream inverted_f.m (thliebig/openEMS master), lines read directly: kappa/feed.R in the setup block, AddLumpedPort and SmoothMesh in the geometry/mesh block",
+   "verdict": "CONFIRMED",
+   "detail": "All six claims match the file exactly, including the subtle ones: the [0 1 0] excite direction the template mirrors as a '+Y' port, and lambda_min/20 computed at f0+fc = 3.5 GHz \u2014 which is what 'lambda_min' means here."
+  },
+  {
+   "anchor": "'The file publishes no expected numbers \u2014 no resonance, no S11, no gain'",
+   "repo_value": "Claim at docs/upstream/ifa-anchors.md:46-49 and docs/TUTORIALS.md:1771-1774 ('openEMS's example publishes no expected resonance, S11 or gain, only its title')",
+   "source_kind": "primary",
+   "source_value": "Full 202-line read of upstream inverted_f.m: no numeric expected result anywhere; the only frequency statement beyond the solver setup is the header comment 'EXAMPLE / antennas / inverted-f antenna (ifa) 2.4GHz'; the disp() lines print run-time computed values, not published expectations",
+   "citation": "raw.githubusercontent.com/thliebig/openEMS/master/matlab/examples/antennas/inverted_f.m, whole file read; docs.openems.de checked (it hosts only Python tutorials \u2014 no IFA page exists); web search found no openEMS-published numeric IFA results anywhere",
+   "verdict": "CONFIRMED",
+   "detail": "The claim is exactly right, including the repo's own nuance that the '2.4GHz' in the title and the kappa referenced at 2.45 GHz are the only statements of design frequency. This means EMStudio's 2.3934 GHz / -26.5 dB / 211 MHz CANNOT be openEMS's numbers \u2014 see the last anchor for how the repo handles that."
+  },
+  {
+   "anchor": "Quarter-wave rule arithmetic: L_path 30.5 mm -> f_rule 2.4573 GHz; lambda0/4 at 2.45 GHz = 30.591 mm; 0.30% agreement; measured 2.3934 GHz is -2.6% off the rule",
+   "repo_value": "30.500 mm / 2.4573 GHz / 30.591 mm / 0.30% / -2.6% \u2014 docs/upstream/ifa-anchors.md:62-69,127-128; docs/TUTORIALS.md:1712-1719; emstudio/antenna/ifa.py:27-28",
+   "source_kind": "formula-recomputed",
+   "source_value": "Recomputed with c = 299792458 m/s (exact SI): c/(4*0.0305 m) = 2.457315 GHz; c/(2.45e9*4) = 30.5911 mm; (30.591-30.5)/30.5 = +0.2986%; (2.3934-2.4573)/2.4573 = -2.601%",
+   "citation": "Direct recomputation from f = c/(4*L) with the geometry values confirmed against the primary source above; c is the exact SI definition",
+   "verdict": "CONFIRMED",
+   "detail": "All four derived numbers reproduce to the quoted precision. The 8+22.5 = 30.5 mm path uses the h and l values confirmed digit-by-digit from inverted_f.m, so the '0.30% agreement without either being fitted to the other' claim rests on verified inputs."
+  },
+  {
+   "anchor": "IFA measured triple: 2.3934 GHz / -26.5 dB / 211 MHz bandwidth (2.295-2.507 GHz) and Zin ~54.7+1.4j",
+   "repo_value": "2.3934 GHz, -26.5 dB, 211 MHz (8.83%), Zin 54.76+1.40j \u2014 docs/TUTORIALS.md:1699-1702; CHANGELOG.md:330-331; and -26.57 dB / 54.72+1.38j at docs/upstream/ifa-anchors.md:118",
+   "source_kind": "none",
+   "source_value": "No primary source exists: openEMS publishes no numeric results for this example (confirmed above), and no independently published run of inverted_f.m was found on the web",
+   "citation": "Searched: the file itself, docs.openems.de (no IFA page), the openEMS wiki, GitHub (https://github.com/thliebig/openEMS/blob/master/matlab/examples/antennas/inverted_f.m), and web searches for published runs \u2014 results were patents and the file itself only",
+   "verdict": "UNVERIFIABLE",
+   "detail": "UNVERIFIABLE against any primary because none exists \u2014 and the repo says exactly that, in place: these are presented as EMStudio's own mesh-60 run of the rebuilt geometry ('reference run' column, and TUTORIALS.md:1771-1774 states the numbers are not external), so this is NOT a repeat of the -29 dB misattribution. Two small internal inconsistencies worth knowing: (1) ifa-anchors.md:118 records the mesh-60 run as -26.57 dB / Zin 54.72+1.38j while TUTORIALS.md:1700-1701 and CHANGELOG.md:330-331 quote -26.5 dB / 54.76+1.40j \u2014 two slightly different runs quoted as one reference run; (2) the rounded band edges 2.295-2.507 GHz difference is 212 MHz, not the quoted 211 MHz, and 211/2.3934 = 8.82% vs the quoted 8.83% \u2014 sub-rounding drift, not an error of substance."
+  },
+  {
+   "anchor": "Coupled-patch E-plane |S21| at s=0.5 lambda0 (Jedlicka-Poe-Carver measured benchmark)",
+   "repo_value": "-24.0 dB \u2014 tests/validation/isolation_patch_openems.py:14 (gate window +/-2.5 dB at :123-124)",
+   "source_value": "Kwan & Newman DTIC ADA154292 Fig 2.5: measured point -23.40 dB at s=0.509; Balanis 4e Fig 14.32 (credited reprint of Pozar 1982): measured dot -24.31 dB at s=0.498; mean -23.86 dB",
+   "source_kind": "primary",
+   "citation": "Kwan & Newman, 'Mutual Coupling Analysis for Conformal Microstrip Antennas', DTIC ADA154292, Fig 2.5 (report p.40), archive.org scan archive.org/details/DTIC_ADA154292; Balanis, Antenna Theory 4e, Fig 14.32 p.828 (source: Pozar, IEEE Trans. AP-30 No.6, Nov 1982), archive.org scan. Both figures axis-calibrated and machine-digitized by me (gridline detection + marker centroids).",
+   "verdict": "CONFIRMED",
+   "detail": "The repo states its anchor is the mean of two digitized reproductions; my independent digitization of the same two reproductions gives a mean of -23.9 dB, 0.14 dB from the repo's -24.0 \u2014 inside mutual digitization uncertainty (~+/-0.2 dB). The two reproductions themselves differ by 0.9 dB (K&N -23.4 vs Balanis/Pozar -24.3), so -24.0 is a fair mean. Original Jedlicka AP-29 1981 paper is IEEE-paywalled and was not directly readable; confirmation rests on an official-archive DTIC scan replotting the measured data plus Balanis's credited IEEE reprint of Pozar's figure \u2014 exactly the source chain the repo names."
+  },
+  {
+   "anchor": "Coupled-patch H-plane |S21| at s=0.5 lambda0",
+   "repo_value": "-33.5 dB \u2014 tests/validation/isolation_patch_openems.py:14 (gate window +/-3.5 dB at :125-126)",
+   "source_value": "Kwan & Newman Fig 2.6: measured point -33.27 dB at s=0.509; Balanis 4e Fig 14.32: measured dot -33.46 dB at s=0.495; mean -33.37 dB",
+   "source_kind": "primary",
+   "citation": "Same two sources as the E-plane anchor: DTIC ADA154292 Fig 2.6 (report p.43, archive.org scan) and Balanis 4e Fig 14.32 (Pozar 1982 reprint), both machine-digitized with axis calibration.",
+   "verdict": "CONFIRMED",
+   "detail": "Repo -33.5 vs digitized mean -33.4 \u2014 0.13 dB apart, within digitization noise, and the two reproductions agree with each other to 0.2 dB here. The gate's third check (H weaker than E by >3 dB) is also confirmed: both sources show ~10 dB E/H separation at 0.5 lambda0, and Kwan & Newman state the E>H trend explicitly in text (surface-wave argument)."
+  },
+  {
+   "anchor": "Coupled-patch geometry: L=6.55 cm, W=10.57 cm, probe 2.16 cm from radiating edge on width centerline, f~1410 MHz",
+   "repo_value": "L=65.5e-3, W=105.7e-3, FEED_X=21.6e-3, F0=1410e6 \u2014 tests/validation/isolation_patch_openems.py:40-41 (prose at :9-11)",
+   "source_value": "DTIC Figs 2.5/2.6: patch 6.55 cm x 10.57 cm, feed 2.16 cm from edge (drawn as half-dims x1=3.275 cm, y1=5.285 cm, feed 1.115 cm from center = 2.16 cm from edge); text p.46: 'at 1417 MHz for the computations, and at 1410 MHz for the measurements'. Balanis 3e Fig 14.30 / 4e Fig 14.32 captions: W=10.57 cm, L=6.55 cm, fr=1,410 MHz",
+   "source_kind": "primary",
+   "citation": "DTIC ADA154292 Figs 2.5/2.6 + p.46 text (archive.org scan); Balanis 3e Fig 14.30 caption and 4e Fig 14.32 caption p.828 (archive.org scans, both crediting Pozar 1982).",
+   "verdict": "CONFIRMED",
+   "detail": "All four geometry values match digit-for-digit across both sources, including the E-plane (offset along the 6.55 cm resonant length) vs H-plane (offset along the 10.57 cm width) orientation convention and edge-to-edge separation. The repo's citation 'Balanis Fig. 14.30' matches the 3rd edition numbering (it is Fig 14.32 in the 4th edition)."
+  },
+  {
+   "anchor": "Coupled-patch substrate: eps_r=2.55, h=1.588 mm",
+   "repo_value": "EPS_R=2.55, H=1.588e-3 \u2014 tests/validation/isolation_patch_openems.py:41 (prose at :10 attributes these to 'the Kwan & Newman build sheet (DTIC ADA154292)')",
+   "source_value": "Balanis 3e Fig 14.30 / 4e Fig 14.32 captions: h=0.1588 cm, eps_r=2.55 (source: Pozar 1982). BUT the cited Kwan & Newman report itself prints eps_r=2.5 and t=0.1575 cm in both figures",
+   "source_kind": "primary",
+   "citation": "Balanis 3e Fig 14.30 caption ('h = 0.1588 cm, e_r = 2.55, f_r = 1,410 MHz') and 4e Fig 14.32 caption p.828, archive.org scans; DTIC ADA154292 Figs 2.5/2.6 ('eps_r = 2.5, t = 0.1575 cm'), verified on the 300-dpi page image, not just OCR.",
+   "verdict": "CONFIRMED",
+   "detail": "The VALUES 2.55 / 1.588 mm are confirmed against the Pozar-Balanis reprint chain, digit for digit. However the repo's ATTRIBUTION is off on these two sub-values: the Kwan & Newman 'build sheet' actually prints eps_r=2.5 and t=1.575 mm (0.062 in vs 1/16 in \u2014 the two labs quote the same physical stock slightly differently). Cosmetic doc nit, not a physics error: 2.55/1.588 is what Pozar and Balanis publish for this benchmark and is the better-sourced pair; a one-line provenance fix in the docstring would make the citation exact."
+  },
+  {
+   "anchor": "Half-wave dipole exact thin-wire impedance 73.08 + j42.52 ohm, D0=1.643, 2.15 dBi",
+   "repo_value": "emstudio/antenna/wire_elements.py:23-25 ('Balanis ch. 4: exact thin lambda/2 dipole Z = 73.08 + j42.52'), :30 (gain 2.15 dBi, D = 1.643), :52-53 (DIPOLE_GAIN_DBI = 2.15)",
+   "source_value": "Recomputed from the induced-EMF closed form with exact eta0=376.7303 ohm: R=73.079, X=42.515 ohm; D0 exact = 1.6409 (2.151 dB). Balanis 4e prints eq (4-93) Zin = 73 + j42.5, eq (4-91) D0 = 1.643 = 2.156 dB (via Cin(2pi) rounded to 2.435; unrounded Cin(2pi)=2.43766)",
+   "source_kind": "formula-recomputed",
+   "citation": "Balanis, Antenna Theory 4e, eqs (4-90), (4-91), (4-93) (archive.org scan, lines verified in the book text); my recomputation with scipy sici: Cin(2pi)=2.43766, R=eta/(2pi)*[gamma+ln(pi)-Ci(pi)-0.5(gamma+ln(pi/2)+Ci(2pi)-2Ci(pi))], X=eta/(4pi)*Si(2pi).",
+   "verdict": "CONFIRMED",
+   "detail": "73.08+j42.52 is exactly what the closed form yields with the exact free-space impedance (Balanis's own printed 73+j42.5 uses eta=120pi and rounds). D=1.643/2.15 dB matches Balanis's printed value; note the fully unrounded exact directivity is 1.641/2.151 dB \u2014 the repo quotes the standard textbook rounding, which is the right citation."
+  },
+  {
+   "anchor": "Dipole NEC2 reference run: f_res 296.29 MHz, R 71.9 ohm, 2.13 dBi",
+   "repo_value": "tests/validation/dipole_nec2.py:46 (reference run 2026-07-05, nec2c 1.3.1) and :60-63 (2.13 dBi probe); quoted again at emstudio/antenna/wire_elements.py:38 and emstudio/setup/solvers.py:1242",
+   "source_value": "No external source exists \u2014 these are the repo's own solver outputs. The literature envelope they are gated against is confirmed: resonant-length R sits below the exact 73.08 (shortening to X=0 lowers R toward the 68-72 class), 2.13 dBi sits 0.02 dB below the exact 2.151 dBi",
+   "source_kind": "formula-recomputed",
+   "citation": "Envelope check against the recomputed exact values above and Balanis 4e ch.4; the specific digits 296.29/71.9/2.13 are repo-measured, not published anywhere.",
+   "verdict": "CONFIRMED",
+   "detail": "Correctly labelled in-repo as a 'reference run', not a literature value \u2014 reproduction-vs-correctness is handled properly here: the gate windows (64-79 ohm, 1.9-2.4 dBi, broadside peak, axial null, half-sine current) are the literature content, and each of those is consistent with the confirmed closed forms. A 0.475-lambda resonant dipole reading 71.9 ohm / 2.13 dBi is exactly where theory puts it."
+  },
+  {
+   "anchor": "Monopole-over-ground relations: short-monopole Rr = 40 pi^2 (h/lambda)^2 (=3.948 ohm at h=lambda/10) and lambda/4 monopole Zin ~ 36.5 + j21 ohm over PEC",
+   "repo_value": "tests/validation/monopole_nec2.py:8-12 (both relations), :46 (rr_analytic = 40*pi^2*0.1^2), :72-77 (gate 33-43 ohm / +5..+32 ohm); emstudio/antenna/wire_elements.py:25 ('36.5 + j21.25 class'), :55 (MONOPOLE_RES_R_OHM = 36.0)",
+   "source_value": "Watt, VLF Radio Engineering (1967), eq (2.1.5): Rr = 160 pi^2 (h_e/lambda)^2 for h_e < 0.1 lambda; with h_e = h/2 (triangular current) this is 40 pi^2 (h/lambda)^2 = 3.9478 ohm at h=0.1 lambda. Balanis 4e eq (4-106): Zin(monopole) = 1/2 Zin(dipole) = 1/2[73 + j42.5] = 36.5 + j21.25 ohm",
+   "source_kind": "primary",
+   "citation": "A.D. Watt, VLF Radio Engineering, Pergamon 1967, eq (2.1.5) \u2014 read from the project's local PDF ('/home/ajenkins/PycharmProjects/EMStudioPro/Dr_Watt_document.pub_vlf-radio-engineering-14 2.pdf'); Balanis 4e eq (4-106) (archive.org scan); both values recomputed: 40*pi^2*0.01 = 3.9478, half of 73.079+j42.515 = 36.54+j21.26.",
+   "verdict": "CONFIRMED",
+   "detail": "Both cited relations verified against the exact sources the gate names (Watt + Balanis) and by recomputation. The gate's honesty note that nec2c lands ~4.0 ohm, a couple percent above the ideal-triangular-current closed form, is the correct physical reading \u2014 the closed form is a lower bound for the real current distribution."
+  },
+  {
+   "anchor": "Standard-gain horn vendor gain curve: 19.70 dBi at 30 GHz (Mi-Wave 261A-20/599, WR-28 Ka band)",
+   "repo_value": "VENDOR_GAIN_DBI {26.5:18.8, 28:19.2, 30:19.7, 32:20.2, 34:20.6, 36:21.0, 38:21.3, 40:21.6} \u2014 emstudio/templates/horn.py:77-80; gate comparison at tests/validation/horn_openems.py:45 and horn.py:207",
+   "source_value": "Vendor's own published chart 'Frequency vs Gain 261A-20/599' (p.4 of Mi-Wave's 261A-20 pattern/plot PDF), machine-digitized with gridline calibration: 26.5->18.80, 28.0->19.20, 30.0->19.70, 32.0->20.20, 34.0->20.60, 36.0->21.00, 38.0->21.30, 40.0->21.60 dB",
+   "source_kind": "primary",
+   "citation": "https://www.miwv.com/wp-content/uploads/2024/04/261A-20dB-Pattern.pdf, page 4 'Frequency vs Gain 261A-20/599' (fetched 2026-08-30; chart digitized programmatically \u2014 gridlines at 2 GHz / 1 dB spacing detected, 28 data dots resolved, every dot lands on a 0.1 dB gridline). Model identity corroborated by the vendor test data sheet https://system.miwv.com/storage/datasheets/261A-20-599.pdf (WR-28, UG-599/U, 20 dBi nominal).",
+   "verdict": "CONFIRMED",
+   "detail": "All eight repo table points match the vendor's published curve digit-for-digit at 0.1 dB resolution, including the headline 19.70 dBi at 30.000 GHz. The repo's caveat that this curve is analytic (NRL/Slayton closed form), not range-measured, is consistent with what the curve shows: perfectly smooth, no mouth/throat ripple, every point on a 0.1 dB grid."
+  },
+  {
+   "anchor": "Horn outline-drawing dimensions: aperture 1.570 x 1.100 in, axial length 2.640 in, WR-28 feed (Mi-Wave outline drawing rev B, 9-12-18)",
+   "repo_value": "APERTURE_A_MM=39.88, APERTURE_B_MM=27.94, FLARE_LEN_MM=67.06, WR28 7.112x3.556 \u2014 emstudio/templates/horn.py:17-19, 64-68",
+   "source_value": "Not found in any publicly fetchable document today. The vendor's model-specific outline PDF is not at any guessable URL (the 25 dB sibling has .../2025/09/261A-25-599-Outline.pdf; every 261A-20 outline variant tried returns 404), the product page is gone from the live site (404, site reorganised) with zero Wayback captures, and the published 261-series catalog (lteq-microwave.com/files/MIWV_Series261.pdf) tabulates only the 25 dB nominal series (261A: A=2.84 in, B=2.35 in, C=6.60 in \u2014 a different model)",
+   "source_kind": "none",
+   "citation": "Searched miwv.com (site search, both Ka-band product pages, wp-content upload URL probes), system.miwv.com storage, web.archive.org CDX for the product URL (www and bare, no captures), and the Series-261 catalog PDF. The test data sheet for 261A-20/599 exists but carries no dimensions.",
+   "verdict": "UNVERIFIABLE",
+   "detail": "The gain anchor the gate actually checks is CONFIRMED (previous entry); only the drawing dimensions could not be independently re-fetched today. Consistency evidence short of confirmation: the mm conversions in the repo are exact for the quoted inches (1.570 in = 39.878 mm, 1.100 in = 27.94 mm, 2.640 in = 67.056 mm), WR-28 7.112 x 3.556 mm is the standard EIA dimension, and a horn of these dims reproduces the vendor's ~19.7 dBi at 30 GHz in the repo's own convergence table \u2014 but the drawing itself (rev B, 9-12-18) is presumably what the repo digitised from a copy obtained when the product page was still live. Worth archiving that drawing into the repo's de-risk docs if a copy still exists locally, since the public source has evaporated."
+  }
+ ],
+ "mismatches": [
+  {
+   "anchor": "dBd-to-dBi offset used to score the gate: 2.15 dB",
+   "repo": "DBD_OFFSET = 2.15 at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/antenna/wire_elements.py:54; applied as g_dbd = g_dbi - 2.15 at tests/validation/yagi_nec2.py:123 and :145",
+   "source": "TN-688 section 2 (doc p.1): 'If referenced to an isotropic source, the values must be increased by 2.16 dB'",
+   "citation": "NBS TN-688, section 2, doc p.1 (NIST scan PDF p.11, page image)",
+   "seen": "NBS TN-688 (Viezbicke, Yagi Antenna Design, Dec 1976), section 2, doc p.1 = PDF p.11 of the NIST scan at nvlpubs.nist.gov/nistpubs/Legacy/TN/nbstechnicalnote688.pdf: \"If referenced to an isotropic source, the values must be increased by 2.16 dB.\""
+  },
+  {
+   "anchor": "Docstring claim: optimum phase error 's = 1/8 in the E-plane, 3/8 in the H-plane'",
+   "repo": "'(s = 1/8 in the E-plane, 3/8 in the H-plane)' \u2014 emstudio/antenna/horn.py:17",
+   "source": "Stutzman 2e eq (7-144) context: 'The aperture efficiencies for optimum sectoral horns with s = 0.25 and t = 0.375'; design Step 4 (p.314): 'see if s = 0.25 and t = 0.375'; Nikolova L18: E-plane optimum at q = 1, i.e. s = B^2/(8*lambda*R) = 1/4; Balanis (13-19b) with b1 = sqrt(2*lambda*p1) gives s = 2*lambda*p1/(8*lambda*p1) = 1/4",
+   "citation": "Stutzman 2e (7-144) and p.314-315; Balanis 3e (13-19a/b); archive.org scans",
+   "seen": "Nikolova L18_Horns.pdf (ece.mcmaster.ca, fetched + pdftotext): \"optimal directivity is obtained with t = 3/8 ... A = sqrt(3*lambda*R0)\" (18.24); \"optimal directivity is obtained with q = 1 ... B = sqrt(2*lambda*R0)\" (18.37); t = (1/8)(A/lambda)^2/(R0/lambda); eps_a = 0.51. JMOe 2011 paper (pdfs.semanticscholar.org, fetched + pdftotext): s = B^2/(8*lambda*R2) (eq 12), t = A^2/(8*lambda*R1) (eq 11), q = 2*sqrt(s) (eq 8), \"t = 0.375 for the H-plane and s = 0.25 for the E-plane [1]\", [1] = Stutzman & Thiele 2e, Wiley 1998, pp. 300-314. Stutzman 2e itself and Balanis 3e were not directly fetched; the s=0.25/t=0.375 attribution to Stutzman 2e p.300-314 is seen verbatim in the peer-reviewed paper, and the 1/4 value is independently derived in full in the Nikolova document."
+  },
+  {
+   "anchor": "Aspect-ratio claim: a1 ~ 1.5*b1, 'which is what the E- and H-plane optimum flare conditions imply together'",
+   "repo": "'optimum-horn aspect ratio a1 ~ 1.5*b1' + derivation claim \u2014 emstudio/antenna/horn.py:99-101; baked in at horn.py:108-111 (b1 = sqrt(area/1.5), a1 = 1.5*b1); repeated in source_note horn.py:150",
+   "source": "The optimum flare conditions imply a1/b1 = sqrt(3*lambda*rho)/sqrt(2*lambda*rho) = sqrt(1.5) = 1.225 for equal flare lengths \u2014 i.e. a1^2 = 1.5*b1^2, not a1 = 1.5*b1. Realizable textbook optimum designs land near that: Balanis 3e Example 13.6 gives a1/b1 = 6.002/4.715 = 1.273; Stutzman 2e Example 7-7 gives 18.61/14.75 = 1.262. Neither text states a 1.5 linear ratio; both solve the quartic/iterative Pe = Ph condition instead",
+   "citation": "Balanis 3e sec 13.4.3 + Example 13.6 (p.781-782); Stutzman 2e Example 7-7 (p.315); Nikolova L18 eq (18.42)-(18.51) (realizability RE = RH, no fixed ratio)",
+   "seen": "Nikolova, \"Lecture 18: Rectangular Horn Antennas\" (Nikolova 2025, ece.mcmaster.ca PDF, text-extracted): eqs (18.24) A=sqrt(3*lambda*R0), (18.37) B=sqrt(2*lambda*R0), (18.42) RE=RH=RP, (18.45)-(18.48), (18.51) quartic, eps_a=0.51; no 1.5 ratio in the document. Frontiers in Antennas and Propagation 2026 (10.3389/fanpr.2026.1828476), Balanis-procedure design: A=178.544 mm, B=145.781 mm, rho_e=rho_h=322.696 mm -> A/B=1.2248. J. Microwaves Optoelectron. EM Appl. 10(1) 2011 (SciELO/SemanticScholar PDF), Tables I-VI: traditional optimum A/B = 17.43/13.54, 13.27/10.57, 32.77/24.74 (1.255-1.325)."
+  },
+  {
+   "anchor": "Repo's sphere attribution 'AHTT eq. 8.33 form' next to the 0.469 constant",
+   "repo": "'(AHTT eq. 8.33 form), Ra_D <= 1e11, Pr >= 0.7 ... (0.469/Pr)' \u2014 tests/validation/openfoam_solid.py:86-87 and openfoam_ras_solid.py:59",
+   "source": "AHTT eq. (8.33) actually prints Nu_D = 2 + 0.589 Ra_D^(1/4)/[1+(0.492/Pr)^(9/16)]^(4/9) with 'Ra_D < 10^12' \u2014 constant 0.492, not 0.469; no Pr restriction stated \u2014 in BOTH v5.10 (p. 456 area, wayback copy) and v6.00 (p. 433, page image). AHTT cites its [8.11] = Raithby & Hollands, Handbook of Heat Transfer 3rd ed. 1998, ch. 4 \u2014 not Churchill",
+   "citation": "AHTT v6.00 eq. 8.33 p. 433 (ahtt.mit.edu PDF, page image read) and AHTT v5.10 (web.archive.org copy of ahtt.mit.edu); vs Incropera 6th ed eq. 9.35 / Cengel 2nd ed eq. 9-26 which print the repo's 0.469 form",
+   "seen": "AHTT v6.00 (Lienhard & Lienhard, A Heat Transfer Textbook, 6th ed., April 2024), eq. (8.33), printed p. 433, page image read from https://bpb-us-e1.wpmucdn.com/sites.mit.edu/dist/6/1810/files/2024/04/AHTTv600.pdf: Nu_D = 2 + 0.589 Ra_D^(1/4)/[1+(0.492/Pr)^(9/16)]^(4/9), Ra_D < 10^12, citing [8.11] Raithby & Hollands, Handbook of Heat Transfer 3rd ed. 1998 ch. 4. Corroborated identically in AHTT v5.10 printed p. 431 (Wayback capture 2022-01-20 of ahtt.mit.edu/wp-content/uploads/2020/08/AHTTv510.pdf, page image read)."
+  },
+  {
+   "anchor": "SIGMA006_TABLE: corrected-contour crossings at sigma = 0.06 (5 rows)",
+   "repo": "[(6.5,0.852),(7.0,0.887),(7.5,0.920),(8.0,0.939),(8.5,0.957)] \u2014 emstudio/antenna/lpda.py:78-84",
+   "source": "Pixel-measured crossings at sigma=0.06 on the corrected chart (Balanis 3e print AND official 4e ch11.pptx, identical): 6.5->0.8486, 7.0->0.8848, 7.5->0.9105, 8.0->0.9355, 8.5->0.9565 (curve end; row scans at sigma 0.065/0.070/0.075 extrapolate 0.956-0.961)",
+   "citation": "Balanis Fig 11.13, both printings, 300-dpi pixel measurement with clean-row cross-checks at sigma 0.065/0.070/0.075; consistency check: ARRL ch.10 worked example reads its (original-calibration) chart as 8.0 dBi at sigma 0.06 / tau 0.885 = corrected 7.0 at ~0.885-0.887, agreeing with the 7.0 row and the 1.0 dB derate",
+   "seen": "Balanis, Antenna Theory: Analysis and Design, 3rd ed., Wiley, Figure 11.13, printed page 631 (PDF page 589 of https://jontalle.web.engr.illinois.edu/Public////BOOKS/Balanis-AntennaTheoryAnalysis_Design3rdEd.05.pdf) \u2014 vector figure measured from embedded path geometry, tick-calibrated; caption cites Carrel 1961 dissertation with the Butson-Thompson (IEEE Trans. AP-24, Jan 1976) 1 dB correction applied."
+  },
+  {
+   "anchor": "py1812 vendored revision label: repo says P.1812-6",
+   "repo": "'the ITU-R reference implementation of Recommendation P.1812-6' \u2014 emstudio/vendor/py1812/PROVENANCE.md:4 (also emstudio/coverage/p1812.py:2,29 and tests/validation/p1812.py:2)",
+   "source": "itu.int: P.1812-6 (09/2021) SUPERSEDED \u2014 in force is P.1812-8 (09/2025). The pinned upstream commit a5205e6 (2026-05-18) postdates upstream's 'eeveetza-p1812-8' merge (2026-02-25: Ct argument removed, Gtx/Grx added, README changed to 'Recommendation ITU-R P.1812-8')",
+   "citation": "https://www.itu.int/rec/R-REC-P.1812/en; https://github.com/eeveetza/Py1812 commit history + README @ a5205e6a65db27391a8ba79bd5a365e5391f9fdf",
+   "seen": "itu.int R-REC-P.1812 revision table (P.1812-6 \"Superseded\", P.1812-8 09/2025 \"In force (Main)\"); upstream README at pinned commit a5205e6a stating \"Recommendation ITU-R P.1812-8\"; GitHub API commit history (p1812-8 merge 2026-02-25, Gtx/Grx 2026-03-19, pinned commit 2026-05-18); byte diff of vendored P1812.py vs pinned upstream (shim-only delta)."
+  },
+  {
+   "anchor": "p1812 data PROVENANCE wording: '64 per-dataset logs' and 'Ver 6.1 set'",
+   "repo": "tests/validation/data/p1812/PROVENANCE.md:4-5",
+   "source": "63 log files exist on disk and 63 exist at the pinned upstream commit; ITU's current published validation folder holds 64 files = 63 per-dataset logs + 1 combined_results.csv. ITU's SG3 page today lists the P.1812 validation set only as version 8.0 (no 6.1 visible)",
+   "citation": "local ls + GitHub tree @ a5205e6 + itu.int P_1812_8.zip listing",
+   "seen": "Primary: (a) local ls of the repo's own reference_logs dir = 63 *_log.csv; (b) GitHub git/trees API at pinned commit a5205e6 = 63 *_log.csv + combined_results.csv in tests/validation_results (truncated:false); (c) raw upstream README.md at a5205e6 stating \"Recommendation ITU-R P.1812-8\"; (d) itu.int SG3 digprod page listing \"Validation examples for software implementations of Recommendation ITU-R P.1812\" Ver 8.0 and M-script P_1812_8.zip Ver 8.0, with no 6.1 entry."
+  }
+ ]
+}

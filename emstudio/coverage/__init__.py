@@ -29,7 +29,7 @@ real-world coverage over terrain. This package starts with:
 * ``multistation`` — multi-station service/interference (D/U) contours. (Phase C.)
 * ``empirical`` — Okumura-Hata / COST-231 clutter models. (Phase D.)
 * ``p1546`` / ``p1812`` — wrappers over the vendored official ITU-R reference
-  implementations (P.1546-6 point-to-area, P.1812-6 path-specific), each gated
+  implementations (P.1546-6 point-to-area, P.1812-8 path-specific), each gated
   against the official ITU validation sets at 0.000000 dB. (Phase D.)
 * ``p452`` / ``p2001`` — wrappers over the vendored official ITU-R reference
   implementations (P.452-18 interference prediction, P.2001-6 wide-range

@@ -83,8 +83,18 @@ CHURCHILL_BAND = 0.15         # correlation scatter + laminar snapped mesh
 
 
 def churchill_sphere(ra_d, pr):
-    """Churchill's free-convection sphere correlation (AHTT eq. 8.33 form),
-    Ra_D <= 1e11, Pr >= 0.7: Nu = 2 + 0.589 Ra^1/4 / [1+(0.469/Pr)^9/16]^4/9."""
+    """Churchill's free-convection SPHERE correlation, laminar form:
+    Nu = 2 + 0.589 Ra^1/4 / [1+(0.469/Pr)^9/16]^4/9, Ra_D <= 1e11, Pr >= 0.7.
+
+    ⚠ CITATION CORRECTED 2026-08-30. This docstring said "AHTT eq. 8.33
+    form" — but AHTT (Lienhard 6e, p.433) eq. 8.33 prints the constant
+    0.492, which is the vertical-PLATE Prandtl function, with Ra < 1e12 and
+    no Pr floor. The 0.469 sphere constant used here is correct and is the
+    standard Churchill sphere correlation as given in Incropera (eq. 9.35
+    form) and the Heat Exchanger Design Handbook (Schluender 1987); 0.492 is
+    the plate, 0.559 the cylinder. The CONSTANT was always right — the
+    attribution pointed at a different equation. Found by the primary-source
+    sweep, which read the AHTT page image rather than trusting the label."""
     if ra_d <= 0:
         raise ValueError("Ra must be positive")
     return 2.0 + (0.589 * ra_d ** 0.25
