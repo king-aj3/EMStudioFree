@@ -269,18 +269,20 @@ class SolverInstallerDialog(QtWidgets.QDialog):
                 wplan = solvers.win_install_plan(b.key)
                 btn = QtWidgets.QPushButton("Install…", self.table)
                 btn.setToolTip(
-                    "Downloads the official Windows build ({0}); progress "
-                    "streams below. Per-user, no admin rights needed.".format(
+                    "Downloads the Windows build ({0}); progress streams "
+                    "below. Per-user, no admin rights needed.".format(
                         wplan["estimate"]))
                 btn.clicked.connect(
                     lambda _=False, key=b.key: self._win_install(key))
                 self.table.setCellWidget(i, 3, btn)
             elif not info.found and solvers.win_source_build_plan(b.key) is not None:
-                # FastHenry is the one backend with NO usable Windows binary —
-                # the vendor's own executable is Automation-only — so on
-                # Windows its button compiles from source instead of
-                # downloading. win_source_build_plan() already returned None if
-                # no compiler exists, so this button can always actually run.
+                # A backend with a Windows SOURCE-build recipe but no download
+                # plan. (FastHenry lived here until v1.13.0 — the vendor's own
+                # executable is Automation-only, and EMStudio's CLI build was
+                # not yet published; it now takes the Install… branch above, so
+                # this branch is reached for it only if its plan is ever
+                # removed again.) win_source_build_plan() already returned None
+                # if no compiler exists, so this button can always actually run.
                 splan = solvers.win_source_build_plan(b.key)
                 btn = QtWidgets.QPushButton("Build…", self.table)
                 btn.setToolTip(

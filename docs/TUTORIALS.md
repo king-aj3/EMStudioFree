@@ -757,8 +757,9 @@ the moment a function object runs. No version floor would catch that — only
 running it does. The dialog reports the failure and says what to install
 instead.
 
-⛳ **On Windows, Elmer, gmsh, NEC2, OpenFOAM and — since v1.8.0 — openEMS
-have guided install buttons.** The single step that needs Administrator is
+⛳ **On Windows, Elmer, gmsh, NEC2, OpenFOAM, openEMS (since v1.8.0) and
+FastHenry (since v1.13.0, EMStudio's own CLI build) have guided install
+buttons.** The single step that needs Administrator is
 explained rather than automated — EMStudio will not silently ask your machine
 for privileges. The openEMS button also builds the Python environment its
 pipeline needs from the zip's own wheels, and needs a system Python 3.13/3.14

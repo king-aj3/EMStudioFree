@@ -15,6 +15,59 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > next entry was written straight under the heading). It is the release safety
 > net; put it back rather than letting it go.
 
+## [1.13.0] — 2026-09-19
+
+> Pre-tag proof on the Windows work box, on the release tree before commit:
+> FAST tier **49 ok / 3 failed / 2 skipped** of 54 — the three reds are the
+> box's known environmental ones (`installed_copy`: the Pro overlay is one
+> release stale until this ships; `solver_versions`: this box's gmsh 4.15.2 and
+> nec2++ 2.3.4 are newer than the table; `openfoam_runner_cancel`: POSIX-only,
+> skipped as designed) — plus `python3 smoke`, freecadcmd smoke and offscreen
+> gui_smoke green on both the Pro tree and the exported free tree (the
+> guided-install button set now lists fasthenry on simulated Windows). The
+> `fasthenry_guidance` gate's new membership check was mutation-proven (entry
+> removed → 8 FAILs; restored → PASSED). The FULL `--all` SOLVER-tier run is
+> home-only and is owed on the home box before the tag — this release touches a
+> dictionary key and text surfaces, no solver physics.
+
+### Added — FastHenry one-click Install on Windows
+
+* ⭐ **Solver Setup ▸ FastHenry ▸ Install…** is live on Windows. The button
+  downloads EMStudio's own command-line FastHenry build (`fasthenry-win64.zip`,
+  ~0.24 MB, per-user into `%LOCALAPPDATA%\EMStudio\solvers\fasthenry`, no admin
+  rights, no compiler), sha256-pinned so a silently replaced release asset
+  refuses to install rather than executing. The binary and the exact patched
+  source it was compiled from (upstream `ediloren/FastHenry2` at `363e43e` plus
+  the LLP64 and modern-compiler fixes) sit on the same EMStudioFree release
+  tag, `fasthenry-3.0.1-win64`, with both licence texts inside each zip.
+* **Why now.** The assets have been published and verified since 2026-08-19;
+  the button stayed deliberately STAGED outside `WIN_INSTALL_PLANS` until the
+  copyright owner spoke. On 2026-09-15 M.I.T.'s licensing office confirmed, on
+  Prof. White's word, that the 2003 licence text for the M.I.T. material —
+  "use, copy, modify, sell and/or distribute … for any purpose" — is accurate
+  and that its intent was to make FastHenry "as freely available as possible";
+  FastFieldSolvers had already stated (2026-08-13) that their own 64-bit
+  modifications are LGPL. Both licence texts ship inside each zip on the
+  release tag; the full record lives in the EMStudioPro repo
+  (`docs/launch/fasthenry-2003-licence-resolution.md`, not exported).
+* On Windows the Install button **replaces** the **Build…** button for
+  FastHenry (Solver Setup offers one action per backend; a download beats a
+  compile). A source build by hand still works with a MinGW toolchain — Solver
+  Setup prints the flags — and **Build…** remains the route on Linux and macOS,
+  where no CLI is published.
+
+### Changed
+
+* `WINDOWS_HINTS["fasthenry"]` now leads with the Install button (the smoke
+  gate requires that wording for every live plan) and keeps the warning that
+  FastFieldSolvers' own Windows bundle cannot be driven as a subprocess.
+* The `fasthenry_guidance` gate's "staged means NOT live" check is now the
+  inverse — membership in `WIN_INSTALL_PLANS` plus the Windows-hint wording —
+  and the `FASTHENRY_WIN_INSTALL_STAGED` constant is gone; the plan lives in the
+  table like every other guided install.
+* README, `docs/README.free.md` and the User Manual's Windows table no longer
+  describe the button as pending.
+
 ## [1.12.0] — 2026-08-30
 
 > Pre-tag proof: the FULL `--all` battery ran complete on the release commit

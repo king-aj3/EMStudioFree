@@ -345,11 +345,12 @@ BACKENDS = {
         # for any purpose; notice must travel; no M.I.T. name in publicity),
         # and FastFieldSolvers' own modifications are LGPL per their General
         # Manager's written statement, 2026-08-13. Full record + email archive:
-        # docs/launch/fasthenry-2003-licence-resolution.md. So redistribution
-        # IS permitted; the guided Windows install is STAGED on the M.I.T. TLO
-        # confirmation (see FASTHENRY_WIN_INSTALL_STAGED). The source build
-        # stays as the route that works under EVERY reading — the user
-        # compiles their own copy.
+        # docs/launch/fasthenry-2003-licence-resolution.md. M.I.T.'s own
+        # Technology Licensing Office confirmed the 2003 licence accurate on
+        # 2026-09-15 (on Prof. White's word), and the guided Windows install went
+        # LIVE in WIN_INSTALL_PLANS["fasthenry"] on that confirmation. The
+        # source build stays as the route for Linux/macOS (no CLI is published
+        # for those) and as the Windows fallback.
         manual_hint=(
             "Build from source (no compiled CLI is published for this "
             "platform): git clone https://github.com/ediloren/FastHenry2.git "
@@ -752,7 +753,8 @@ def fasthenry_status_note():
                         "Automation (COM) build: its own release notes record "
                         "that command-line arguments were removed in 2004, and "
                         "it hangs when given any. EMStudio needs a command-line "
-                        "'fasthenry' — WSL2 or a source build.".format(d))
+                        "'fasthenry' — click Install… for EMStudio's own CLI "
+                        "build, or compile one from source.".format(d))
         return ""
     except Exception:                          # noqa: BLE001 — advisory only
         return ""
@@ -1348,26 +1350,29 @@ WINDOWS_HINTS = {
     # and adding "FastHenry2.exe" to `executables` would be worse than the bug:
     # detection would report FastHenry found and every solve would then hang to
     # its timeout.
-    "fasthenry": "⚠ The FastFieldSolvers Windows bundle does NOT provide a "
-                 "FastHenry that EMStudio can drive. It ships no fasthenry.exe; "
-                 "its FastHenry2.exe is an Automation (COM) application whose "
-                 "own release notes record that command-line arguments were "
-                 "REMOVED in 2004 ('must use Automation') — measured here, it "
-                 "hangs with no output. EMStudio runs solvers as subprocesses, "
-                 "so it needs a command-line 'fasthenry': use WSL2 (Ubuntu), "
-                 "or build from source. The bundle is still worth having for "
-                 "the FastHenry2 GUI itself — "
+    "fasthenry": "One-click guided install available — the Install button "
+                 "downloads EMStudio's own command-line FastHenry build "
+                 "(fasthenry-win64.zip, ~0.24 MB, per-user, no admin rights, "
+                 "no compiler), published on the EMStudioFree releases page "
+                 "together with the exact source it was compiled from. "
+                 "Licensing: the M.I.T. material under its 2003 licence "
+                 "(use, copy, modify, sell and/or distribute for any purpose; "
+                 "the notice travels in every copy) and FastFieldSolvers' own "
+                 "modifications under the LGPL, as they stated in writing "
+                 "(2026-08-13); both licence texts are inside the zip. ⚠ The "
+                 "FastFieldSolvers Windows bundle is NOT a substitute: it "
+                 "ships no fasthenry.exe, and its FastHenry2.exe is an "
+                 "Automation (COM) application whose own release notes record "
+                 "that command-line arguments were REMOVED in 2004 — measured "
+                 "here, it hangs with no output. It is still worth having for "
+                 "the FastHenry2 GUI itself: "
                  "https://www.fastfieldsolvers.com/dwnld02.htm (direct "
-                 "download, no registration; the site's own download.htm is a "
-                 "sign-up form that lists nothing, so use this page). The "
-                 "licensing is RESOLVED in writing: the M.I.T. material was "
-                 "re-released in 2003 under terms that permit redistribution, "
-                 "and FastFieldSolvers state their own modifications are LGPL "
-                 "(2026-08-13) — a one-click install of an EMStudio-built CLI "
-                 "binary is prepared and ships once M.I.T.'s Technology "
-                 "Licensing Office confirms the 2003 re-release. Until then, "
-                 "build from source (the Build… button automates it when a "
-                 "compiler is present).",
+                 "download, no registration). If the download is blocked on "
+                 "your network, a source build still works: with a MinGW "
+                 "toolchain, git clone https://github.com/ediloren/FastHenry2 "
+                 "and run make in src/fasthenry with the flags Solver Setup "
+                 "prints (the Install button replaces the Build… button here; "
+                 "Build… remains the route on Linux and macOS).",
     "elmer": "One-click guided install available — the Install button downloads the "
              "official CSC Windows build (~122 MB zip, per-user, no admin rights) "
              "and EMStudio detects it automatically. Manual alternative: the "
@@ -1414,7 +1419,11 @@ WINDOWS_HINTS = {
 # installing one would produce a 'found' solver that cannot run — worse than
 # honesty". The pipeline was wired and PROVEN that night — see the openems
 # plan below — and the same worse-than-honesty rule is why its install
-# refuses up front when no wheel-compatible python exists).
+# refuses up front when no wheel-compatible python exists. ⚠ CORRECTED
+# AGAIN 2026-09-19: "FastHenry stays out … on the LICENCE question" is
+# history — two entries here are SELF-HOSTED EMStudio builds, nec2++ since
+# 2026-08 and FastHenry since the 2003 M.I.T. licence was confirmed accurate
+# by M.I.T.'s licensing office on 2026-09-15; see the fasthenry entry).
 
 def win_install_root():
     """Per-user root for guided Windows installs (%LOCALAPPDATA%/EMStudio/solvers)."""
@@ -1604,6 +1613,35 @@ WIN_INSTALL_PLANS = {
         # together here.
         "sha256": "2e7af13f5f3552150ba2a1ccdaf6437225c723c44bef0220888cb22c5f68c48c",
     },
+    # FastHenry: an EMStudio-built CLI (upstream ediloren/FastHenry2 `master`
+    # at 363e43e + our LLP64/compiler patches, tools/build_fasthenry_dist.py).
+    # SELF-HOSTED, so the licence obligations are ours: the 2003 M.I.T.
+    # re-release (use/copy/modify/sell/distribute for any purpose; notice must
+    # travel) — confirmed accurate by M.I.T.'s Technology Licensing Office on
+    # 2026-09-15, on Prof. White's word — plus FastFieldSolvers' own
+    # modifications under LGPL per their General Manager (2026-08-13). Both
+    # zips carry both licence texts. Record: docs/launch/
+    # fasthenry-2003-licence-resolution.md. This entry sat STAGED (outside
+    # this table) from 2026-08-19 until that confirmation arrived.
+    "fasthenry": {
+        "estimate": "under 1 min (a ~0.24 MB download; no compile, no toolchain)",
+        "url": "https://github.com/king-aj3/EMStudioFree/releases/download/"
+               "fasthenry-3.0.1-win64/fasthenry-win64.zip",
+        # detection probes <root>/fasthenry/bin — a flat zip would install
+        # somewhere detection never looks
+        "proof": os.path.join("bin", "fasthenry.exe"),
+        # LGPL corresponding source + the 2003 notice discipline: the exact
+        # patched tree the binary was compiled from, same release tag (the
+        # smoke gate enforces tag equality).
+        "source_offer": "https://github.com/king-aj3/EMStudioFree/releases/"
+                        "download/fasthenry-3.0.1-win64/"
+                        "fasthenry-source-363e43e.zip",
+        # Hashed from the LIVE asset (published 2026-08-19, re-verified
+        # 2026-09-16: 240,723 bytes). We publish this asset and a GitHub
+        # release asset is mutable in place — the pin makes a silent
+        # replacement fail loudly on the user's machine instead of executing.
+        "sha256": "a3a393a897ba762f16aa11b38f91f1bcb77354b5a2f5c31bdb404f8073e6e917",
+    },
 }
 
 #: Host we publish our own solver builds from. A plan whose URL points here is
@@ -1623,47 +1661,6 @@ def _release_tag(url):
     if marker not in url:
         return ""
     return url.split(marker, 1)[1].split("/", 1)[0]
-
-
-#: FastHenry guided Windows install — STAGED, deliberately NOT in
-#: WIN_INSTALL_PLANS yet. Redistribution is fully permitted in writing
-#: (modifications LGPL + the 2003 M.I.T. re-release; the vendor's grant and
-#: the whole record: docs/launch/fasthenry-2003-licence-resolution.md and
-#: docs/launch/fasthenry-ffs-licence-email-archive.md), but the release asset
-#: publishes only after the M.I.T. TLO answers the confirmation request sent
-#: 2026-08-19 — and a live Install button whose URL 404s is worse than none.
-#:
-#: The assets are BUILT and VERIFIED (2026-08-19, tools/build_fasthenry_dist.py:
-#: fresh compile, upstream commit 363e43e, the shipped zip itself solves the
-#: closed-form copper bar on a bare PATH). ACTIVATION CHECKLIST, in order:
-#:   1. TLO confirms the 2003 re-release (or ~3 weeks of silence — permission
-#:      already exists in writing; the TLO ask was confirmation, not consent).
-#:   2. Re-run tools/build_fasthenry_dist.py; upload BOTH zips from that run
-#:      to the EMStudioFree release tag below; update sha256 here if it moved.
-#:   3. curl -sI both asset URLs — 200 before anything else changes.
-#:   4. Move this entry into WIN_INSTALL_PLANS (drop the _STAGED name).
-#:   5. Update WINDOWS_HINTS["fasthenry"] to mention the Install button (the
-#:      smoke gate REQUIRES that wording for every live plan) and rewrite the
-#:      source-build paragraph as the fallback it becomes.
-#:   6. Flip fasthenry_guidance's "staged means NOT live" check to membership.
-#:   7. Full battery + smoke x3 + gui_smoke, then the release sweep.
-#: sha256 is enforced by run_win_install: unlike elmer/gmsh (upstream URLs
-#: whose bytes legitimately shift), we publish this asset, and a GitHub
-#: release asset is mutable in place — the pin makes silent replacement fail
-#: loudly on the user's machine.
-FASTHENRY_WIN_INSTALL_STAGED = {
-    "estimate": "under 1 min (a ~0.24 MB download; no compile, no toolchain)",
-    "url": "https://github.com/king-aj3/EMStudioFree/releases/download/"
-           "fasthenry-3.0.1-win64/fasthenry-win64.zip",
-    "proof": os.path.join("bin", "fasthenry.exe"),
-    # LGPL corresponding source + the 2003 notice discipline: the exact
-    # patched tree the binary was compiled from, same release tag (the smoke
-    # gate enforces tag equality the moment this goes live).
-    "source_offer": "https://github.com/king-aj3/EMStudioFree/releases/"
-                    "download/fasthenry-3.0.1-win64/"
-                    "fasthenry-source-363e43e.zip",
-    "sha256": "a3a393a897ba762f16aa11b38f91f1bcb77354b5a2f5c31bdb404f8073e6e917",
-}
 
 
 def win_install_plan(key):

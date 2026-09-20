@@ -3471,11 +3471,13 @@ def _solver_setup_dialog():
         # A Build button on Windows was a bug until v0.99.0 and is a FEATURE
         # after it. The POSIX no-sudo build still cannot run there (no bash),
         # and `build_plan()` returns None on nt for exactly that reason — but
-        # FastHenry has NO usable Windows binary (the vendor's own executable
-        # is Automation-only), so `win_source_build_plan()` compiles it with
-        # whatever toolchain the machine has, and returns None when there is
-        # none. So the contract is not "never" — it is "only where a Windows
-        # source-build plan exists".
+        # a backend with a Windows source-build recipe (FastHenry's, kept as the
+        # by-hand route now that its Install… plan is live) compiles with
+        # whatever toolchain the machine has, and `win_source_build_plan()`
+        # returns None when there is none. So the contract is not "never" — it
+        # is "only where a Windows source-build plan exists" — and since the
+        # dialog offers ONE action per row, a backend with both plans shows
+        # Install…, never Build… (the Install-set assertion above pins that).
         build_btns = {label for label, txt in btns.items() if txt == "Build…"}
         allowed = {solvers.BACKENDS[k].label for k in solvers.BACKENDS
                    if solvers.win_source_build_plan(k) is not None}

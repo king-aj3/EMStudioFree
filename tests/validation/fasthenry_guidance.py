@@ -112,8 +112,12 @@ def main():
     print(" windows hint:")
     hint = solvers.WINDOWS_HINTS["fasthenry"]
     check("hint explains the Automation limit", "utomation" in hint)
-    check("hint offers a route that actually works",
-          "WSL2" in hint or "wsl2" in hint or "source" in hint)
+    # The Install button is gated below (and by smoke.py); this pins the
+    # FALLBACK route. "source" alone would be satisfied by the provenance phrase
+    # "the exact source it was compiled from", so require the build verb too.
+    check("hint offers a fallback route that actually works",
+          "WSL2" in hint or "wsl2" in hint
+          or ("source build" in hint and "make" in hint))
     # The exact wrong instruction that shipped, pinned so it cannot return.
     check("hint no longer sends users to a bundle fasthenry.exe",
           "point EMStudio at fasthenry.exe" not in hint)
@@ -201,43 +205,46 @@ def main():
     finally:
         shutil.rmtree(d3, ignore_errors=True)
 
-    # --- the STAGED self-hosted install plan --------------------------------
-    # Redistribution was unblocked 2026-08-13/19 (vendor grant, see
-    # docs/launch/fasthenry-2003-licence-resolution.md), but the release asset
-    # publishes only after the M.I.T. TLO answers. Until then the plan is
-    # STAGED: complete, valid, and deliberately NOT in WIN_INSTALL_PLANS — a
-    # live Install button whose URL 404s is worse than none. These checks keep
-    # the staged entry ready-to-activate; at activation, move the entry into
-    # WIN_INSTALL_PLANS, flip the "not live" check below to membership, and add
-    # "Install button" to WINDOWS_HINTS["fasthenry"] (the smoke gate enforces
-    # that wording for every live plan).
-    print(" staged install plan:")
-    staged = solvers.FASTHENRY_WIN_INSTALL_STAGED
-    check("staged plan is complete",
-          bool(staged.get("url")) and bool(staged.get("estimate"))
-          and bool(staged.get("proof")))
-    check("staged plan is SELF-hosted",
-          staged.get("url", "").startswith(solvers.SELF_HOSTED_PREFIX),
+    # --- the LIVE self-hosted install plan ----------------------------------
+    # Redistribution was unblocked 2026-08-13/19 (vendor grant) and the 2003
+    # M.I.T. re-release was confirmed accurate by M.I.T.'s Technology
+    # Licensing Office on 2026-09-15 (record: docs/launch/
+    # fasthenry-2003-licence-resolution.md). The plan sat STAGED outside
+    # WIN_INSTALL_PLANS until that confirmation; it is LIVE now, and these
+    # checks keep it honest: self-hosted, managed layout, source offer on the
+    # same tag, a real pin, and membership in the live table (the "staged"
+    # check this replaced asserted the opposite — flipped on activation, as
+    # the checklist said).
+    print(" live install plan:")
+    plan = solvers.WIN_INSTALL_PLANS.get("fasthenry", {})
+    check("Install plan is LIVE (member of WIN_INSTALL_PLANS)",
+          "fasthenry" in solvers.WIN_INSTALL_PLANS,
+          "the TLO confirmed 2026-09-15; the button ships — a missing entry "
+          "here is a regression, not a hold")
+    check("live plan is complete",
+          bool(plan.get("url")) and bool(plan.get("estimate"))
+          and bool(plan.get("proof")))
+    check("live plan is SELF-hosted",
+          plan.get("url", "").startswith(solvers.SELF_HOSTED_PREFIX),
           "we are the distributor; an upstream URL here would be a lie")
     check("proof is the managed-layout binary",
-          staged.get("proof") == os.path.join("bin", "fasthenry.exe"),
+          plan.get("proof") == os.path.join("bin", "fasthenry.exe"),
           "detection probes <root>/fasthenry/bin — a flat zip would install "
           "somewhere detection never looks")
-    offer = staged.get("source_offer", "")
-    bin_tag = solvers._release_tag(staged.get("url", ""))
+    offer = plan.get("source_offer", "")
+    bin_tag = solvers._release_tag(plan.get("url", ""))
     src_tag = solvers._release_tag(offer)
     check("source offer rides the SAME release tag",
           offer.startswith("https://") and bin_tag and bin_tag == src_tag,
           "binary tag {0!r} vs source tag {1!r}".format(bin_tag, src_tag))
-    sha = staged.get("sha256", "")
+    sha = plan.get("sha256", "")
     check("sha256 pin is a real digest",
           len(sha) == 64 and all(c in "0123456789abcdef" for c in sha.lower()),
           "sha256={0!r}".format(sha[:20]))
-    check("staged means NOT live",
-          "fasthenry" not in solvers.WIN_INSTALL_PLANS,
-          "the TLO hold: activation is a deliberate step, not a drive-by — "
-          "flip this check to membership when activating")
-    # The dist tool and the staged plan must agree on tag and zip name, or the
+    check("the Windows hint tells the user about the button",
+          "Install button" in solvers.WINDOWS_HINTS.get("fasthenry", ""),
+          "a backend that HAS a button must say so where the user looks")
+    # The dist tool and the live plan must agree on tag and zip name, or the
     # uploaded asset and the pinned URL drift apart. The tool is Pro-repo
     # only — but in the PRO repo (identified by the exporter's presence) its
     # absence must FAIL, not skip: a silent skip is exactly how a rename
@@ -252,16 +259,22 @@ def main():
         sys.path.insert(0, os.path.dirname(tool_path))
         try:
             import build_fasthenry_dist as _bfd
-            check("dist tool and staged plan agree on the release tag",
+            check("dist tool and live plan agree on the release tag",
                   bin_tag == _bfd.RELEASE_TAG,
                   "plan {0!r} vs tool {1!r}".format(bin_tag, _bfd.RELEASE_TAG))
-            check("dist tool and staged plan agree on the zip name",
-                  staged["url"].endswith("/" + _bfd.BIN_ZIP))
+            check("dist tool and live plan agree on the zip name",
+                  plan.get("url", "").endswith("/" + _bfd.BIN_ZIP))
         finally:
             sys.path.remove(os.path.dirname(tool_path))
+    else:
+        # The FREE tree: the dist tool is manifest-denied there on purpose
+        # (it orchestrates the private repo's release), so the drift guards
+        # cannot run and say so — a silent absence would read as coverage.
+        print("  skip  dist-tool drift checks — tools/build_fasthenry_dist.py is "
+              "Pro-repo only (manifest-denied in the free export)")
 
     # --- sha256 verification in run_win_install (real pipeline, faked nt) --
-    # The staged plan is the first pinned one, so the pin must actually bind:
+    # The live plan is the first pinned one, so the pin must actually bind:
     # a wrong hash refuses BEFORE extraction and leaves nothing behind.
     #
     # ⚠ This whole block used to sit behind `if os.name == "nt":` with no

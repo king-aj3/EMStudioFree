@@ -5,7 +5,7 @@ engineering approachable**: guided workflows, real calculations, automatic
 meshing, validated solvers, and professional outputs (Touchstone, radiation
 patterns, build specs and BOMs).
 
-> **Status:** v1.12.0 — this line is checked against `package.xml` by the smoke
+> **Status:** v1.13.0 — this line is checked against `package.xml` by the smoke
 > test, so it cannot silently go stale.
 
 > 🎓 **For educational, hobbyist and experimental use — and under active
@@ -128,17 +128,19 @@ without any solver installed; the analytic tools work regardless.
 
 Solver Setup is platform-aware: `apt` on Debian/Ubuntu/Mint, `brew` on macOS,
 and on **Windows a one-click Install… button** for the backends whose binaries
-can be distributed — **NEC2, Elmer, Gmsh and — since v1.8.0 — openEMS**. Those
-download into `%LOCALAPPDATA%\EMStudio\solvers\`, per-user, with no admin
-rights and no shell, and are detected without touching `PATH`. Palace still
-needs WSL2; FastHenry is built from source — Solver Setup's **Build…** button
-automates the compile when a MinGW toolchain is present (FastFieldSolvers'
-own Windows bundle ships a GUI/Automation FastHenry2 that EMStudio cannot
-drive as a subprocess). Its licensing is resolved — the 2003 M.I.T.
-re-release permits redistribution and FastFieldSolvers state their
-modifications are LGPL — and a one-click Install of an EMStudio-built CLI
-binary is prepared, shipping once M.I.T.'s licensing office confirms the
-2003 re-release.
+can be distributed — **NEC2, Elmer, Gmsh, openEMS (since v1.8.0) and — since
+v1.13.0 — FastHenry**. Those download into `%LOCALAPPDATA%\EMStudio\solvers\`,
+per-user, with no admin rights and no shell, and are detected without
+touching `PATH`. Palace still needs WSL2. The FastHenry button installs
+EMStudio's own command-line build, published together with the exact source
+it was compiled from; the M.I.T. material is under its 2003 licence (use,
+copy, modify, sell and/or distribute for any purpose; the notice travels) and
+FastFieldSolvers state their modifications are LGPL — both texts are inside
+the zip. On Windows this button replaces the **Build…** button for FastHenry;
+a source build by hand still works with a MinGW toolchain, and **Build…**
+remains the route on Linux and macOS (FastFieldSolvers' own Windows bundle
+ships a GUI/Automation FastHenry2 that EMStudio cannot drive as a
+subprocess).
 
 **On macOS**, run `xcode-select --install` first — several solvers have no
 Homebrew formula and are built from source. Detection looks in

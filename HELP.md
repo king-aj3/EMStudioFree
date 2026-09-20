@@ -99,7 +99,7 @@ to this same group — see [docs/PRO](docs/PRO.md).*
 ### Setup
 | Command | What it does |
 |---|---|
-| **Detect / Install Solvers** | Setup wizard: backend status, one-line install command (apt on Linux, brew on macOS), guided no-sudo source builds with live output — and on Windows, one-click Install buttons that download prebuilt binaries (NEC2, Elmer, gmsh and — since v1.8.0 — openEMS; per-user, no admin rights) |
+| **Detect / Install Solvers** | Setup wizard: backend status, one-line install command (apt on Linux, brew on macOS), guided no-sudo source builds with live output — and on Windows, one-click Install buttons that download prebuilt binaries (NEC2, Elmer, gmsh, openEMS since v1.8.0 and — since v1.13.0 — FastHenry, EMStudio's own CLI build; per-user, no admin rights) |
 
 ### Help
 | Command | What it does |
