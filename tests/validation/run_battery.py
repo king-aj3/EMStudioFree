@@ -409,6 +409,11 @@ SLOW_GATES_TIMEOUT_S = {
     # One ~3 h serial URANS shedding solve (38.5k steps, 19.2k cells; the
     # 4-rank dev run measured 2026-08-24 — serial budgeted at ~3x that).
     "openfoam_wind_ras": 21600.0,
+    # Measured 1622 s unloaded on the v1.12.0 `--all` — only 11% inside the
+    # 1800 s default, so it dies the moment the box is doing anything else. It
+    # did exactly that on 2026-09-23, killed at 1800.1 s in both of two
+    # concurrent runs. Margin that thin is a scheduled failure, not a timeout.
+    "palace_dipole_farfield": 3600.0,
 }
 
 
