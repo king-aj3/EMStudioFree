@@ -27,8 +27,37 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > guided-install button set now lists fasthenry on simulated Windows). The
 > `fasthenry_guidance` gate's new membership check was mutation-proven (entry
 > removed → 8 FAILs; restored → PASSED). The FULL `--all` SOLVER-tier run is
-> home-only and is owed on the home box before the tag — this release touches a
-> dictionary key and text surfaces, no solver physics.
+> home-only; it was owed on the home box and ran after the tag — below. This
+> release touches a dictionary key and text surfaces, no solver physics.
+>
+> Post-tag proof on the home box: the FULL `--all` battery ran complete —
+> **115 ok / 0 failed / 0 skipped in 19,947.5 s** (5.54 h), **3,536 executed
+> checks across 105 gates** — from a clean tree, with the toolchain written into
+> the run log (kernel 6.14.0-37, glibc 2.39-0ubuntu8.9, Python
+> 3.12.3-1ubuntu0.17, Elmer 9.0 PPA build 202609231028). FastHenry, the subject
+> of this release, is green on both of its gates: `wire_fasthenry` 21 checks,
+> `wire_current_sharing` 10. The proved tree differs from the tag in four files,
+> measured with `git diff --name-only`: three handoff/decision docs and
+> `tests/validation/run_battery.py`, whose only change is one
+> `SLOW_GATES_TIMEOUT_S` entry. No product code moved — `emstudio/`, `pro/` and
+> `package.xml` are identical to the tag. The commit carrying this paragraph
+> adds only docs.
+> That one entry is the whole story of the earlier attempt.
+> `palace_dipole_farfield` had measured 1,622 s against the 1,800 s default —
+> 11 % of margin. A first home run on 2026-09-23 was discarded rather than
+> reported: two copies of the battery ran into one log, and an apt upgrade
+> (glibc, Python, Elmer) landed mid-run, so it proved no single toolchain.
+> Contention killed that gate at exactly 1,800.1 s in both copies; its only
+> other red was `artefact_versions` in the copy launched before the 1.13.0 zips
+> were rebuilt. At 3,600 s the gate passed here in 1,621.3 s.
+> ⚠ The same nine freecadcmd-routed gates as v1.11.1 and v1.12.0 (three NEC2,
+> six openEMS antenna gates) print no per-check line the runner can count. Their
+> pass is real; their counts are the uncounted remainder. **Correction to the
+> reason given in those two entries:** it is not that freecadcmd drops stdout —
+> `tests/run_gate.py` tees it, and a `dipole_nec2` run under freecadcmd delivers
+> every narrative line to the runner (measured 2026-09-24). These nine assert
+> their bounds silently (5–21 `assert`/`raise` statements each, no `ok` lines),
+> so there is nothing per-check to count.
 
 ### Added — FastHenry one-click Install on Windows
 
