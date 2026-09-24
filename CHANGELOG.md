@@ -28,6 +28,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   ⚠ A rebuild still must go to a NEW release tag, with the plan's url, sha256
   and `source_offer` bumped together: neither zip is byte-reproducible, and
   every shipped EMStudio pins the binary's sha256.
+* The builder now **refuses to build for any tag that has already shipped**
+  (`refuse_live_tag()`, right after argument parsing, before anything is
+  built). It used to finish by telling you to upload to the live tag, which
+  would have made Install… refuse with a sha mismatch on every existing
+  install. It covers every tag in `PUBLISHED_TAGS` — older installs keep
+  pinning the tag they shipped with — and it **fails closed** when the shipped
+  plan's tag cannot be read. The rebuild recipe is in its docstring: the new
+  tag starts as an uncommitted edit on the build box, and one commit then
+  moves `RELEASE_TAG`, `PUBLISHED_TAGS` and the plan's url + sha256 +
+  `source_offer` together.
+* An upstream archive that records **no** commit id is now refused, the same
+  as one recording the wrong id. It used to be given the pinned id, which put
+  an id nobody had read into `PROVENANCE.txt` and the source zip's name. The
+  `"master"` / `"(unrecorded)"` naming fallbacks are gone, and the naming step
+  refuses anything but the pin itself.
+* `tools/free_manifest.toml` now explicitly **denies** the builder. It was only
+  ever left out of the include list, which a future `tools/**` include would
+  have silently undone.
 
 ### Validation
 
@@ -35,13 +53,32 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   published source offer: the pin matches the `source_offer` filename; the
   builder **fetches** the pinned commit (the gate drives `download_source()`
   with the network swapped for a recorder and reads the URL actually
-  requested); and an archive recording a different commit is refused. Each is
-  negative-controlled against the regression it exists for. Pro FAST 54/0/0,
-  2,277 executed checks; in the free tree the tool is absent and the gate says
-  `skip` for these, so its count is unchanged.
-  ⚠ The first draft of the fetch check read the URL *constant* and stayed
-  green with the old moving-ref download line restored. An adversarial review
-  caught it before commit.
+  requested); and an archive recording a different commit is refused. Eight
+  more guard the rules above: a no-commit archive is refused; the naming step
+  refuses every commit but the pin (empty, a wrong sha, the bare short id);
+  the builder refuses a shipped tag (`main()` driven for real, the download
+  swapped for a tripwire); it does NOT refuse a genuinely new tag (a positive
+  control, so a refuse-everything stub cannot pass); it fails closed on an
+  unreadable plan; a retired tag stays refused after the plan moves on;
+  `PUBLISHED_TAGS` records the live tag; and the manifest denies the builder,
+  asked of the exporter's own `plan()`. Every rule was negative-controlled —
+  wherever an earlier version existed, by restoring that real code rather
+  than an invented mutation — and each went red. Pro FAST 54/0/0, 2,285
+  executed checks; in the free tree the builder is absent and the gate says
+  `skip`, so its count is unchanged.
+  ⚠ Two adversarial reviews ran before commit, and both found real gaps. The
+  first draft of the fetch check read the URL *constant* and stayed green with
+  the old moving-ref download line restored. Later, the naming check tried
+  only an empty commit, so a guard that rejected only empty values passed.
+  Also, the live-tag refusal failed open and had no positive control.
+
+### Documentation
+
+* The README's v1.10.0 summary no longer says the pre-tag proof is
+  "⚠ PENDING": that run finished 114 ok / 0 failed / 0 skipped in 6.05 h.
+  Correction to the `[1.10.0]` entry below, which calls that run "the first
+  with nothing skipped": v1.9.0's run (109 ok / 0 failed / 0 skipped) already
+  was. It was the first complete run at 114 gates.
 
 ## [1.13.0] — 2026-09-19
 

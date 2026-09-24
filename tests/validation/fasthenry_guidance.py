@@ -326,19 +326,143 @@ def main():
                 check("an archive recording a different commit is REFUSED",
                       "does not match the pin" in refused,
                       refused or "download_source() returned normally")
+                # ...and so is one recording NO commit. It used to be handed
+                # the pin, putting an id nobody read into PROVENANCE and the
+                # source zip's name (owner ruling 2026-09-24: refuse).
+                recorded[0] = ""
+                try:
+                    _bfd.download_source()
+                    refused = ""
+                except SystemExit as exc:
+                    refused = str(exc)
+                check("an archive recording NO commit is REFUSED, not given "
+                      "the pin",
+                      "records no commit" in refused,
+                      refused or "download_source() returned normally")
+                # The naming step guards itself too, so a future caller that
+                # skips download_source() cannot put an unread id into the
+                # published filename. The guard fires before any argument is
+                # touched, so placeholders are enough. ⚠ THREE bad values, not
+                # one: the first version tried only "", and a guard weakened to
+                # `if not commit` stayed green (review 2026-09-24). A wrong
+                # full sha and the bare 7-char short id must refuse too.
+                let_through = []
+                for bad in ("", "0" * 40, _bfd.SRC_COMMIT[:7]):
+                    try:
+                        _bfd.build_source_zip(scratch, bad, "", "")
+                        let_through.append(bad or "(empty)")
+                    except SystemExit as exc:
+                        if "not the pin" not in str(exc):
+                            let_through.append("{0!r}: {1}".format(bad, exc))
+                check("the source-zip naming step REFUSES every commit but the "
+                      "pin (empty, a wrong sha, the bare short id)",
+                      not let_through,
+                      "let through: {0}".format(let_through))
+
+                # ⚠ The builder must refuse the tag the SHIPPED plan pins:
+                # rebuilt zips never hash the same, and every install pins
+                # the binary's sha256, so a same-tag upload breaks Install…
+                # everywhere. main() is driven for real; the download is
+                # swapped for a tripwire so that, on a Windows box with the
+                # refusal removed, the gate stops at the fetch instead of
+                # building. On Linux a removed refusal shows up as the
+                # "Windows-only" message instead — either way, not the refusal.
+                class _Reached(Exception):
+                    pass
+
+                def _tripwire(url, dest, say):
+                    raise _Reached(url)
+
+                solvers._download_archive = _tripwire
+                try:
+                    _bfd.main([])
+                    outcome = "main() returned normally"
+                except SystemExit as exc:
+                    outcome = str(exc)
+                except _Reached as exc:
+                    outcome = "main() went on to DOWNLOAD " + str(exc)
+                check("the builder REFUSES to build for a tag that has "
+                      "already shipped",
+                      "has already SHIPPED" in outcome, outcome)
+
+                # refuse_live_tag() probed directly under controlled
+                # conditions. Each probe restores the tool tag and the plan.
+                def _probe(tool_tag, plan_url=None):
+                    saved_tag = _bfd.RELEASE_TAG
+                    saved_plan = solvers.WIN_INSTALL_PLANS.get("fasthenry")
+                    try:
+                        _bfd.RELEASE_TAG = tool_tag
+                        if plan_url is not None:
+                            solvers.WIN_INSTALL_PLANS["fasthenry"] = dict(
+                                saved_plan, url=plan_url)
+                        _bfd.refuse_live_tag()
+                        return ""
+                    except SystemExit as exc:
+                        return str(exc)
+                    finally:
+                        _bfd.RELEASE_TAG = saved_tag
+                        solvers.WIN_INSTALL_PLANS["fasthenry"] = saved_plan
+
+                fresh = "fasthenry-gate-probe-never-shipped"
+                # Positive control: without it, a stub that refuses EVERY tag
+                # would pass the check above (review 2026-09-24).
+                got = _probe(fresh)
+                check("...and does NOT refuse a genuinely new tag",
+                      got == "", got or "returned normally")
+                # Fails CLOSED: an unreadable plan tag must not wave a build
+                # through — the first version returned quietly here.
+                got = _probe(fresh, plan_url="")
+                check("an unreadable shipped-plan tag REFUSES (fails closed)",
+                      "cannot read the shipped plan" in got,
+                      got or "refuse_live_tag() returned normally")
+                # Retired tags stay protected: once the plan moves on, the old
+                # tag is still pinned by every install that shipped with it.
+                moved = plan.get("url", "").replace(
+                    "/" + bin_tag + "/", "/" + fresh + "-next/")
+                got = _probe(_bfd.PUBLISHED_TAGS[0], plan_url=moved)
+                check("a RETIRED shipped tag stays refused after the plan "
+                      "moves on",
+                      "has already SHIPPED" in got,
+                      got or "refuse_live_tag() returned normally")
+                check("PUBLISHED_TAGS records the live plan's tag",
+                      bin_tag in _bfd.PUBLISHED_TAGS,
+                      "live {0!r} vs {1!r} — a release that moved the plan "
+                      "must append its tag".format(bin_tag,
+                                                   _bfd.PUBLISHED_TAGS))
             finally:
                 solvers._download_archive = real_dl
                 _bfd.OUT_DIR = real_out
                 shutil.rmtree(scratch, ignore_errors=True)
+            # The tool must be DENIED, not merely left out of the include list
+            # — a future "tools/**" include glob would silently publish it.
+            # Asked of the EXPORTER's own loader and matcher, not a second
+            # copy of the rule: a re-implemented matcher is an assumption
+            # that can drift from what the export actually does.
+            # ⚠ Asked of plan() — the function the export RUNS — over the
+            # real tracked-file list. The first version called _matches()
+            # plus _is_exported(), whose second half merely followed from the
+            # first and never touched plan() (review 2026-09-24).
+            import export_free as _ef
+            _man = _ef._load_manifest(_ef.MANIFEST)
+            _rel = "tools/build_fasthenry_dist.py"
+            _chosen, _denied, _skipped = _ef.plan(_man, _ef._tracked_files())
+            _by = dict(_denied).get(_rel)
+            check("the free manifest explicitly DENIES the dist tool "
+                  "(the exporter's own plan())",
+                  bool(_by) and _rel not in _chosen,
+                  "denied by {0!r}".format(_by) if _by else
+                  "plan() does not deny it — only an include omission, which "
+                  "a future include glob would undo")
         finally:
             sys.path.remove(os.path.dirname(tool_path))
     else:
-        # The FREE tree: the dist tool is left out of the export on purpose
-        # (it orchestrates the private repo's release; the manifest's include
-        # list omits it — it is not on the deny list), so the drift guards
-        # cannot run and say so — a silent absence would read as coverage.
+        # The FREE tree: the dist tool is manifest-DENIED on purpose (it
+        # orchestrates the private repo's release; explicitly denied since
+        # 2026-09-24, and the Pro branch above asserts it), so the drift
+        # guards cannot run and say so — a silent absence would read as
+        # coverage.
         print("  skip  dist-tool drift checks — tools/build_fasthenry_dist.py is "
-              "Pro-repo only (not in the free export)")
+              "Pro-repo only (manifest-denied in the free export)")
 
     # --- sha256 verification in run_win_install (real pipeline, faked nt) --
     # The live plan is the first pinned one, so the pin must actually bind:
