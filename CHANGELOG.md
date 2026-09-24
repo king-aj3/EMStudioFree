@@ -15,6 +15,34 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > next entry was written straight under the heading). It is the release safety
 > net; put it back rather than letting it go.
 
+### Tooling
+
+* The FastHenry distribution builder (`tools/build_fasthenry_dist.py`, Pro
+  repo) now fetches upstream **by pinned commit** `363e43e` instead of the
+  moving `master` ref, **refuses** an archive that records a different commit,
+  and names that commit in `PROVENANCE.txt` and in the binary zip's README.
+  Nothing published changes: the pin was a no-op on the day (upstream master
+  is still that commit, and the two archives carry byte-identical content
+  across all 154 files). It stops a future rebuild from compiling a different
+  tree while the shipped plan keeps offering the old source zip.
+  ⚠ A rebuild still must go to a NEW release tag, with the plan's url, sha256
+  and `source_offer` bumped together: neither zip is byte-reproducible, and
+  every shipped EMStudio pins the binary's sha256.
+
+### Validation
+
+* `fasthenry_guidance` gains three checks binding the builder to the
+  published source offer: the pin matches the `source_offer` filename; the
+  builder **fetches** the pinned commit (the gate drives `download_source()`
+  with the network swapped for a recorder and reads the URL actually
+  requested); and an archive recording a different commit is refused. Each is
+  negative-controlled against the regression it exists for. Pro FAST 54/0/0,
+  2,277 executed checks; in the free tree the tool is absent and the gate says
+  `skip` for these, so its count is unchanged.
+  ⚠ The first draft of the fetch check read the URL *constant* and stayed
+  green with the old moving-ref download line restored. An adversarial review
+  caught it before commit.
+
 ## [1.13.0] — 2026-09-19
 
 > Pre-tag proof on the Windows work box, on the release tree before commit:

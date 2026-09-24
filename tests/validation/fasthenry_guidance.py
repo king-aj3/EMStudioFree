@@ -264,14 +264,81 @@ def main():
                   "plan {0!r} vs tool {1!r}".format(bin_tag, _bfd.RELEASE_TAG))
             check("dist tool and live plan agree on the zip name",
                   plan.get("url", "").endswith("/" + _bfd.BIN_ZIP))
+            # ⚠ THE SOURCE OFFER IS THE THING THAT GOES STALE SILENTLY. The
+            # builder used to download the MOVING branch ref, so a rebuild
+            # under the same release tag would compile a different tree and
+            # name its source zip after a different commit, while the shipped
+            # plan kept offering the old filename — a binary whose
+            # "corresponding source" no longer corresponds, which is the one
+            # thing the licence obligation actually requires. Pinned
+            # 2026-09-23; the checks below are what keep the pin, the fetch
+            # and the published offer from drifting apart unnoticed.
+            check("dist tool's pinned commit matches the published "
+                  "source_offer filename",
+                  plan.get("source_offer", "").endswith(
+                      "/fasthenry-source-{0}.zip".format(_bfd.SRC_COMMIT[:7])),
+                  "source_offer {0!r} vs tool pin {1}".format(
+                      plan.get("source_offer", ""), _bfd.SRC_COMMIT))
+            # ⚠ CHECK THE CALL, NOT THE CONSTANT. The first version of this
+            # check read _bfd.SRC_URL — and with the REAL pre-patch line put
+            # back (download_source() fetching solvers.FASTHENRY_WIN_SRC_URL,
+            # the moving ref) it stayed green while the tool fetched master
+            # and PROVENANCE printed the pinned URL it never used. Measured
+            # 2026-09-24 by an adversarial review; the earlier negative
+            # control had only edited the constant, a regression that never
+            # existed. So drive download_source() itself with the network
+            # swapped for a recorder, and read what it actually REQUESTED.
+            # Offline and platform-neutral: the recorder writes a tiny zip
+            # carrying a GitHub-style archive comment (the commit id).
+            import zipfile as _zf
+            requested = []
+            recorded = [_bfd.SRC_COMMIT]
+
+            def _fake_download(url, dest, say):
+                requested.append(url)
+                with _zf.ZipFile(dest, "w") as z:
+                    z.writestr("FastHenry2-fixture/README", "fixture")
+                    z.comment = recorded[0].encode("ascii")
+
+            real_dl, real_out = solvers._download_archive, _bfd.OUT_DIR
+            scratch = tempfile.mkdtemp(prefix="fh_pin_gate_")
+            try:
+                solvers._download_archive = _fake_download
+                _bfd.OUT_DIR = scratch
+                _zip, got = _bfd.download_source()
+                check("the builder FETCHES the pinned commit, not a moving "
+                      "branch ref",
+                      requested == [_bfd.SRC_URL]
+                      and _bfd.SRC_COMMIT in requested[0]
+                      and "refs/heads" not in requested[0]
+                      and got == _bfd.SRC_COMMIT,
+                      "requested {0}, recorded commit {1}".format(
+                          requested, got))
+                # The gate's own negative control, run every time: an archive
+                # that records a DIFFERENT commit must be refused, never
+                # published under the pinned id.
+                recorded[0] = "0" * 40
+                try:
+                    _bfd.download_source()
+                    refused = ""
+                except SystemExit as exc:
+                    refused = str(exc)
+                check("an archive recording a different commit is REFUSED",
+                      "does not match the pin" in refused,
+                      refused or "download_source() returned normally")
+            finally:
+                solvers._download_archive = real_dl
+                _bfd.OUT_DIR = real_out
+                shutil.rmtree(scratch, ignore_errors=True)
         finally:
             sys.path.remove(os.path.dirname(tool_path))
     else:
-        # The FREE tree: the dist tool is manifest-denied there on purpose
-        # (it orchestrates the private repo's release), so the drift guards
+        # The FREE tree: the dist tool is left out of the export on purpose
+        # (it orchestrates the private repo's release; the manifest's include
+        # list omits it — it is not on the deny list), so the drift guards
         # cannot run and say so — a silent absence would read as coverage.
         print("  skip  dist-tool drift checks — tools/build_fasthenry_dist.py is "
-              "Pro-repo only (manifest-denied in the free export)")
+              "Pro-repo only (not in the free export)")
 
     # --- sha256 verification in run_win_install (real pipeline, faked nt) --
     # The live plan is the first pinned one, so the pin must actually bind:
