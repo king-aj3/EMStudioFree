@@ -451,10 +451,18 @@ def _run_gate(name, timeout_s):
     return rc, time.time() - t0, out
 
 
-#: A gate's executed-check lines. Every gate in this directory prints its
-#: results as "  ok    <what>" / "  FAIL  <what>" (see any gate's check()), so
-#: counting them measures COVERAGE rather than exit status.
-_CHECK_LINE_RE = re.compile(r"^\s*(?:ok|PASS|FAIL)\s\s", re.M)
+#: A gate's executed-check lines. Every gate in this directory prints one line
+#: per check — "  ok    <what>" on a pass, "  FAIL <what>" in one of a few
+#: spellings on a failure (see any gate's check()) — so counting them measures
+#: COVERAGE rather than exit status.
+#: ⚠ FAIL takes ANY whitespace after it, not two (2026-09-25). 21 gates print
+#: failures as "  FAIL - <what>" or "  FAIL <what>" — one space — so until then
+#: a FAILED check was missing from a red run's count: the counter could see a
+#: gate pass but not what it failed. ok/PASS keep the two-space rule; every
+#: gate's ok line already meets it, and "  ok <word>" in narrative text must
+#: not start counting. smoke's _every_check_line_is_countable renders every
+#: gate's ok AND FAIL line through this regex, so a new format cannot drift.
+_CHECK_LINE_RE = re.compile(r"^\s*(?:(?:ok|PASS)\s\s|FAIL\s)", re.M)
 
 #: Gates that legitimately report COVERAGE as a summary line rather than one
 #: line per check (solve_confirm_coverage prints "205 files, 18 launch

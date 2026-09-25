@@ -300,6 +300,211 @@ def _gate_runner_one_transcript():
                     "once" % (banner, out.count(banner), what))
 
 
+def _every_check_line_is_countable():
+    """Every gate's ok AND FAIL line is one `run_battery` can count.
+
+    The battery measures COVERAGE by counting `_CHECK_LINE_RE` lines. Until
+    2026-09-25 21 gates printed failures as "  FAIL - x" / "  FAIL x" (one
+    space) and the regex wanted two, so a FAILED check vanished from a red
+    run's count; the regex's FAIL half was widened. This keeps the two in
+    step: a gate printing a format the counter cannot read goes red here.
+
+    Every gate is read three ways, and BOTH outcomes of every gate must be
+    read by at least one — a gate (or an outcome) nothing could read is a
+    FAILURE here, never a quiet skip:
+    * DYNAMIC — every function named `check` / `_check`, at ANY depth (some
+      gates nest it inside main()), is lifted with `ast` and called in an
+      isolated namespace, with and without a detail, once passing, once
+      failing. Output printed before an error still counts as read. FreeCAD
+      is stubbed through a private `__import__`, NEVER in sys.modules (a fake
+      FreeCAD there makes gate files run themselves).
+    * TEMPLATES — every `"ok…" if c else "FAIL…"` choice is rendered through
+      its `%` / `.format` template (or as the head of a `+` concatenation).
+    * LITERALS — every string that starts a line with ok / PASS / FAIL and
+      carries text after it (a second printer, a failure-only message, an
+      inline check line) must itself be countable.
+    """
+    import ast as _ast
+    import builtins as _bi
+    import contextlib as _cl
+    import glob as _glob
+    import io as _io
+    import re as _re
+
+    sys.path.insert(0, os.path.join(_ROOT, "tests", "validation"))
+    try:
+        import run_battery as _rb
+    finally:
+        sys.path.pop(0)
+    rx = _rb._CHECK_LINE_RE
+    probe = "probe-label-7c1"
+    # a line that LOOKS like a check result: indent, the word, then a
+    # separator or text (bare "FAIL" tokens are template branches, read above)
+    looks = _re.compile(r"^\s*(ok|PASS|FAIL)(?=[\s:\-\]|])")
+
+    class _Con(object):
+        def __init__(self, sink):
+            self.sink = sink
+
+        def PrintMessage(self, t):
+            self.sink.append(t)
+        PrintError = PrintWarning = PrintLog = PrintMessage
+
+    class _FC(object):
+        pass
+
+    def _run_lifted(fn, path, ok):
+        """Probe-bearing output lines of the lifted check(): the union over
+        both call forms and both global shapes. Output printed BEFORE an
+        error counts — an error after the line is the gate's business."""
+        got = []
+        for args in ((probe, ok), (probe, ok, "detail")):
+            for glb in ({"CHECKS": [], "_FAILED": [], "EXECUTED": {}, "RAN": 0},
+                        {"CHECKS": 0, "_FAILED": 0, "EXECUTED": 0, "RAN": []}):
+                sink = []
+                fc = _FC()
+                fc.Console = _Con(sink)
+                real_import = _bi.__import__
+
+                def _imp(name, *a, **k):
+                    return fc if name == "FreeCAD" else real_import(name, *a, **k)
+                ns = dict(glb, FAILURES=[], failures=[], _FAILS=[],
+                          _TIER=["probe"], FreeCAD=fc, sys=sys, os=os,
+                          __builtins__=dict(vars(_bi), __import__=_imp))
+                buf = _io.StringIO()
+                try:
+                    exec(compile(_ast.Module(body=[fn], type_ignores=[]),
+                                 path, "exec"), ns)
+                    with _cl.redirect_stdout(buf):
+                        ns[fn.name](*args)
+                except BaseException:   # noqa: BLE001 — keep what printed
+                    pass
+                lines = [l for l in (buf.getvalue() + "".join(sink)).splitlines()
+                         if probe in l]
+                if lines:
+                    got.extend(lines)
+                    break               # this call form is read
+        return got
+
+    def _templates(tree):
+        """(outcome, rendered line) for every ok/FAIL choice we can render."""
+        out = []
+        parents = {}
+        for node in _ast.walk(tree):
+            for child in _ast.iter_child_nodes(node):
+                parents[child] = node
+        for node in _ast.walk(tree):
+            if not (isinstance(node, _ast.IfExp)
+                    and all(isinstance(b, _ast.Constant)
+                            and isinstance(b.value, str)
+                            for b in (node.body, node.orelse))):
+                continue
+            words = [node.body.value.strip(), node.orelse.value.strip()]
+            if not any(w.startswith("FAIL") for w in words):
+                continue
+            up, pos = parents.get(node), 0   # the choice's slot in a `%` tuple
+            if isinstance(up, _ast.Tuple):
+                pos = up.elts.index(node)
+                up = parents.get(up)
+            for branch in (node.body.value, node.orelse.value):
+                outcome = "FAIL" if branch.strip().startswith("FAIL") else "ok"
+                if (isinstance(up, _ast.BinOp) and isinstance(up.op, _ast.Mod)
+                        and isinstance(up.left, _ast.Constant)):
+                    args = [probe] * up.left.value.count("%s")
+                    if pos < len(args):
+                        args[pos] = branch
+                    try:
+                        out.append((outcome, up.left.value % tuple(args)))
+                    except (TypeError, ValueError):
+                        pass
+                elif (isinstance(up, _ast.Call)
+                      and isinstance(up.func, _ast.Attribute)
+                      and up.func.attr == "format"
+                      and isinstance(up.func.value, _ast.Constant)):
+                    try:
+                        out.append((outcome, up.func.value.value.format(
+                            branch, probe, "", "", "")))
+                    except (IndexError, KeyError, ValueError):
+                        pass
+                elif (isinstance(up, _ast.BinOp) and isinstance(up.op, _ast.Add)
+                      and up.left is node):
+                    out.append((outcome, branch + probe))  # ("  FAIL " …) + msg
+        return out
+
+    def _literals(tree):
+        """(outcome, line) for every check-result-looking line a string starts."""
+        out = []
+        # docstrings and other bare string STATEMENTS are never printed — a
+        # prose line in one that happens to begin "PASS …" is not a check line
+        silent = {id(n.value) for n in _ast.walk(tree)
+                  if isinstance(n, _ast.Expr) and isinstance(n.value, _ast.Constant)}
+        for node in _ast.walk(tree):
+            if id(node) in silent:
+                continue
+            if isinstance(node, _ast.JoinedStr):
+                parts = [v.value for v in node.values[:1]
+                         if isinstance(v, _ast.Constant)]
+            elif isinstance(node, _ast.Constant) and isinstance(node.value, str):
+                parts = [node.value]
+            else:
+                continue
+            for text in parts:
+                segs = [text.split("\n")[0]] + text.split("\n")[1:]
+                for seg in segs:
+                    m = looks.match(seg)
+                    if not m or len(seg.strip()) <= len(m.group(1)) + 1:
+                        continue        # bare token: a template branch
+                    line = _re.sub(r"\{[^{}]*\}|%[sdrf]", "x", seg)
+                    out.append((m.group(1).replace("PASS", "ok"), line))
+        return out
+
+    bad, uncovered, n_dyn, n_tpl, n_lit = [], [], 0, 0, 0
+    gates = sorted(g for g in _glob.glob(os.path.join(
+        _ROOT, "tests", "validation", "*.py"))
+        if os.path.basename(g) not in ("run_battery.py", "__init__.py"))
+    for path in gates:
+        name = os.path.basename(path)[:-3]
+        with open(path, encoding="utf-8") as fh:
+            tree = _ast.parse(fh.read())
+        read = {"ok": False, "FAIL": False}
+        for fn in [n for n in _ast.walk(tree) if isinstance(n, _ast.FunctionDef)
+                   and n.name in ("check", "_check")]:
+            for ok in (True, False):
+                lines = _run_lifted(fn, path, ok)
+                if not lines:
+                    continue
+                n_dyn += 1
+                read["ok" if ok else "FAIL"] = True
+                if not any(rx.match(l) for l in lines):
+                    bad.append("%s %s: %r" % (name, "ok" if ok else "FAIL",
+                                              lines[0]))
+        for kind, rows in (("template", _templates(tree)),
+                           ("literal", _literals(tree))):
+            for outcome, line in rows:
+                if kind == "template":
+                    n_tpl += 1
+                else:
+                    n_lit += 1
+                read[outcome] = True
+                if not rx.match(line):
+                    bad.append("%s (%s): %r" % (name, kind, line))
+        missing = [k for k, v in read.items() if not v]
+        if name in _rb.SUMMARY_COVERAGE_GATES:
+            # the battery's OWN declared exception: coverage is one summary
+            # line on success, so there is no ok line to read — its FAIL
+            # lines are still read and must still count
+            missing = [k for k in missing if k != "ok"]
+        if missing:
+            uncovered.append("%s (no readable %s line)" % (name, "/".join(missing)))
+    _log("       (count-format audit: %d gates; %d check() probes, %d "
+         "templates, %d literal lines read)" % (len(gates), n_dyn, n_tpl, n_lit))
+    assert not uncovered, (
+        "gates whose check-line format this audit could not read — extend it "
+        "rather than let them go unchecked: %s" % uncovered)
+    assert not bad, ("check lines run_battery cannot count (FAILED checks "
+                     "would vanish from a red run's coverage): %s" % bad)
+
+
 def _battery_forces_utf8():
     """The gate battery must not let the CONSOLE decide a gate's exit code.
 
@@ -2348,6 +2553,8 @@ def main():
           _elmer_env_fortran_compiler)
     check("gate runner delivers the transcript exactly once (a failing "
           "gate must say why)", _gate_runner_one_transcript)
+    check("every gate's ok AND FAIL line is countable by the battery",
+          _every_check_line_is_countable)
     check("gate battery forces UTF-8 (the console must not decide a "
           "gate's verdict)", _battery_forces_utf8)
     check("openEMS python resolver: FreeCAD-free, both venv layouts",

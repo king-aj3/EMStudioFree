@@ -113,6 +113,32 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validation
 
+* **A failed check now counts as an executed check in every gate.** The
+  battery's coverage count needed two spaces after `FAIL`, and 21 gates print
+  their failures with one (`  FAIL - x` or `  FAIL x`): antenna_from_selection,
+  assistant, coil_inductance_elmer, curved_wire_nec2, horn, n_port_smatrix,
+  open_coil_elmer, pattern_sweep, pattern_vtu, pro_licence, report_pdf,
+  solve_estimate, solver_progress, stl_mesh_openems, touchstone_export,
+  two_port_excitation, two_port_openems, two_port_palace,
+  wire_current_sharing, wire_fasthenry and wire_from_solid. So a red run's
+  count dropped each check that failed, and read as less coverage than the
+  gate had run. The FAIL half of the pattern now takes any whitespace; `ok` and
+  `PASS` keep the two-space rule. No green-run figure moves: all 54 FAST gates'
+  real output counts the same under the old and new pattern (2,304 either
+  way), as do 96 saved transcripts of the 32 freecadcmd-routed SOLVER gates.
+  The only lines newly counted are failure lines. A new `smoke` audit keeps
+  the gates and the pattern in step. It reads every gate three ways:
+  - it runs each `check()`, at any depth, in isolation for a pass and a
+    failure;
+  - it renders every `"ok…" if … else "FAIL…"` printer;
+  - it tests every printed string that starts a line with ok, PASS or FAIL.
+  Both outcomes of every gate must be read, or the audit fails; nothing is
+  skipped. It went red on the old pattern (naming exactly those 21), and on
+  each of ten realistic breakages: `FAIL:` in a `check()`, in a nested one,
+  in an inline printer and in a second failure message; a renamed failure
+  list; and new gates using another function name, a `check()` under the
+  main guard, a shared helper, or logging. One review round found the
+  audit's first version blind to four gates and to second printers. Fixed.
 * **`run_battery --all` no longer counts the freecadcmd-routed gates twice.**
   The 32 SOLVER gates that need FreeCAD run as `freecadcmd tests/run_gate.py
   <gate>`, and that shim TEED each printed line both to Python's stdout and to
