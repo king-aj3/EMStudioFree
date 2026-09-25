@@ -127,8 +127,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ### Validation
 
 * **The first `--all` since the double-count fix is clean, on a new
-  toolchain.** Master as of 2026-09-25 (26 commits after v1.13.0) ran 115
-  gates: 115 ok, 0 failed, 0 skipped, in 21,073 s, on kernel 7.0.0-34 and
+  toolchain.** Master as of 2026-09-25 (unreleased work since v1.13.0) ran
+  115 gates: 115 ok, 0 failed, 0 skipped, in 21,073 s, on kernel 7.0.0-34 and
   Elmer PPA build 202609251017, both new since the v1.13.0 proof. The
   launcher's verdict is CLEAN, with the tree and the toolchain unchanged at
   exit. It executed **3,351** checks, which reconciles gate by gate with
