@@ -475,14 +475,55 @@ def _release_tool_contract():
         print("       (free tree: tools/release.py is manifest-denied — "
               "the ritual is the private repo's)")
         return
-    src = open(src_path, encoding="utf-8").read()
-    for verb in ("git commit", "git push", "git tag", "gumroad",
-                 "cloudflare"):
-        calls = [m for m in _re.finditer(_re.escape(verb), src, _re.I)
-                 if _re.search(r"run\(|subprocess", src[max(0, m.start()-80):m.start()])]
-        assert not calls, (
-            "release.py appears to EXECUTE %r — the tool's contract is "
-            "verify-and-refuse, never outward" % verb)
+    # The contract covers release.py AND every tools/ module it imports
+    # (scripts it merely launches as subprocesses are their own contracts).
+    # release.py imports tools/site_sample.py (the site-sample stamper),
+    # which has its own subprocess.run — an outward verb added there would
+    # run under release.py while a release.py-only scan stayed green (review
+    # 2026-09-24).
+    import ast as _ast
+    tools_dir = os.path.dirname(src_path)
+    scanned = [src_path]
+    for node in _ast.walk(_ast.parse(open(src_path, encoding="utf-8").read())):
+        names = ([a.name for a in node.names] if isinstance(node, _ast.Import)
+                 else [node.module] if isinstance(node, _ast.ImportFrom)
+                 and node.module else [])
+        for n in names:
+            cand = os.path.join(tools_dir, n.split(".")[0] + ".py")
+            if os.path.isfile(cand) and cand not in scanned:
+                scanned.append(cand)
+    if os.path.isfile(os.path.join(tools_dir, "site_sample.py")):
+        assert os.path.join(tools_dir, "site_sample.py") in scanned, (
+            "release.py no longer imports tools/site_sample.py by a name this "
+            "scan resolves — the outward-verb contract would miss it")
+    for path in scanned:
+        src = open(path, encoding="utf-8").read()
+        for verb in ("git commit", "git push", "git tag", "gumroad",
+                     "cloudflare"):
+            calls = [m for m in _re.finditer(_re.escape(verb), src, _re.I)
+                     if _re.search(r"run\(|subprocess",
+                                   src[max(0, m.start()-80):m.start()])]
+            assert not calls, (
+                "%s appears to EXECUTE %r — the release tool's contract is "
+                "verify-and-refuse, never outward"
+                % (os.path.basename(path), verb))
+        # ...and the LIST form, which the literal-string scan cannot see —
+        # run(["git", ...]) is how release.py spells its git calls. An AST
+        # walk, not a regex: a regex needing the verb right after "git"
+        # missed ["git", "-C", dir, "push"] (review 2026-09-24).
+        for node in _ast.walk(_ast.parse(src)):
+            if isinstance(node, (_ast.List, _ast.Tuple)) and node.elts \
+                    and isinstance(node.elts[0], _ast.Constant) \
+                    and node.elts[0].value == "git":
+                verbs = [e.value for e in node.elts[1:]
+                         if isinstance(e, _ast.Constant)
+                         and e.value in ("commit", "push", "tag")]
+                assert not verbs, (
+                    "%s builds a `git %s` argv (line %d) — the release tool's "
+                    "contract is verify-and-refuse, never outward"
+                    % (os.path.basename(path), verbs[0], node.lineno))
+    print("       (outward-verb scan: %s)"
+          % ", ".join(os.path.basename(p) for p in scanned))
 
     with open(os.path.join(_ROOT, "package.xml"), encoding="utf-8") as fh:
         current = _re.search(r"<version>([0-9.]+)</version>", fh.read()).group(1)

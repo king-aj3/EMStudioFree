@@ -46,8 +46,73 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 * `tools/free_manifest.toml` now explicitly **denies** the builder. It was only
   ever left out of the include list, which a future `tools/**` include would
   have silently undone.
+* The product page's **sample battery output** (the four-line
+  `$ python3 tests/validation/run_battery.py` block on ajj3.us) is now
+  **generated**, not hand-typed. `tools/release.py` runs the free FAST battery
+  once and rewrites the block when a *count* differs or the block is not the
+  three lines it renders — the time alone is never
+  compared, so an unchanged tree never forces a site upload — and it will not
+  quote a run that failed or skipped anything (a loud skip; a failure under
+  `--strict`). A per-gate record (each free gate's check count and a
+  fingerprint of its file) sits beside the page in the site repo and is never
+  deployed. New `release.py --site-only` re-measures and re-stamps between
+  releases, rebuilding only the site zip. The site repo's
+  `check_site_claims.py` now also compares the sample the LIVE site serves
+  with the repo's. Why: the block sat at 1624 checks through v1.13.0 —
+  `fasthenry_guidance` went 39 → 40 inside that release's own export, and the
+  tool stamped the badge and the gate count without knowing the sample
+  existed (measured on archives of both release trees: 1624, then 1625).
+  The helper, `tools/site_sample.py`, is manifest-denied (`release.py` itself
+  is kept out of the free export by omission from the include list).
+  Every write mode now refuses BEFORE writing anything when a sibling clone
+  (EMStudioFree, AJJ3-Site) is behind its upstream, on another branch, or of
+  unknown freshness (a failed fetch is allowed offline — judged against the
+  last fetch and named on the final line), and on any preflight failure;
+  `--site-only` also refuses
+  unless the free tree AND the site repo are committed and pushed (the page may
+  only quote what the public repo holds, and the deploy zip is built from the
+  site's working tree), and fails when it stamped nothing. `release.py`
+  checks the CHANGELOG section before bumping any version surface. The fetches
+  are bounded and cannot orphan a process on a timeout or Ctrl+C, and a cp1252
+  console cannot crash the tool.
 
 ### Validation
+
+* `artefact_versions` now checks that sample inside the site zip before every
+  Pro commit: the block is a clean full-tier run, the stamped record agrees
+  with it, and every free FAST gate whose file changed since the stamp is
+  re-run and must still print its recorded count — so the
+  v1.13.0 drift would have gone red at the first Pro FAST run on the home box
+  (the record's platform) after the release, naming `fasthenry_guidance
+  recorded 39, now 40`; on the Windows release box itself the watch says it
+  did not re-measure. Seven controls, all on real history (each skips out loud,
+  counted in the coverage line, when its history, record or platform is absent):
+  the page v1.13.0 shipped with (1624) is refused against v1.13.0's measured
+  run on the executed count alone; the hand-fixed page is accepted although
+  its time differs; the same stale page is accepted against v1.12.0's
+  measured run (the tree moved, not the page); a real CI run with two skips
+  is refused, naming them; the record-vs-block verdict refuses the stale page
+  naming both sums; and the re-measure re-runs `fasthenry_guidance` from its
+  v1.12.0 fingerprint and reproduces its stamped count exactly; and the real
+  hand-fixed block is canonical while an extra line, five malformed times
+  (including a leading zero and full-width digits), a `</PRE>` closing tag and
+  a second sample block on the page are each refused. Without the
+  sibling clones (CI, the Mac) it skips out loud; a record stamped on another
+  platform is not re-measured (counts are box-dependent), and neither are the
+  gates with a FAST requirement (`p2001`, `p452`, `litz_noscipy`). A count moved by a
+  non-gate file (`docs/TUTORIALS.md` drives `tutorials_doc`) or a toolchain is
+  NOT seen by this watch — the gate says so every run; `release.py --check
+  --strict` re-measures it. The block must be exactly the three lines
+  `release.py` renders (a hand edit with the right counts is still caught, and
+  `--site-only` re-renders it). Pro FAST 54/0/0, **2,301** executed checks (+16);
+  the free tree is unchanged, since the gate is Pro-only.
+  ⚠ Repeated rounds of sandboxed adversarial verification (mutations, real-event
+  replays, refusal and crash tests, fresh reviews) found and fixed, among
+  others: a refusal that fired AFTER the page and zip were written, "unknown
+  freshness" read as fresh, controls that never exercised the verdict
+  functions, a Windows cp1252 crash in the new warning lines, a page and zip
+  written under a later FAIL, and a hand-edited block with the right counts
+  left in place.
 
 * `fasthenry_guidance` gains three checks binding the builder to the
   published source offer: the pin matches the `source_offer` filename; the
