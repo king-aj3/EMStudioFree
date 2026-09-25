@@ -638,6 +638,75 @@ def _openems_gates_skip_without_openems():
         assert "return 0" in head, name + " does not return 0 on the skip path"
 
 
+#: Every nec2++ Windows build EMStudio has published, keyed by the PINNED
+#: zip's sha256 — one full row per build. nec2++ has no builder in this repo
+#: (it was compiled by hand on the Windows VM on 2026-08-03), so these rows are
+#: its provenance: `commit` is from the release notes' provenance table and
+#: was confirmed on tmolteno/necpp on 2026-09-25 ("chore: bump version to
+#: 2.3.4"); the two sha256s are GitHub's own asset digests (API, 2026-09-25);
+#: `exe_sha256` is from the release notes.
+#: ⚠ What this can and cannot do: a rebuild changes the pinned zip sha256, so
+#: the check below goes red until a NEW ROW is written — tag AND the full
+#: upstream commit the binary was compiled from — and the source offer must
+#: then name that commit. Nothing offline can prove the commit is the true one
+#: (FastHenry's builder FETCHES its pinned commit; nothing fetches this one):
+#: copying the previous row's commit into a new row would pass. Read the
+#: commit from the build, never from the row above.
+_NEC2PP_BUILDS = {
+    "2e7af13f5f3552150ba2a1ccdaf6437225c723c44bef0220888cb22c5f68c48c": {
+        "tag": "nec2pp-2.3.4-win64",
+        "upstream": "tmolteno/necpp",
+        "commit": "46f7fbdef6763205637d8f20c6815098e57fe624",
+        # documentation: the other two published hashes of this build
+        "exe_sha256": "dbac0e6814871a6c8dddcd3ceddbfa71421663b1bb5b809f5a7f44d2cd3de1c4",
+        "source_zip_sha256": "462f01b2f2176cfb56600d1a16ec817004706ba5ad41be53935ad1b9f0b66c36",
+    },
+}
+
+
+def _nec2pp_offer_bound_to_commit():
+    """nec2++'s GPL-2 source offer names the commit its binary was built from.
+
+    Found by follow-up 2's review (2026-09-25): FastHenry's offer filename is
+    bound to its builder's pinned commit; nec2++'s was bound to nothing, so a
+    rebuild could ship a new binary beside the OLD source zip and every other
+    check would pass (same tag, same folder). Now the shipped zip's sha256 must
+    have a provenance row (a rebuild forces a new one, commit included), the
+    plan's tag must be that row's, and the offer must be exactly
+    `nec2pp-source-<first 7 of that commit>.zip`. Its limit is in the comment
+    on _NEC2PP_BUILDS.
+    """
+    import re as _re
+    from emstudio.setup import solvers
+
+    plan = solvers.WIN_INSTALL_PLANS.get("nec2")
+    assert plan is not None, "the nec2 guided-install plan is gone"
+    assert solvers.is_self_hosted(plan), (
+        "nec2 is no longer a self-hosted build (%s) — the GPL source offer "
+        "is then upstream's to make: retire _NEC2PP_BUILDS and this check "
+        "rather than editing them" % plan["url"])
+    row = _NEC2PP_BUILDS.get(plan["sha256"])
+    last = list(_NEC2PP_BUILDS.values())[-1]
+    assert row is not None, (
+        "the nec2 plan pins a zip (sha256 %s…) with no provenance row — add one "
+        "to _NEC2PP_BUILDS naming its release tag and the FULL upstream commit "
+        "it was compiled from, read from the build itself (the last row says "
+        "%s: is that really what this binary was built from?)"
+        % (plan["sha256"][:12], last["commit"]))
+    assert _re.fullmatch(r"[0-9a-f]{40}", row["commit"]), (
+        "the nec2++ provenance row needs the FULL 40-hex commit: %r"
+        % row["commit"])
+    tag = solvers._release_tag(plan["url"])
+    assert tag == row["tag"], (
+        "the nec2 plan ships tag %r but its provenance row says %r"
+        % (tag, row["tag"]))
+    want = "nec2pp-source-%s.zip" % row["commit"][:7]
+    got = plan["source_offer"].rsplit("/", 1)[1]
+    assert got == want, (
+        "nec2++ source offer %r does not name the commit the binary was built "
+        "from (%s) — expected %r" % (got, row["commit"], want))
+
+
 def _openems_win_pipeline_pieces():
     """The native-Windows openEMS pieces: DLL healing + the wheel-python probe.
 
@@ -2570,6 +2639,8 @@ def main():
           _version_probe_rejects_help_text)
     check("guided Windows install: plans + install/probe pipeline",
           _win_guided_install_contract)
+    check("nec2++ source offer names the commit its binary was built from",
+          _nec2pp_offer_bound_to_commit)
     check("openEMS native-Windows pipeline pieces (.pth, deck DLL guard, "
           "wheel-python probe)", _openems_win_pipeline_pieces)
     check("release tool verifies, refuses, and cannot act outward",

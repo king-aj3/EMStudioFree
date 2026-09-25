@@ -113,6 +113,21 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validation
 
+* `smoke` now binds nec2++'s GPL-2 source offer to the commit its Windows
+  binary was built from, as far as that can be done without a builder.
+  FastHenry's builder fetches its pinned commit; nec2++ was compiled by hand,
+  so its provenance is now a table with one row per published build, keyed
+  by the zip's SHA-256. Each row carries the release tag and the full
+  upstream `tmolteno/necpp` commit (`46f7fbd…`), taken from the release
+  notes and confirmed upstream; the hashes are GitHub's own asset digests.
+  The shipped zip must have a row whose tag matches, and the offer must be
+  `nec2pp-source-<that commit>.zip`, so a rebuild cannot pass until someone
+  writes the commit it came from. It cannot prove that commit is true:
+  copying the previous row's commit would pass, and the comment says so.
+  Measured against the previous `smoke.py`, which passed a new binary shipped
+  beside the old source zip: the new check refuses it, accepts an honest
+  rebuild, refuses each half-update, and tells you to retire the table if
+  nec2++ ever moves to an upstream-hosted binary.
 * **A failed check now counts as an executed check in every gate.** The
   battery's coverage count needed two spaces after `FAIL`, and 21 gates print
   their failures with one (`  FAIL - x` or `  FAIL x`): antenna_from_selection,
