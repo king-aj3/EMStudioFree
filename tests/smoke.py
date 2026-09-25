@@ -300,6 +300,63 @@ def _gate_runner_one_transcript():
                     "once" % (banner, out.count(banner), what))
 
 
+def _gate_runner_imports_its_own_tree():
+    """A gate run through tests/run_gate.py imports ITS OWN tree's emstudio.
+
+    FreeCAD imports `emstudio` at start-up from whatever its Mod dir links to
+    (on the home box the dev symlink: EMStudioPro), so until 2026-09-25 a
+    FREE-tree battery's freecadcmd gates silently tested the PRO package.
+    Here a DECOY `emstudio` is planted in an isolated FreeCAD Mod dir; its
+    Init.py announces itself, so a run where the decoy never loaded (a host
+    that does not read that Mod dir) is told apart from a fixed one instead
+    of passing vacuously. The fixture, run through the real shim, must
+    report the emstudio of THIS repo.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+    import tempfile as _tempfile
+
+    fc = _shutil.which("freecadcmd")
+    if not fc:
+        _log("       (no freecadcmd on PATH — run_gate's import isolation not "
+             "exercised here)")
+        return
+    shim = os.path.join(_ROOT, "tests", "run_gate.py")
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH")}
+    with _tempfile.TemporaryDirectory() as tmp:
+        decoy = os.path.join(tmp, "home", "Mod", "EMStudio")
+        os.makedirs(os.path.join(decoy, "emstudio"))
+        with open(os.path.join(decoy, "Init.py"), "x", encoding="utf-8") as fh:
+            fh.write("import emstudio\nimport FreeCAD\n"
+                     "FreeCAD.Console.PrintMessage('DECOY-LOADED\\n')\n")
+        with open(os.path.join(decoy, "emstudio", "__init__.py"), "x",
+                  encoding="utf-8") as fh:
+            fh.write("DECOY = True\n")
+        gate = os.path.join(tmp, "fixture_gate.py")
+        with open(gate, "x", encoding="utf-8") as fh:
+            fh.write("import os, sys\nimport emstudio\n"
+                     "print('EMSTUDIO-AT=' + os.path.realpath(emstudio.__file__))\n"
+                     "sys.exit(0)\n")
+        proc = _subprocess.run(
+            [fc, shim, gate], capture_output=True, text=True, encoding="utf-8",
+            errors="replace", stdin=_subprocess.DEVNULL, timeout=180,
+            env=dict(env, PYTHONIOENCODING="utf-8",
+                     FREECAD_USER_HOME=os.path.join(tmp, "home")))
+    out = (proc.stdout or "") + (proc.stderr or "")
+    assert "DECOY-LOADED" in out, (
+        "the decoy Mod was not loaded at FreeCAD start-up, so this host cannot "
+        "show whether run_gate isolates the import — rc %d, tail %r"
+        % (proc.returncode, out.strip().splitlines()[-3:]))
+    at = [l.split("=", 1)[1] for l in out.splitlines()
+          if l.startswith("EMSTUDIO-AT=")]
+    own = os.path.realpath(os.path.join(_ROOT, "emstudio", "__init__.py"))
+    assert at and at[0] == own, (
+        "a gate run through run_gate.py imported emstudio from %r, not this "
+        "tree (%s) — FreeCAD's start-up copy leaked into the gate"
+        % (at[0] if at else None, _ROOT))
+
+
 def _every_check_line_is_countable():
     """Every gate's ok AND FAIL line is one `run_battery` can count.
 
@@ -836,9 +893,23 @@ def _release_tool_contract():
         # in the public tree this check's subject is absent BY MANIFEST, not
         # by accident. That is the one legitimate self-skip shape: the skip
         # asserts the reason is deliberate rather than returning quietly.
-        print("       (free tree: tools/release.py is manifest-denied — "
-              "the ritual is the private repo's)")
+        _log("       (free tree: tools/release.py is manifest-denied — "
+             "the ritual is the private repo's)")
         return
+    # ...and in the Pro tree that note is PROVED, not assumed: until
+    # 2026-09-25 it was printed while release.py was only left out of the
+    # include list, which a future "tools/**" include would have undone.
+    # Asked of the exporter's own plan() — the function the export runs.
+    sys.path.insert(0, os.path.join(_ROOT, "tools"))
+    try:
+        import export_free as _ef
+        _denied = dict(_ef.plan(_ef._load_manifest(_ef.MANIFEST),
+                                _ef._tracked_files())[1])
+    finally:
+        sys.path.pop(0)
+    assert "tools/release.py" in _denied, (
+        "tools/release.py is not denied by the free manifest (only left out "
+        "of the include list) — the free-tree note above would be false")
     # The contract covers release.py AND every tools/ module it imports
     # (scripts it merely launches as subprocesses are their own contracts).
     # release.py imports tools/site_sample.py (the site-sample stamper),
@@ -2622,6 +2693,8 @@ def main():
           _elmer_env_fortran_compiler)
     check("gate runner delivers the transcript exactly once (a failing "
           "gate must say why)", _gate_runner_one_transcript)
+    check("gate runner imports its OWN tree's emstudio, not FreeCAD's "
+          "start-up copy", _gate_runner_imports_its_own_tree)
     check("every gate's ok AND FAIL line is countable by the battery",
           _every_check_line_is_countable)
     check("gate battery forces UTF-8 (the console must not decide a "

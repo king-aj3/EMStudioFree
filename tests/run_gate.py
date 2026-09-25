@@ -159,6 +159,35 @@ class _ConsoleStdout(object):
         return getattr(self._stream, name)
 
 
+def _own_tree_first(root):
+    """Make the gate import the ``emstudio`` of the tree this shim lives in.
+
+    FreeCAD imports ``emstudio`` at START-UP, from whatever its Mod dir links
+    to (on the home box the dev symlink: EMStudioPro), before any gate runs.
+    A gate's own ``sys.path.insert(0, _ROOT)`` is then too late — the import
+    is already cached — so a FREE-tree battery's freecadcmd gates silently
+    tested the PRO package (found 2026-09-25). Dropping every cached
+    ``emstudio`` module that did not come from ``root`` and putting ``root``
+    first makes each tree test itself. Safe because the workbench's
+    ``Init.py`` only imports the package, registering nothing; a no-op when
+    FreeCAD already loaded this very tree (the Pro battery, via its symlink).
+    """
+    # EXACTLY root/emstudio, not "anywhere under root": a clone nested in a
+    # gitignored scratch dir of this tree is not this tree (review 09-25).
+    own = os.path.realpath(os.path.join(root, "emstudio"))
+    mod = sys.modules.get("emstudio")
+    loaded = getattr(mod, "__file__", None) if mod else None
+    if loaded and os.path.dirname(os.path.realpath(loaded)) != own:
+        for name in [n for n in sys.modules
+                     if n == "emstudio" or n.startswith("emstudio.")]:
+            del sys.modules[name]
+        sys.stderr.write("run_gate: emstudio re-imported from %s (FreeCAD had "
+                         "loaded %s)\n" % (root, loaded))
+    while root in sys.path:
+        sys.path.remove(root)
+    sys.path.insert(0, root)
+
+
 def main(argv):
     if not argv:
         raise SystemExit("usage: run_gate.py <gate.py> [args…]")
@@ -170,8 +199,7 @@ def main(argv):
         raise SystemExit("run_gate: no such gate: " + target)
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    _own_tree_first(root)
 
     # Force UTF-8 before anything prints. Gates emit omega, arrows and "+-",
     # and on a cp1252 console the interpreter raises UnicodeEncodeError —

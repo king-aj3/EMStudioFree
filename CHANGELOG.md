@@ -17,6 +17,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Tooling
 
+* `tools/release.py --check` no longer fails on a box that builds no
+  release artefacts just because the site deploy zip is missing. That zip is
+  built on the release box and gitignored, so the Windows VM's clone of the
+  site never has one, and `smoke`'s release-tool check had been red on every
+  VM run since 2026-08-24. With no `dist/` zip on the box (the same test the
+  Pro-zip check already uses), a missing site zip is now a loud skip. On the
+  release box it is still a failure, and `--strict` refuses it anywhere.
+  Reproduced in a three-clone copy of the VM's layout, then fixed.
+* `tools/release.py` is now denied by the free manifest. It had only been
+  left out of the include list, while `smoke` told every free-tree run it was
+  "manifest-denied". `smoke` now proves the deny through the exporter's own
+  `plan()`, and goes red if it is ever only omitted again.
 * The FastHenry distribution builder (`tools/build_fasthenry_dist.py`, Pro
   repo) now fetches upstream **by pinned commit** `363e43e` instead of the
   moving `master` ref, **refuses** an archive that records a different commit,
@@ -63,7 +75,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   tool stamped the badge and the gate count without knowing the sample
   existed (measured on archives of both release trees: 1624, then 1625).
   The helper, `tools/site_sample.py`, is manifest-denied (`release.py` itself
-  is kept out of the free export by omission from the include list).
+  is manifest-denied too, since 2026-09-25; before that it was kept out only
+  by omission from the include list).
   Every write mode now refuses BEFORE writing anything when a sibling clone
   (EMStudioFree, AJJ3-Site) is behind its upstream, on another branch, or of
   unknown freshness (a failed fetch is allowed offline — judged against the
@@ -113,6 +126,23 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validation
 
+* `openfoam_runner_cancel` no longer fails when two batteries run at once.
+  Its orphan probe and its clean-up used fixed markers (`sleep 987.653`, …),
+  so one run saw the other's live child as an orphan, and one run's clean-up
+  `pkill` could kill the other's test process. Every marker now carries the
+  process id. Measured with two copies started 1.1, 1.3 and 1.5 s apart: the
+  old gate failed the second copy every time; the new one is green at every
+  offset and leaves no stray processes.
+* A gate run through `tests/run_gate.py` now imports the `emstudio` of its own
+  tree. FreeCAD imports the package at start-up from its Mod folder, which on
+  the home box links to EMStudioPro, so a FREE-tree battery's FreeCAD-routed
+  gates had been testing the Pro package. The shim now drops a start-up copy
+  that is not its own tree's and puts its tree first on the path, noting the
+  switch on stderr; the Pro battery is unaffected. Measured with a free-tree
+  clone: the old shim imported Pro's package, the new one the free tree's. A
+  new `smoke` check plants a decoy package in an isolated FreeCAD Mod folder
+  and confirms a gate through the shim still imports the repo's own. It is
+  red with the old shim and runs on all three smoke hosts.
 * `smoke` now binds nec2++'s GPL-2 source offer to the commit its Windows
   binary was built from, as far as that can be done without a builder.
   FastHenry's builder fetches its pinned commit; nec2++ was compiled by hand,

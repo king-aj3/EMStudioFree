@@ -100,6 +100,36 @@ def _argv_alive(argv_line):
     return [ln for ln in ps.stdout.splitlines() if ln.strip() == argv_line]
 
 
+#: Every marker this gate greps for carries THIS process's pid in its digits
+#: (``sleep 987.71<n><pid>`` — GNU/BSD sleep read any decimal), so two copies
+#: of the gate — two batteries at once, Pro and Free — never see each other's
+#: live child as an orphan. Until 2026-09-25 the markers were fixed strings
+#: (``sleep 987.653`` …): a second battery's live child read as THIS run's
+#: orphan, and one run's ``pkill -f`` KILLED the other's test process
+#: (measured). The bases were moved off 987.65x on purpose: an OLD copy of the
+#: gate still pkills ``sleep 987.654`` as a regex, which would match
+#: ``sleep 987.654<pid>`` — no new marker contains an old one.
+_PID = "%d" % os.getpid()
+
+
+def _marker(base):
+    return "sleep %s%s" % (base, _PID)
+
+
+def _kill_exact(argv_line):
+    """Kill only processes whose argv is EXACTLY ``argv_line`` — never a
+    ``pkill -f`` regex, which reaches any process merely CONTAINING it."""
+    ps = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True,
+                        text=True)
+    for ln in ps.stdout.splitlines():
+        pid, _, args = ln.strip().partition(" ")
+        if args.strip() == argv_line and pid.isdigit():
+            try:
+                os.kill(int(pid), 9)
+            except OSError:
+                pass
+
+
 def check(label, ok, detail=""):
     print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", label,
                                  " - " + detail if detail else ""))
@@ -163,7 +193,7 @@ def _checks(wd):
           str({k: rep.get(k) for k in ("ok", "failed_at", "error")}))
 
     # --- cancel mid-step: must stop THE WHOLE TREE, promptly ---------------
-    marker = "sleep 987.653"            # unique argv, ps-greppable
+    marker = _marker("987.711")         # unique argv, ps-greppable
     cancel = threading.Event()
     threading.Timer(0.7, cancel.set).start()
     t0 = time.monotonic()
@@ -191,10 +221,11 @@ def _checks(wd):
     # exactly this shape before believing it that the real child is gone.
     # A distinct number (…998) so it can never collide with a chain marker,
     # and it is held by a handle we kill ourselves — never pkill'd by name.
-    sentinel = subprocess.Popen(["sleep", "987.998"])
+    sentinel_argv = _marker("987.719")
+    sentinel = subprocess.Popen(sentinel_argv.split())
     try:
         time.sleep(0.4)
-        seen = _argv_alive("sleep 987.998")
+        seen = _argv_alive(sentinel_argv)
         check("orphan probe can SEE a live process (detector not blind)",
               bool(seen), "ps -eo args matched %d exact line(s)" % len(seen))
     finally:
@@ -205,7 +236,7 @@ def _checks(wd):
     check("the step's child process is dead (no orphaned solver)",
           not alive, "; ".join(alive[:3]))
     if alive:                           # never leave a stray behind on a FAIL
-        subprocess.run(["pkill", "-f", marker])
+        _kill_exact(marker)
 
     # --- run_cht THREADS cancel through — both chains ----------------------
     # The mechanism above lives in run_chain; the CHT dialog's "real Cancel"
@@ -224,7 +255,7 @@ def _checks(wd):
     real_wrf = runner.write_region_fields
     try:
         # (a) cancel during the MESH chain
-        runner.CHT_MESH_STEPS = ("sleep 987.654",)
+        runner.CHT_MESH_STEPS = (_marker("987.712"),)
         cancel = threading.Event()
         threading.Timer(0.7, cancel.set).start()
         t0 = time.monotonic()
@@ -239,7 +270,7 @@ def _checks(wd):
         # (b) cancel during the SOLVE chain — and the ``cancelled`` marker
         # must SURVIVE into run_cht's merged report (it was dropped once).
         runner.CHT_MESH_STEPS = ("true",)
-        runner.CHT_SOLVE_STEPS = ("sleep 987.655",)
+        runner.CHT_SOLVE_STEPS = (_marker("987.713"),)
         runner.write_region_fields = lambda case_dir, case=None: {}
         cancel = threading.Event()
         threading.Timer(0.7, cancel.set).start()
@@ -260,9 +291,8 @@ def _checks(wd):
         runner.CHT_MESH_STEPS = real_mesh
         runner.CHT_SOLVE_STEPS = real_solve
         runner.write_region_fields = real_wrf
-    for m in ("sleep 987.654", "sleep 987.655"):
-        subprocess.run(["pkill", "-f", m],
-                       capture_output=True)  # hygiene; nothing should match
+    for m in (_marker("987.712"), _marker("987.713")):
+        _kill_exact(m)                  # hygiene; nothing should match
 
 
 _UNDER_PYTEST = "pytest" in sys.modules
