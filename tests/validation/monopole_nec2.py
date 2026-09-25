@@ -26,6 +26,20 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+#: Every bound below prints one "  ok"/"  FAIL" line, so the battery can COUNT
+#: what this gate checked. Until 2026-09-25 they were bare asserts: the gate
+#: passed with ZERO countable lines, and a run that checked nothing looked the
+#: same as one that checked everything. (The v1.13.0 proof log names this gate
+#: in its "ZERO per-check lines" warning.)
+FAILURES = []
+
+
+def check(name, ok, detail=""):
+    print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
+                                 " — " + detail if detail else ""))
+    if not ok:
+        FAILURES.append(name)
+
 
 def _zin_at(result, f_hz):
     import numpy as np
@@ -55,10 +69,11 @@ def main():
     r_perfect = z.real
     print("short monopole (perfect): Zin = {0:.3f}{1:+.3f}j ohm "
           "(analytic Rr {2:.3f})".format(z.real, z.imag, rr_analytic))
-    assert 3.75 <= r_perfect <= 4.30, \
-        "perfect-ground Re(Zin) {0:.3f} outside gate (expect ~4.0)".format(r_perfect)
-    assert z.imag < -400.0, \
-        "short monopole must be strongly capacitive (Im {0:.1f})".format(z.imag)
+    check("lambda/10 over perfect ground: Re(Zin) within 3.75-4.30 ohm "
+          "(nec2c ~4.0, Rr 3.948)", 3.75 <= r_perfect <= 4.30,
+          "{0:.3f} ohm".format(r_perfect))
+    check("lambda/10 over perfect ground is strongly capacitive "
+          "(Im(Zin) < -400 ohm)", z.imag < -400.0, "{0:.1f} ohm".format(z.imag))
     FreeCAD.closeDocument(doc.Name)
 
     # --- 2. quarter-wave monopole over PERFECT ground (~36.5 + j21 ohm) ---
@@ -70,10 +85,11 @@ def main():
     zq = _zin_at(res, f0)
     print("quarter-wave monopole (perfect): Zin = {0:.3f}{1:+.3f}j ohm "
           "(textbook 36.5 + j21)".format(zq.real, zq.imag))
-    assert 33.0 <= zq.real <= 43.0, \
-        "lambda/4 Re(Zin) {0:.2f} outside 33-43 (textbook 36.5)".format(zq.real)
-    assert 5.0 <= zq.imag <= 32.0, \
-        "lambda/4 Im(Zin) {0:.2f} outside +5..+32 (textbook +21)".format(zq.imag)
+    check("lambda/4 over perfect ground: Re(Zin) within 33-43 ohm "
+          "(textbook 36.5)", 33.0 <= zq.real <= 43.0,
+          "{0:.2f} ohm".format(zq.real))
+    check("lambda/4 over perfect ground: Im(Zin) within +5..+32 ohm "
+          "(textbook +21)", 5.0 <= zq.imag <= 32.0, "{0:+.2f} ohm".format(zq.imag))
     FreeCAD.closeDocument(doc.Name)
 
     # --- 3. short monopole over FINITE (average) ground: efficiency collapses ---
@@ -87,13 +103,16 @@ def main():
     efficiency = rr_analytic / r_finite if r_finite > 0 else 0.0
     print("short monopole (finite avg ground): Zin = {0:.2f}{1:+.2f}j ohm, "
           "efficiency ~= {2:.1%}".format(zf.real, zf.imag, efficiency))
-    assert r_finite > r_perfect + 5.0, \
-        "finite ground must add loss resistance (R {0:.2f} vs perfect {1:.2f})".format(
-            r_finite, r_perfect)
-    assert 0.005 <= efficiency <= 0.40, \
-        "ground-loss efficiency {0:.3f} outside the VLF range (~0.5-40%)".format(efficiency)
+    check("finite ground adds loss resistance (R > perfect + 5 ohm)",
+          r_finite > r_perfect + 5.0,
+          "{0:.2f} vs perfect {1:.2f} ohm".format(r_finite, r_perfect))
+    check("ground-loss efficiency within the VLF range (0.5-40 %)",
+          0.005 <= efficiency <= 0.40, "{0:.1%}".format(efficiency))
     FreeCAD.closeDocument(doc.Name)
 
+    if FAILURES:
+        print("MONOPOLE GATE FAILED: {0}".format(FAILURES))
+        return 1
     print("MONOPOLE GATE PASSED")
     return 0
 

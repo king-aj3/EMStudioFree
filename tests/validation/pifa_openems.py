@@ -50,6 +50,28 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+#: Every bound below prints one "  ok"/"  FAIL" line, so the battery can COUNT
+#: what this gate checked. Until 2026-09-25 they were bare asserts: the gate
+#: passed with ZERO countable lines, and a run that checked nothing looked the
+#: same as one that checked everything. (The v1.13.0 proof log names this gate
+#: in its "ZERO per-check lines" warning.)
+FAILURES = []
+
+
+def check(name, ok, detail=""):
+    print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
+                                 " — " + detail if detail else ""))
+    if not ok:
+        FAILURES.append(name)
+
+
+def _verdict():
+    if FAILURES:
+        print("PIFA GATE FAILED: {0}".format(FAILURES))
+        return 1
+    print("PIFA GATE PASSED")
+    return 0
+
 #: The published CHAMBER MEASUREMENT for this geometry on its 80 mm ground (Hz).
 MEASURED_HZ = 1.892e9
 
@@ -121,9 +143,11 @@ def main():
                                 (f_form / MEASURED_HZ - 1.0) * 100.0))
     # The anchor dict is what both the engine and the template read. If someone
     # edits it, this says so in milliseconds instead of after a 30 s solve.
-    assert a["short_at_edge"] is True, (
-        "ANCHOR no longer records the short as being at the plate edge — that "
-        "placement is worth 7.6 % and is not in the closed form")
+    check("ANCHOR records the short at the plate edge (worth 7.6 %, and not "
+          "in the closed form)", a["short_at_edge"] is True,
+          "short_at_edge = {0!r}".format(a["short_at_edge"]))
+    if FAILURES:
+        return _verdict()               # don't spend the solve on a known red
 
     doc = FreeCAD.newDocument("pifa_gate")
     ana = pifa_tpl.makePIFA(doc)
@@ -145,54 +169,52 @@ def main():
     # --- the anchor: against MEASURED hardware ------------------------------
     lo = MEASURED_HZ * (1.0 - MEASURED_TOL)
     hi = MEASURED_HZ * (1.0 + MEASURED_TOL)
-    assert lo <= f_min <= hi, (
-        "PIFA resonance {0:.4f} GHz is outside +/-{1:.0%} of the PUBLISHED "
-        "CHAMBER MEASUREMENT {2:.4f} GHz ({3:.4f}-{4:.4f} GHz). ⚠ A {5:.1f} % "
-        "error is the signature of the shorting plate having moved off the "
-        "plate edge — the closed form cannot see that, and this gate can."
-        .format(f_min / 1e9, MEASURED_TOL, MEASURED_HZ / 1e9, lo / 1e9,
-                hi / 1e9, (f_min / MEASURED_HZ - 1.0) * 100.0))
+    # ⚠ An error near +7.6 % is the signature of the shorting plate having
+    # moved off the plate edge — the closed form cannot see that; this can.
+    check("resonance within +/-{0:.0%} of the PUBLISHED CHAMBER MEASUREMENT "
+          "{1:.4f} GHz".format(MEASURED_TOL, MEASURED_HZ / 1e9),
+          lo <= f_min <= hi, "{0:.4f} GHz ({1:+.2f} %)".format(
+              f_min / 1e9, (f_min / MEASURED_HZ - 1.0) * 100.0))
 
     # --- and still inside the closed form's own stated accuracy -------------
-    assert abs(f_min / f_form - 1.0) <= pifa_engine.PIFA_ACCURACY, (
-        "full-wave {0:.4f} GHz is outside the closed form's stated +/-{1:.0%} "
-        "of its own {2:.4f} GHz — engine and solver now disagree by more than "
-        "the engine admits to".format(f_min / 1e9, pifa_engine.PIFA_ACCURACY,
-                                      f_form / 1e9))
+    check("full-wave within the closed form's own stated +/-{0:.0%} of "
+          "{1:.4f} GHz".format(pifa_engine.PIFA_ACCURACY, f_form / 1e9),
+          abs(f_min / f_form - 1.0) <= pifa_engine.PIFA_ACCURACY,
+          "{0:+.2f} %".format((f_min / f_form - 1.0) * 100.0))
 
     # --- a fed antenna, not a shorted one -----------------------------------
-    assert 25.0 <= zin.real <= 60.0, (
-        "feed-point resistance {0:.2f} ohm is not a 50 ohm-class match"
-        .format(zin.real))
-    assert abs(zin.imag) <= 20.0, (
-        "feed-point reactance {0:+.2f}j ohm is too large — not resonant at its "
-        "own best-match point".format(zin.imag))
-    assert s11_min < -10.0, \
-        "PIFA should dip below -10 dB (got {0:.1f} dB)".format(s11_min)
+    check("feed-point R is a 50 ohm-class match (25-60 ohm)",
+          25.0 <= zin.real <= 60.0, "{0:.2f} ohm".format(zin.real))
+    check("feed-point |X| <= 20 ohm (resonant at its own best match)",
+          abs(zin.imag) <= 20.0, "{0:+.2f}j ohm".format(zin.imag))
+    check("S11 dips below -10 dB", s11_min < -10.0, "{0:.2f} dB".format(s11_min))
 
     db = result.s11_db()
     in_band = [x for x, d in zip(result.freq, db) if d <= -10.0]
-    assert in_band, "no frequency reached -10 dB"
-    bw = max(in_band) - min(in_band)
-    print("pifa: -10 dB bandwidth {0:.1f} MHz ({1:.2f} %)".format(
-        bw / 1e6, bw / f_min * 100.0))
+    check("some frequency reaches -10 dB", bool(in_band),
+          "{0} samples".format(len(in_band)))
+    if in_band:
+        bw = max(in_band) - min(in_band)
+        print("pifa: -10 dB bandwidth {0:.1f} MHz ({1:.2f} %)".format(
+            bw / 1e6, bw / f_min * 100.0))
 
     ff = getattr(result, "farfield", None)
-    assert ff is not None, "openEMS run produced no far field"
-    g_peak, th_peak, _ = ff.peak()
-    print("pifa: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(
-        g_peak, th_peak))
-    assert 0.0 <= g_peak <= 5.0, (
-        "peak gain {0:.2f} dBi outside the PIFA window — a low-profile plate "
-        "over a small ground is a low-gain element".format(g_peak))
+    check("openEMS produced a far field", ff is not None)
+    if ff is not None:
+        g_peak, th_peak, _ = ff.peak()
+        print("pifa: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(
+            g_peak, th_peak))
+        check("peak gain within 0-5 dBi (a low-profile plate over a small "
+              "ground is low-gain)", 0.0 <= g_peak <= 5.0,
+              "{0:.2f} dBi".format(g_peak))
 
     # --- B-i rung 1: the GROUND-PLANE LADDER, against measured hardware ----
     # The closed form returns the SAME number for every rung below (it has no
     # ground-size term at all), so nothing analytic can do this check.
     ladder = pifa_engine.GROUND_LADDER_MEAS_HZ
-    assert ladder[80] == MEASURED_HZ, (
-        "the ladder's 80 mm row and this gate's MEASURED_HZ disagree — they "
-        "are the same published measurement and must not drift apart")
+    check("the ladder's 80 mm row IS this gate's MEASURED_HZ (the same "
+          "published measurement)", ladder[80] == MEASURED_HZ,
+          "{0} vs {1}".format(ladder[80], MEASURED_HZ))
     f_ref = f_min                       # our own 80 mm solve, measured above
     pub_ref = float(ladder[80])
     solved = {80: f_ref}
@@ -218,16 +240,17 @@ def main():
                       (f_g / pub - 1.0) * 100.0, ours_pct, pub_pct,
                       ours_pct - pub_pct, s11_g))
 
-        assert abs(f_g / pub - 1.0) <= LADDER_TOL, (
-            "{0} mm ground: {1:.1f} MHz is outside +/-{2:.0%} of the PUBLISHED "
-            "CHAMBER MEASUREMENT {3:.0f} MHz".format(
-                g_mm, f_g / 1e6, LADDER_TOL, pub / 1e6))
-        assert abs(ours_pct - pub_pct) <= SHIFT_TOL_PP, (
-            "{0} mm ground: our shift {1:+.2f} % against our own 80 mm solve "
-            "misses the published measured shift {2:+.2f} % by {3:.2f} "
-            "percentage points — the ground-plane TREND has drifted even if "
-            "the individual frequencies still land"
-            .format(g_mm, ours_pct, pub_pct, abs(ours_pct - pub_pct)))
+        check("{0} mm ground within +/-{1:.0%} of the PUBLISHED CHAMBER "
+              "MEASUREMENT {2:.0f} MHz".format(g_mm, LADDER_TOL, pub / 1e6),
+              abs(f_g / pub - 1.0) <= LADDER_TOL,
+              "{0:.1f} MHz ({1:+.2f} %)".format(f_g / 1e6,
+                                               (f_g / pub - 1.0) * 100.0))
+        # A miss here means the ground-plane TREND has drifted even if the
+        # individual frequencies still land.
+        check("{0} mm ground: our shift vs our own 80 mm solve tracks the "
+              "published shift to {1:g} pp".format(g_mm, SHIFT_TOL_PP),
+              abs(ours_pct - pub_pct) <= SHIFT_TOL_PP,
+              "ours {0:+.2f} %, published {1:+.2f} %".format(ours_pct, pub_pct))
 
         # ⚠ NOTHING about S11 depth or bandwidth is asserted across the ladder,
         # and that is deliberate, not an omission. Huynh RE-MATCHES the probe
@@ -240,31 +263,28 @@ def main():
     # the point of gating it is that it dwarfs the numerical noise. If this
     # ever passes on a few MHz, the ladder has stopped measuring the chassis.
     shrink = (solved[20] / f_ref - 1.0) * 100.0
-    assert shrink >= SHIFT_FLOOR_PCT, (
-        "shrinking the ground from 80 mm to 20 mm moved the resonance only "
-        "{0:+.2f} %, under the {1:.0f} % floor. That floor sits ~10x above "
-        "this gate's own mesh spread; a smaller shift means the ground plane "
-        "is not being modelled as part of the antenna at all"
-        .format(shrink, SHIFT_FLOOR_PCT))
+    # The floor sits ~10x above this gate's own mesh spread; a smaller shift
+    # means the ground plane is not being modelled as part of the antenna.
+    check("shrinking the ground 80 -> 20 mm moves the resonance at least "
+          "{0:.0f} %".format(SHIFT_FLOOR_PCT), shrink >= SHIFT_FLOOR_PCT,
+          "{0:+.2f} %".format(shrink))
 
     # ⚠⚠ THE TRAP, PINNED. The measured trend is NOT monotonic: resonance
     # falls as the ground GROWS only until the minimum at L = 100 mm, then
     # rises again (1886 -> 1899 -> 1942 MHz at 100/120/140). A "bigger ground,
     # lower resonance" rule is false in general, and the honest form of the
     # check is that the minimum has NOT been passed at 80 mm.
-    assert solved[100] < solved[80], (
-        "our 100 mm solve ({0:.1f} MHz) is not below our 80 mm one "
-        "({1:.1f} MHz) — the measured minimum sits at 100 mm, so this "
-        "reverses the published trend"
-        .format(solved[100] / 1e6, solved[80] / 1e6))
-    assert solved[40] > solved[80] > solved[100], (
-        "the 40 > 80 > 100 mm ordering is broken: {0}".format(
-            {k: round(v / 1e6, 1) for k, v in sorted(solved.items())}))
-    print("pifa ladder: 4 measured rungs reproduced, and the minimum at "
-          "100 mm is on the correct side of 80 mm")
+    check("our 100 mm solve is below our 80 mm one (the measured minimum "
+          "sits at 100 mm)", solved[100] < solved[80],
+          "{0:.1f} vs {1:.1f} MHz".format(solved[100] / 1e6, solved[80] / 1e6))
+    check("the 40 > 80 > 100 mm ordering holds",
+          solved[40] > solved[80] > solved[100], "{0}".format(
+              {k: round(v / 1e6, 1) for k, v in sorted(solved.items())}))
+    if not FAILURES:
+        print("pifa ladder: 4 measured rungs reproduced, and the minimum at "
+              "100 mm is on the correct side of 80 mm")
 
-    print("PIFA GATE PASSED")
-    return 0
+    return _verdict()
 
 
 _UNDER_PYTEST = "pytest" in sys.modules

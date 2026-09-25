@@ -68,7 +68,7 @@ gate's scope, and it would move both gates together.
 ⚠ The -10 dB bandwidth is REPORTED, not gated tight. A 1.524 mm board is
 ~0.018 lambda at 3.5 GHz, so a single patch on it is inherently narrowband and
 cannot cover all 500 MHz of n78. The gate asserts only that the bandwidth is
-patch-class (0.5-8 %); the honest consequence — one patch is a *channel* in
+patch-class (0.2-8 %); the honest consequence — one patch is a *channel* in
 n78, not the *band* — belongs in the tutorial, and the gate prints the covered
 fraction so the tutorial's figure can be re-derived rather than believed.
 
@@ -82,6 +82,28 @@ import sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+
+#: Every bound below prints one "  ok"/"  FAIL" line, so the battery can COUNT
+#: what this gate checked. Until 2026-09-25 they were bare asserts: the gate
+#: passed with ZERO countable lines, and a run that checked nothing looked the
+#: same as one that checked everything. (The v1.13.0 proof log names this gate
+#: in its "ZERO per-check lines" warning.)
+FAILURES = []
+
+
+def check(name, ok, detail=""):
+    print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
+                                 " — " + detail if detail else ""))
+    if not ok:
+        FAILURES.append(name)
+
+
+def _verdict():
+    if FAILURES:
+        print("PATCH-N78 GATE FAILED: {0}".format(FAILURES))
+        return 1
+    print("PATCH-N78 GATE PASSED")
+    return 0
 
 #: 3GPP TS 38.104 band n78, in Hz. Named constants because the whole point of
 #: this gate is the relationship between the TL error window and these two
@@ -148,12 +170,15 @@ def main():
     print("patch-n78: design frequencies whose whole window stays in n78: "
           "{0:.4f}-{1:.4f} GHz (this design {2:.3f} GHz)".format(
               safe_lo / 1e9, safe_hi / 1e9, F0_HZ / 1e9))
-    assert N78_LO_HZ <= lo and hi <= N78_HI_HZ, (
-        "the TL model's own +/-{0:.0%} window ({1:.4f}-{2:.4f} GHz) no longer "
-        "fits inside n78 ({3:.3f}-{4:.3f} GHz) — the synthesis can now land "
-        "out of band at its stated error, and the tutorial's central claim is "
-        "false".format(patch_tl.TL_ACCURACY, lo / 1e9, hi / 1e9,
-                       N78_LO_HZ / 1e9, N78_HI_HZ / 1e9))
+    # A FAIL here means the synthesis can land out of band at its own stated
+    # error, and the tutorial's central claim is false.
+    check("the TL model's own +/-{0:.0%} window fits inside n78 "
+          "({1:.3f}-{2:.3f} GHz)".format(patch_tl.TL_ACCURACY,
+                                         N78_LO_HZ / 1e9, N78_HI_HZ / 1e9),
+          N78_LO_HZ <= lo and hi <= N78_HI_HZ,
+          "window {0:.4f}-{1:.4f} GHz".format(lo / 1e9, hi / 1e9))
+    if FAILURES:
+        return _verdict()               # don't spend the solve on a known red
 
     doc = FreeCAD.newDocument("patch_n78_gate")
     ana = patch.makePatchDesign(doc, f0_hz=F0_HZ, er=ER, h_mm=H_MM)
@@ -168,19 +193,18 @@ def main():
         result.meta.get("duration_s", -1), result.meta.get("workdir", "?")))
 
     # --- gates: resonance within the TL model's stated +/-5 % of f0 ---------
-    assert lo <= f_min <= hi, (
-        "synthesized n78 patch resonance {0:.4f} GHz outside +/-5% of the "
-        "{1:.3f} GHz design ({2:.4f}-{3:.4f} GHz)".format(
-            f_min / 1e9, F0_HZ / 1e9, lo / 1e9, hi / 1e9))
-    assert s11_min < -10.0, \
-        "n78 patch should dip below -10 dB (got {0:.1f} dB)".format(s11_min)
+    check("resonance within the TL model's +/-{0:.0%} of the {1:.3f} GHz "
+          "design ({2:.4f}-{3:.4f} GHz)".format(
+              patch_tl.TL_ACCURACY, F0_HZ / 1e9, lo / 1e9, hi / 1e9),
+          lo <= f_min <= hi, "{0:.4f} GHz".format(f_min / 1e9))
+    check("S11 dips below -10 dB", s11_min < -10.0, "{0:.2f} dB".format(s11_min))
 
     # The solved resonance must ALSO be in n78. This does not follow from the
     # assert above by arithmetic alone once someone edits F0_HZ or the window,
     # and it is the claim a user actually cares about, so it is checked
     # directly rather than inferred.
-    assert N78_LO_HZ <= f_min <= N78_HI_HZ, (
-        "solved resonance {0:.4f} GHz is outside n78".format(f_min / 1e9))
+    check("the solved resonance is inside n78", N78_LO_HZ <= f_min <= N78_HI_HZ,
+          "{0:.4f} GHz".format(f_min / 1e9))
 
     # --- -10 dB bandwidth: reported, loosely bounded ------------------------
     # Deliberately wide. The figure that matters is printed, not gated: a tight
@@ -190,6 +214,8 @@ def main():
     db = result.s11_db()
     freqs = result.freq
     in_band = [f for f, d in zip(freqs, db) if d <= -10.0]
+    check("some frequency reaches -10 dB", bool(in_band),
+          "{0} samples".format(len(in_band)))
     if in_band:
         bw_hz = max(in_band) - min(in_band)
         frac = bw_hz / f_min
@@ -204,35 +230,31 @@ def main():
         # the tutorial must be rewritten — which is the correct outcome, not a
         # regression. Measured 21 MHz against 500 MHz: a 24x margin, so this
         # is robust to mesh and machine.
-        assert bw_hz < (N78_HI_HZ - N78_LO_HZ), (
-            "-10 dB bandwidth {0:.1f} MHz now covers all of n78 — tutorial 34 "
-            "says a single patch cannot, and that sentence is now wrong"
-            .format(bw_hz / 1e6))
+        check("-10 dB bandwidth is narrower than n78's 500 MHz (tutorial 34: "
+              "one patch is a channel, not the band)",
+              bw_hz < (N78_HI_HZ - N78_LO_HZ), "{0:.1f} MHz".format(bw_hz / 1e6))
         # ⚠ Absurdity guard only, and deliberately loose. The -10 dB bandwidth
         # of a MARGINALLY matched patch is set by how far past -10 dB the dip
         # goes, so a tight window here would be gating the match depth twice
         # and would fail on mesh noise. The 0.62 % measured on a dip that
         # reaches only -10.7 dB is real and expected; see the match-depth note
         # in the docstring.
-        assert 0.002 <= frac <= 0.08, (
-            "fractional bandwidth {0:.2%} is not patch-class — either the mesh "
-            "or the substrate is not what this gate thinks it is".format(frac))
-    else:
-        raise AssertionError("no frequency reached -10 dB")
+        check("fractional bandwidth is patch-class (0.2-8 %)",
+              0.002 <= frac <= 0.08, "{0:.2%}".format(frac))
 
     # --- far-field gates ----------------------------------------------------
     ff = getattr(result, "farfield", None)
-    assert ff is not None, "openEMS run produced no far field"
-    g_peak, th_peak, _ = ff.peak()
-    print("patch-n78: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(
-        g_peak, th_peak))
-    assert 4.5 <= g_peak <= 9.5, \
-        "peak gain {0:.2f} dBi outside the patch window".format(g_peak)
-    assert th_peak <= 30.0 or th_peak >= 150.0, \
-        "patch peak should be near boresight (theta={0:.0f})".format(th_peak)
+    check("openEMS produced a far field", ff is not None)
+    if ff is not None:
+        g_peak, th_peak, _ = ff.peak()
+        print("patch-n78: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(
+            g_peak, th_peak))
+        check("peak gain within 4.5-9.5 dBi (patch class)", 4.5 <= g_peak <= 9.5,
+              "{0:.2f} dBi".format(g_peak))
+        check("peak near boresight (theta <= 30 or >= 150 deg)",
+              th_peak <= 30.0 or th_peak >= 150.0, "theta={0:.0f}".format(th_peak))
 
-    print("PATCH-N78 GATE PASSED")
-    return 0
+    return _verdict()
 
 
 _UNDER_PYTEST = "pytest" in sys.modules

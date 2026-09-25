@@ -16,6 +16,28 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+#: Every bound below prints one "  ok"/"  FAIL" line, so the battery can COUNT
+#: what this gate checked. Until 2026-09-25 they were bare asserts: the gate
+#: passed with ZERO countable lines, and a run that checked nothing looked the
+#: same as one that checked everything. (The v1.13.0 proof log names this gate
+#: in its "ZERO per-check lines" warning.)
+FAILURES = []
+
+
+def check(name, ok, detail=""):
+    print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
+                                 " — " + detail if detail else ""))
+    if not ok:
+        FAILURES.append(name)
+
+
+def _verdict():
+    if FAILURES:
+        print("PATCH-STL GATE FAILED: {0}".format(FAILURES))
+        return 1
+    print("PATCH-STL GATE PASSED")
+    return 0
+
 
 def main():
     # A live FDTD run needs the openEMS PYTHON modules, not just the binary.
@@ -94,13 +116,12 @@ def main():
 
     # --- gates: same resonance as the native gate, wider tolerance for the
     #     stair-cased STL dielectric ---
-    assert 2.30e9 <= f_min <= 2.55e9, (
-        "STL patch resonance {0:.3f} GHz outside gate".format(f_min / 1e9)
-    )
-    assert s11_min < -10.0, "STL patch should dip below -10 dB (got {0:.1f})".format(s11_min)
+    check("STL patch resonance within 2.30-2.55 GHz", 2.30e9 <= f_min <= 2.55e9,
+          "{0:.4f} GHz".format(f_min / 1e9))
+    check("STL patch S11 dips below -10 dB", s11_min < -10.0,
+          "{0:.2f} dB".format(s11_min))
 
-    print("PATCH-STL GATE PASSED")
-    return 0
+    return _verdict()
 
 
 _UNDER_PYTEST = "pytest" in sys.modules

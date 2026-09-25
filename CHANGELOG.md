@@ -78,6 +78,31 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validation
 
+* Nine SOLVER gates that run under freecadcmd now print one `ok`/`FAIL` line
+  per bound, so `run_battery --all` can count what they check: `dipole_nec2`,
+  `isolation_nec2`, `monopole_nec2`, `patch_openems`, `patch_auto_openems`,
+  `patch_n78_openems`, `patch_stl_openems`, `ifa_openems` and `pifa_openems`
+  went from **0 to 89** check lines per run (11 / 8 / 6 / 18 / 5 / 10 / 2 /
+  10 / 19). They used bare `assert`s, so a gate that checked nothing looked
+  exactly like one that checked everything; the `--all` runs on record since
+  the battery began counting (2026-08-29) name all nine in its "ZERO
+  per-check lines" warning. **What they check did not
+  change:** an AST comparison against the previous version finds every old
+  assert condition, character for character, as exactly one check (that
+  comparison was itself controlled — a moved bound, a dropped check and a
+  flipped operator each read as different), and all nine were re-run on the
+  real solvers and passed. A failing gate now reports every failing bound
+  instead of stopping at the first, except where later checks read the failed
+  one (no far field, no near-field map, nothing below −10 dB), and the three
+  gates whose solve-free checks were written to fail in milliseconds still
+  stop before the solve. Forced failures, one per gate plus three stops: each
+  turned the gate red naming the bound, with no traceback; the `pifa_openems`
+  ground-plane ladder reported all three failing rungs; the n78 and IFA
+  pre-solve stops returned in under a second. FAST tiers unchanged (these are
+  SOLVER gates). ⚠ Found, not fixed here: `--all` prints each
+  freecadcmd-routed gate's count DOUBLED today (the gate's whole transcript
+  reaches stdout twice), so these nine show 178, and earlier `--all` totals
+  are inflated the same way.
 * `fasthenry_guidance` now proves the FastHenry release binary is COMPILED from
   the pinned download, not just that the builder fetches it: `build_binary()`
   is driven for real under a simulated Windows, with the compiler lookup

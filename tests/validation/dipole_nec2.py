@@ -16,6 +16,28 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+#: Every bound below prints one "  ok"/"  FAIL" line, so the battery can COUNT
+#: what this gate checked. Until 2026-09-25 they were bare asserts: the gate
+#: passed with ZERO countable lines, and a run that checked nothing looked the
+#: same as one that checked everything. (The v1.13.0 proof log names this gate
+#: in its "ZERO per-check lines" warning.)
+FAILURES = []
+
+
+def check(name, ok, detail=""):
+    print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
+                                 " — " + detail if detail else ""))
+    if not ok:
+        FAILURES.append(name)
+
+
+def _verdict():
+    if FAILURES:
+        print("DIPOLE GATE FAILED: {0}".format(FAILURES))
+        return 1
+    print("DIPOLE GATE PASSED")
+    return 0
+
 
 def main():
     import FreeCAD
@@ -32,7 +54,10 @@ def main():
     result = nec2.run(ana, solver)
 
     res_list = result.resonances()
-    assert res_list, "no reactance zero-crossing found in sweep"
+    check("the sweep has a reactance zero-crossing", bool(res_list),
+          "{0} found".format(len(res_list)))
+    if not res_list:
+        return _verdict()               # everything below reads f_res
     f_res = res_list[0]
     r_res = result.r_at(f_res)
     f_min, s11_min = result.min_s11()
@@ -45,39 +70,49 @@ def main():
     # --- gates ---
     # Reference run 2026-07-05 (nec2c 1.3.1): f_res=296.29 MHz, R=71.9 ohm,
     # S11min=-15.2 dB. Windows allow ~2% drift across nec2c versions/platforms.
-    assert 290e6 <= f_res <= 303e6, "resonance {0:.1f} MHz outside gate".format(f_res / 1e6)
-    assert 64.0 <= r_res <= 79.0, "feedpoint R {0:.1f} ohm outside gate".format(r_res)
-    assert s11_min < -12.0, "dipole should match better than -12 dB vs 50 ohm"
+    check("resonance within 290-303 MHz (ref 296.29)", 290e6 <= f_res <= 303e6,
+          "{0:.2f} MHz".format(f_res / 1e6))
+    check("feedpoint R at resonance within 64-79 ohm (ref 71.9)",
+          64.0 <= r_res <= 79.0, "{0:.1f} ohm".format(r_res))
+    check("best match below -12 dB vs 50 ohm (ref -15.2)", s11_min < -12.0,
+          "{0:.2f} dB".format(s11_min))
 
     # --- far-field gates ---
     # Literature: lambda/2 dipole peak gain 2.15 dBi, donut pattern with nulls on
     # axis. Reference probe 2026-07-05: 2.13 dBi at theta=90.
     ff = result.farfield
-    assert ff is not None, "NEC2 run produced no far field: " + str(
-        result.meta.get("farfield_error"))
-    g_peak, th_peak, _ = ff.peak()
-    print("dipole: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(g_peak, th_peak))
-    assert 1.9 <= g_peak <= 2.4, "peak gain {0:.2f} dBi outside 1.9-2.4 gate".format(g_peak)
-    assert 80.0 <= th_peak <= 100.0, "peak not broadside (theta={0:.0f})".format(th_peak)
-    theta_axis_gain = ff.cut(0.0)[1][0]  # gain at theta=0 (on axis)
-    assert theta_axis_gain < -20.0, "axial null missing (got {0:.1f} dBi)".format(theta_axis_gain)
+    check("NEC2 produced a far field", ff is not None,
+          "" if ff is not None else str(result.meta.get("farfield_error")))
+    if ff is not None:
+        g_peak, th_peak, _ = ff.peak()
+        print("dipole: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(g_peak, th_peak))
+        check("peak gain within 1.9-2.4 dBi (textbook 2.15)",
+              1.9 <= g_peak <= 2.4, "{0:.2f} dBi".format(g_peak))
+        check("peak is broadside (theta 80-100 deg)", 80.0 <= th_peak <= 100.0,
+              "theta={0:.0f}".format(th_peak))
+        theta_axis_gain = ff.cut(0.0)[1][0]  # gain at theta=0 (on axis)
+        check("axial null below -20 dBi", theta_axis_gain < -20.0,
+              "{0:.1f} dBi".format(theta_axis_gain))
 
     # --- current-distribution gate ---
     # A resonant half-wave dipole has a half-sine current: max at the center feed,
     # ~zero at the wire ends.
     cur = getattr(result, "currents", None)
-    assert cur is not None, "NEC2 run produced no current distribution"
+    check("NEC2 produced a current distribution", cur is not None)
+    if cur is None:
+        return _verdict()
     i_mag = cur["i_mag"]
     n = len(i_mag)
     peak_frac = int(np.argmax(i_mag)) / n
     end_ratio = (i_mag[0] + i_mag[-1]) / 2.0 / i_mag.max()
     print("dipole: {0} segs, peak at {1:.2f} of length, end/peak {2:.3f}".format(
         n, peak_frac, end_ratio))
-    assert 0.4 <= peak_frac <= 0.6, "current peak not at center (frac {0:.2f})".format(peak_frac)
-    assert end_ratio < 0.2, "current not near-zero at ends (ratio {0:.3f})".format(end_ratio)
+    check("current peak at the centre feed (0.4-0.6 of length)",
+          0.4 <= peak_frac <= 0.6, "{0:.2f}".format(peak_frac))
+    check("current near zero at the wire ends (end/peak < 0.2)",
+          end_ratio < 0.2, "{0:.3f}".format(end_ratio))
 
-    print("DIPOLE GATE PASSED")
-    return 0
+    return _verdict()
 
 
 _UNDER_PYTEST = "pytest" in sys.modules

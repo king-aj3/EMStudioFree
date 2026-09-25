@@ -47,6 +47,28 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+#: Every bound below prints one "  ok"/"  FAIL" line, so the battery can COUNT
+#: what this gate checked. Until 2026-09-25 they were bare asserts: the gate
+#: passed with ZERO countable lines, and a run that checked nothing looked the
+#: same as one that checked everything. (The v1.13.0 proof log names this gate
+#: in its "ZERO per-check lines" warning.)
+FAILURES = []
+
+
+def check(name, ok, detail=""):
+    print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
+                                 " — " + detail if detail else ""))
+    if not ok:
+        FAILURES.append(name)
+
+
+def _verdict():
+    if FAILURES:
+        print("IFA GATE FAILED: {0}".format(FAILURES))
+        return 1
+    print("IFA GATE PASSED")
+    return 0
+
 #: The 2.4 GHz ISM band, in Hz. Named because the headline claim this gate pins
 #: is a statement ABOUT this band, and a bare 2.4e9 in an assert would hide what
 #: is being compared to what.
@@ -88,19 +110,22 @@ def main():
           "{1:.4f} GHz".format(ref_path * 1e3, f_rule / 1e9))
     # The published geometry must keep implying a 2.4 GHz-class antenna. If the
     # REFERENCE dict is ever edited, this is what says so before a 30 s solve.
-    assert ISM_LO_HZ * 0.95 <= f_rule <= ISM_HI_HZ * 1.05, (
-        "the reference geometry now implies {0:.4f} GHz, which is not a 2.4 GHz "
-        "ISM antenna — has REFERENCE been edited?".format(f_rule / 1e9))
+    # A FAIL here almost certainly means REFERENCE was edited.
+    check("the reference geometry implies a 2.4 GHz ISM-class antenna "
+          "(ISM +/-5 %)", ISM_LO_HZ * 0.95 <= f_rule <= ISM_HI_HZ * 1.05,
+          "{0:.4f} GHz".format(f_rule / 1e9))
 
     doc = FreeCAD.newDocument("ifa_gate")
     ana = ifa_tpl.makeIFA(doc)
 
     # The mesh is load-bearing here in a way it is not for the patch gates.
-    assert int(ana.MeshResolution) >= MIN_MESH, (
-        "MeshResolution {0} is below {1}: at a coarse grid this antenna solves "
-        "as a SHORT (Zin ~ 0 ohm) while still reporting a dip at the right "
-        "frequency — see docs/upstream/ifa-anchors.md".format(
-            ana.MeshResolution, MIN_MESH))
+    check("the template's MeshResolution is at least {0} (coarser solves as "
+          "a SHORT that still dips at the right frequency — "
+          "docs/upstream/ifa-anchors.md)".format(MIN_MESH),
+          int(ana.MeshResolution) >= MIN_MESH,
+          "{0}".format(ana.MeshResolution))
+    if FAILURES:
+        return _verdict()               # don't spend the solve on a known red
 
     solver = [o for o in ana.Group
               if getattr(o, "EMStudioType", "") == "EMStudio::SolverOpenEMS"][0]
@@ -119,11 +144,10 @@ def main():
     # --- resonance, within the rule's stated +/-5 % --------------------------
     lo = f_rule * (1.0 - ifa_engine.IFA_ACCURACY)
     hi = f_rule * (1.0 + ifa_engine.IFA_ACCURACY)
-    assert lo <= f_min <= hi, (
-        "IFA resonance {0:.4f} GHz outside +/-{1:.0%} of the quarter-wave rule "
-        "{2:.4f} GHz ({3:.4f}-{4:.4f} GHz)".format(
-            f_min / 1e9, ifa_engine.IFA_ACCURACY, f_rule / 1e9,
-            lo / 1e9, hi / 1e9))
+    check("resonance within +/-{0:.0%} of the quarter-wave rule "
+          "({1:.4f}-{2:.4f} GHz)".format(ifa_engine.IFA_ACCURACY,
+                                         lo / 1e9, hi / 1e9),
+          lo <= f_min <= hi, "{0:.4f} GHz".format(f_min / 1e9))
 
     # --- THE assertion: a fed antenna, not a shorted one ---------------------
     # Bands are wide on purpose. The point is not to pin 54.76 ohm -- that is a
@@ -131,15 +155,11 @@ def main():
     # "shorted" (0.05 ohm) and from "badly wrong" (102 + 58j at mesh 30). Both
     # of those real, measured failures fall outside these bands by a wide
     # margin, and any plausible good answer falls inside.
-    assert 30.0 <= zin.real <= 80.0, (
-        "feed-point resistance {0:.2f} ohm is not a 50 ohm-class match — at "
-        "0 ohm the port is SHORTED by an unresolved mesh, which still produces "
-        "a dip at the right frequency".format(zin.real))
-    assert abs(zin.imag) <= 15.0, (
-        "feed-point reactance {0:+.2f}j ohm is too large — the antenna is not "
-        "resonant at its own best-match point".format(zin.imag))
-    assert s11_min < -10.0, \
-        "IFA should dip below -10 dB (got {0:.1f} dB)".format(s11_min)
+    check("feed-point R is a 50 ohm-class match (30-80 ohm; a SHORTED port "
+          "reads ~0)", 30.0 <= zin.real <= 80.0, "{0:.2f} ohm".format(zin.real))
+    check("feed-point |X| <= 15 ohm (resonant at its own best match)",
+          abs(zin.imag) <= 15.0, "{0:+.2f}j ohm".format(zin.imag))
+    check("S11 dips below -10 dB", s11_min < -10.0, "{0:.2f} dB".format(s11_min))
 
     # --- bandwidth: the headline claim, gated -------------------------------
     # An IFA is a genuinely wideband element, which is exactly why every Wi-Fi
@@ -149,29 +169,30 @@ def main():
     # canNOT cover n78.
     db = result.s11_db()
     in_band = [x for x, d in zip(result.freq, db) if d <= -10.0]
-    assert in_band, "no frequency reached -10 dB"
-    b_lo, b_hi = min(in_band), max(in_band)
-    bw = b_hi - b_lo
-    print("ifa: -10 dB bandwidth {0:.1f} MHz ({1:.2f} %), {2:.4f}-{3:.4f} GHz"
-          .format(bw / 1e6, bw / f_min * 100.0, b_lo / 1e9, b_hi / 1e9))
-    assert b_lo <= ISM_LO_HZ and b_hi >= ISM_HI_HZ, (
-        "the -10 dB band {0:.4f}-{1:.4f} GHz no longer covers the whole 2.4 GHz "
-        "ISM band ({2:.4f}-{3:.4f}) — tutorial 35 says an IFA does, and that "
-        "sentence would now be wrong".format(
-            b_lo / 1e9, b_hi / 1e9, ISM_LO_HZ / 1e9, ISM_HI_HZ / 1e9))
+    check("some frequency reaches -10 dB", bool(in_band),
+          "{0} samples".format(len(in_band)))
+    if in_band:
+        b_lo, b_hi = min(in_band), max(in_band)
+        bw = b_hi - b_lo
+        print("ifa: -10 dB bandwidth {0:.1f} MHz ({1:.2f} %), {2:.4f}-{3:.4f} GHz"
+              .format(bw / 1e6, bw / f_min * 100.0, b_lo / 1e9, b_hi / 1e9))
+        check("the -10 dB band covers the whole 2.4 GHz ISM band "
+              "({0:.4f}-{1:.4f} GHz; tutorial 35 says an IFA does)".format(
+                  ISM_LO_HZ / 1e9, ISM_HI_HZ / 1e9),
+              b_lo <= ISM_LO_HZ and b_hi >= ISM_HI_HZ,
+              "{0:.4f}-{1:.4f} GHz".format(b_lo / 1e9, b_hi / 1e9))
 
     # --- far field: IFA-class, and NOT patch-like ---------------------------
     ff = getattr(result, "farfield", None)
-    assert ff is not None, "openEMS run produced no far field"
-    g_peak, th_peak, _ = ff.peak()
-    print("ifa: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(
-        g_peak, th_peak))
-    assert 0.0 <= g_peak <= 6.0, (
-        "peak gain {0:.2f} dBi outside the IFA window — a printed IFA on a "
-        "small board is a low-gain, broad-pattern element".format(g_peak))
+    check("openEMS produced a far field", ff is not None)
+    if ff is not None:
+        g_peak, th_peak, _ = ff.peak()
+        print("ifa: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(
+            g_peak, th_peak))
+        check("peak gain within 0-6 dBi (a printed IFA on a small board is "
+              "low-gain)", 0.0 <= g_peak <= 6.0, "{0:.2f} dBi".format(g_peak))
 
-    print("IFA GATE PASSED")
-    return 0
+    return _verdict()
 
 
 _UNDER_PYTEST = "pytest" in sys.modules

@@ -17,6 +17,20 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+#: Every bound below prints one "  ok"/"  FAIL" line, so the battery can COUNT
+#: what this gate checked. Until 2026-09-25 they were bare asserts: the gate
+#: passed with ZERO countable lines, and a run that checked nothing looked the
+#: same as one that checked everything. (The v1.13.0 proof log names this gate
+#: in its "ZERO per-check lines" warning.)
+FAILURES = []
+
+
+def check(name, ok, detail=""):
+    print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
+                                 " — " + detail if detail else ""))
+    if not ok:
+        FAILURES.append(name)
+
 
 def main():
     import FreeCAD
@@ -45,25 +59,36 @@ def main():
 
     # --- gates (reference nec2c 1.3.1: |S21| -13.78 dB, Z21 -15.1 - j28.0) ---
     # primary: |S21| is the most stable quantity (0.06 dB spread over seg/radius)
-    assert -14.8 <= s21_db <= -12.8, \
-        "|S21| {0:.2f} dB outside -13.78 +/- 1.0".format(s21_db)
-    assert abs(iso_db - (-s21_db)) < 1e-9, "isolation must be -|S21| dB"
+    check("|S21| within -14.8 to -12.8 dB (ref -13.78)", -14.8 <= s21_db <= -12.8,
+          "{0:.2f} dB".format(s21_db))
+    check("isolation is -|S21| dB", abs(iso_db - (-s21_db)) < 1e-9,
+          "{0:.3f} vs {1:.3f} dB".format(iso_db, -s21_db))
     # Z-matrix sanity vs Balanis (-12.5 - j29.9), +/-15% on |Z21|
     mag21 = abs(z21)
-    assert 27.0 <= mag21 <= 37.0, "|Z21| {0:.2f} outside 27-37 ohm".format(mag21)
-    assert z21.real < 0 and z21.imag < 0, "Z21 sign wrong at 0.5 lambda"
+    check("|Z21| within 27-37 ohm (Balanis 32.4)", 27.0 <= mag21 <= 37.0,
+          "{0:.2f} ohm".format(mag21))
+    check("Z21 has both parts negative at 0.5 lambda (Balanis -12.5 - j29.9)",
+          z21.real < 0 and z21.imag < 0,
+          "{0:.2f}{1:+.2f}j ohm".format(z21.real, z21.imag))
     # driven dipole is resonant: Z11 ~ 72 ohm, near-zero reactance
-    assert 66.0 <= z[0, 0].real <= 80.0, "Z11 {0:.1f} not ~72 ohm".format(z[0, 0].real)
-    assert abs(z[0, 0].imag) < 8.0, "Z11 reactance {0:.1f} not near zero".format(z[0, 0].imag)
+    check("Re(Z11) within 66-80 ohm (resonant dipole ~72)",
+          66.0 <= z[0, 0].real <= 80.0, "{0:.1f} ohm".format(z[0, 0].real))
+    check("|Im(Z11)| below 8 ohm", abs(z[0, 0].imag) < 8.0,
+          "{0:+.1f} ohm".format(z[0, 0].imag))
     # reciprocity is a structural self-check (Z12 == Z21)
-    assert res["reciprocity_err"] < 1e-6, \
-        "reciprocity broken: {0:.2e}".format(res["reciprocity_err"])
+    check("reciprocity holds (Z12 == Z21 to 1e-6)",
+          res["reciprocity_err"] < 1e-6,
+          "{0:.2e}".format(res["reciprocity_err"]))
 
     # isolation feeds the interference calculator as a per-pair dict
     pairs = isolation.isolation_pairs_db(res)
-    assert abs(pairs[(0, 1)] - iso_db) < 1e-9 and abs(pairs[(1, 0)] - iso_db) < 1e-9, \
-        "isolation_pairs_db mismatch"
+    check("isolation_pairs_db carries the same isolation both ways",
+          abs(pairs[(0, 1)] - iso_db) < 1e-9 and abs(pairs[(1, 0)] - iso_db) < 1e-9,
+          "{0:.3f} / {1:.3f} dB".format(pairs[(0, 1)], pairs[(1, 0)]))
 
+    if FAILURES:
+        print("ISOLATION GATE FAILED: {0}".format(FAILURES))
+        return 1
     print("ISOLATION GATE PASSED")
     return 0
 

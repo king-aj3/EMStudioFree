@@ -19,6 +19,28 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+#: Every bound below prints one "  ok"/"  FAIL" line, so the battery can COUNT
+#: what this gate checked. Until 2026-09-25 they were bare asserts: the gate
+#: passed with ZERO countable lines, and a run that checked nothing looked the
+#: same as one that checked everything. (The v1.13.0 proof log names this gate
+#: in its "ZERO per-check lines" warning.)
+FAILURES = []
+
+
+def check(name, ok, detail=""):
+    print("  {0}  {1}{2}".format("ok  " if ok else "FAIL", name,
+                                 " — " + detail if detail else ""))
+    if not ok:
+        FAILURES.append(name)
+
+
+def _verdict():
+    if FAILURES:
+        print("PATCH-AUTO GATE FAILED: {0}".format(FAILURES))
+        return 1
+    print("PATCH-AUTO GATE PASSED")
+    return 0
+
 
 def main():
     # A live FDTD run needs the openEMS PYTHON modules, not just the binary.
@@ -69,25 +91,24 @@ def main():
 
     # --- gates: resonance within the TL model's stated ±5 % of f0 ----------
     lo, hi = f0 * (1.0 - patch_tl.TL_ACCURACY), f0 * (1.0 + patch_tl.TL_ACCURACY)
-    assert lo <= f_min <= hi, (
-        "synthesized patch resonance {0:.4f} GHz outside ±5% of the {1:.3f} GHz "
-        "design ({2:.3f}-{3:.3f} GHz)".format(
-            f_min / 1e9, f0 / 1e9, lo / 1e9, hi / 1e9))
-    assert s11_min < -10.0, \
-        "synthesized patch should dip below -10 dB (got {0:.1f} dB)".format(s11_min)
+    check("resonance within the TL model's +/-{0:.0%} of the {1:.3f} GHz "
+          "design ({2:.3f}-{3:.3f} GHz)".format(
+              patch_tl.TL_ACCURACY, f0 / 1e9, lo / 1e9, hi / 1e9),
+          lo <= f_min <= hi, "{0:.4f} GHz".format(f_min / 1e9))
+    check("S11 dips below -10 dB", s11_min < -10.0, "{0:.2f} dB".format(s11_min))
 
     ff = getattr(result, "farfield", None)
-    assert ff is not None, "openEMS run produced no far field"
-    g_peak, th_peak, _ = ff.peak()
-    print("patch-auto: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(
-        g_peak, th_peak))
-    assert 4.5 <= g_peak <= 9.5, \
-        "peak gain {0:.2f} dBi outside the patch window".format(g_peak)
-    assert th_peak <= 30.0 or th_peak >= 150.0, \
-        "patch peak should be near boresight (theta={0:.0f})".format(th_peak)
+    check("openEMS produced a far field", ff is not None)
+    if ff is not None:
+        g_peak, th_peak, _ = ff.peak()
+        print("patch-auto: peak gain {0:.2f} dBi at theta={1:.0f} deg".format(
+            g_peak, th_peak))
+        check("peak gain within 4.5-9.5 dBi (patch class)", 4.5 <= g_peak <= 9.5,
+              "{0:.2f} dBi".format(g_peak))
+        check("peak near boresight (theta <= 30 or >= 150 deg)",
+              th_peak <= 30.0 or th_peak >= 150.0, "theta={0:.0f}".format(th_peak))
 
-    print("PATCH-AUTO GATE PASSED")
-    return 0
+    return _verdict()
 
 
 _UNDER_PYTEST = "pytest" in sys.modules
