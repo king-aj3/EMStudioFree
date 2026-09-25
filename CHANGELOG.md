@@ -113,6 +113,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validation
 
+* `smoke` now requires every self-hosted Windows install's licence source
+  offer (nec2++ and FastHenry today) to sit in the **same release folder** as
+  the binary: same host, same repo, same tag. It must also name a source file
+  that is not the binary itself. The check it replaces compared only the tag
+  NAME, so an offer on another host, in another repo's release reusing that
+  tag, or simply equal to the binary's own URL all passed; measured against
+  the previous `smoke.py`, all four passed, and now each is refused by name.
+  Both shipped plans pass unchanged. No gate count moves (`smoke` is not a
+  battery gate), so the site sample is untouched.
 * Nine SOLVER gates that run under freecadcmd now print one `ok`/`FAIL` line
   per bound, so `run_battery --all` can count what they check: `dipole_nec2`,
   `isolation_nec2`, `monopole_nec2`, `patch_openems`, `patch_auto_openems`,

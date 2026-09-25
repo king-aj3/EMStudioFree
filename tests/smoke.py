@@ -1500,6 +1500,23 @@ def _win_guided_install_contract():
                 "%r binary is published under tag %r but its source offer points "
                 "at %r — a rebuild left the source zip behind"
                 % (key, bin_tag, src_tag))
+            # ...and the SAME release, not merely the same tag NAME. A tag is
+            # only a string: an offer on another host, or in another repo's
+            # release that reuses the name, passes the check above and is not
+            # "alongside the binary". Same folder = same host, repo AND tag.
+            # And it must name a FILE other than the binary: the binary's own
+            # URL, or the bare folder, passes both checks and offers nothing.
+            src_dir, src_file = offer.rsplit("/", 1)
+            bin_dir, bin_file = plan["url"].rsplit("/", 1)
+            assert src_dir == bin_dir, (
+                "%r source offer is not in the binary's release folder: %r vs %r"
+                % (key, src_dir, bin_dir))
+            assert (src_file and src_file != bin_file
+                    and src_file not in (".", "..")
+                    and __import__("re").fullmatch(r"[A-Za-z0-9._+-]+", src_file)), (
+                "%r source offer names no plain source file of its own: %r "
+                "(a query, fragment, encoding or dot-segment is not a file)"
+                % (key, offer))
             # Self-hosted implies PINNED. A GitHub release asset is mutable
             # in place, so an unpinned self-hosted zip can be silently
             # replaced under users and run_win_install would execute whatever
