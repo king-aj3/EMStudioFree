@@ -113,6 +113,41 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validation
 
+* **`run_battery --all` no longer counts the freecadcmd-routed gates twice.**
+  The 32 SOLVER gates that need FreeCAD run as `freecadcmd tests/run_gate.py
+  <gate>`, and that shim TEED each printed line both to Python's stdout and to
+  FreeCAD's Console. Both copies reached the captured output, and the battery
+  counted both. A bare `freecadcmd` run loses `print()` when the script ends in
+  `sys.exit` / `SystemExit`, because Python's buffer is never flushed on that
+  path; the shim's own final flush revived that copy while the Console copy
+  was also there. Measured on FreeCAD 0.21.2 (Linux and macOS), 1.1.1 /
+  1.1.3 (macOS) and 1.1.3 (Windows). It was not even a clean doubling. `two_port_openems` writes
+  its checks to the Console itself and was counted once. Once the output
+  passed the 4 KiB C stdio buffer (seen from about 9 KiB), the two writers'
+  flushes landed inside each other's lines, splicing two check lines into one.
+  `run_gate.py` now routes printed output to the Console only, so there is one
+  writer and exactly one copy, in order and without splices. It also flushes
+  the C runtime after every line, so the transcript now survives a hard exit.
+  A gate that calls `os._exit` with nothing flushed, segfaults or aborts keeps
+  every line on all five builds; the old tee lost everything on `os._exit`
+  (Linux and macOS), and on a segfault on macOS. The Console is used only when the process is FreeCAD itself; FreeCAD
+  imported as a library into plain Python keeps the ordinary stream. A failing
+  gate's message still arrives once, and exit codes are unchanged. `smoke` now
+  RUNS a fixture gate through the real shim under freecadcmd and counts with
+  the battery's own regex, in six cases: a pass; a `SystemExit("msg")` failure
+  (message once); an uncaught exception (traceback present); an integer exit
+  code (kept); an `os._exit` with nothing flushed (every line present); and
+  about 77 KiB of interleaved `print()` and Console lines. It used to grep the
+  shim's source for the word `Console.PrintMessage`, which the doubling shim
+  satisfied. Each case was negative-controlled:
+  - the real old shim reads DOUBLED (22 lines for 11);
+  - disabling the per-line flush loses the `os._exit` transcript (0 of 11);
+  - removing the exception branch loses the traceback;
+  - zeroing integer exit codes turns exit 2 into 0;
+  - a stream-only variant reads LOSSY (790 for 800, spliced);
+  - the fix is exact.
+  FAST counts are untouched, since no FAST gate runs through freecadcmd.
+  Corrected figures for the three published proofs are under Documentation.
 * `smoke` now requires every self-hosted Windows install's licence source
   offer (nec2++ and FastHenry today) to sit in the **same release folder** as
   the binary: same host, same repo, same tag. It must also name a source file
@@ -143,10 +178,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   turned the gate red naming the bound, with no traceback; the `pifa_openems`
   ground-plane ladder reported all three failing rungs; the n78 and IFA
   pre-solve stops returned in under a second. FAST tiers unchanged (these are
-  SOLVER gates). ⚠ Found, not fixed here: `--all` prints each
-  freecadcmd-routed gate's count DOUBLED today (the gate's whole transcript
-  reaches stdout twice), so these nine show 178, and earlier `--all` totals
-  are inflated the same way.
+  SOLVER gates). The battery printed them doubled (178) until the entry
+  above; it now reads 89.
 * `fasthenry_guidance` now proves the FastHenry release binary is COMPILED from
   the pinned download, not just that the builder fetches it: `build_binary()`
   is driven for real under a simulated Windows, with the compiler lookup
@@ -224,6 +257,30 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+* **Correction to the `--all` coverage figures in the `[1.13.0]`, `[1.12.0]`
+  and `[1.11.1]` entries below.** Those proof runs printed **3,536**, **3,535**
+  and **3,524** executed checks. The true figures are **3,232**, **3,231** and
+  **3,220**. The gate verdicts (115 ok / 0 failed / 0 skipped) and the FAST
+  figures are unaffected. Of the 32 gates the battery runs through freecadcmd,
+  31 were counted twice (see Validation). `two_port_openems`, which writes its
+  checks to FreeCAD's Console itself, was counted once: 321 routed checks were
+  reported as 625, so each total was 304 high.
+  These are re-measured, not halved. Every routed gate was re-run on each
+  proof's own tree with the fixed runner, and all of them passed. Each count
+  came back at exactly half the logged one, except `two_port_openems` at
+  17 = 17. The re-runs used an isolated FreeCAD user directory, so each tree's
+  own `emstudio` was imported, and today's toolchain (kernel 7.0, Elmer PPA
+  202609241055).
+  The same error sits in the `[1.11.1]` entry's "a 118-check gate from a
+  0-check one": `antenna_from_selection` runs 59 checks.
+  And `[1.13.0]`'s "Correction to the reason given in those two entries" was
+  itself only half right. A bare `freecadcmd` run DOES drop `print()`, because
+  Python's buffer is never flushed on its `sys.exit` path, so the earlier entries'
+  "freecadcmd drops stdout" was true of bare runs. `run_gate.py`'s final flush
+  revived that copy, and until now also delivered a second one. (It drops
+  only when the script ends in `sys.exit` / `SystemExit`, which every gate's
+  wrapper does.) The nine gates were uncountable because they asserted
+  silently, which is fixed above.
 * The README's v1.10.0 summary no longer says the pre-tag proof is
   "⚠ PENDING": that run finished 114 ok / 0 failed / 0 skipped in 6.05 h.
   Correction to the `[1.10.0]` entry below, which calls that run "the first

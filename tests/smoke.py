@@ -192,22 +192,112 @@ def _elmer_env_fortran_compiler():
     return "wired to the shipped stripped_gfortran"
 
 
-def _gate_runner_tees_to_console():
-    """A gate run under freecadcmd must be able to say WHY it failed.
+def _gate_runner_one_transcript():
+    """tests/run_gate.py delivers a gate's transcript EXACTLY ONCE, keeps it
+    through a hard exit, and still says why a failing gate failed.
 
-    freecadcmd drops print() on exit, so a failing gate produced exit 1 and a
-    ZERO-BYTE stderr. That silence caused a real mis-diagnosis on 2026-08-06:
-    antenna_from_selection was called pre-existing when it was a regression
-    introduced hours earlier, because there was no message to contradict the
-    assumption. tests/run_gate.py tees stdout into FreeCAD.Console, which
-    survives exit, so no gate needed editing.
+    What this guards, all measured:
+    * 2026-08-06: a bare freecadcmd run drops print() when the script ends in
+      sys.exit / SystemExit (Python's stdout buffer is never flushed on that
+      path), so a failing gate was exit 1 with a zero-byte stderr and got
+      mis-attributed. The shim exists for that.
+    * 2026-09-25: the shim TEED — stream copy AND Console copy — so every
+      printed check line reached stdout twice and `run_battery --all`
+      counted both: every published --all total was ~9 % high, and once the
+      output passed the C stdio buffer (~4 KiB) the two writers spliced lines.
+    * 2026-09-25, the review: Console output sits in C stdio until a NORMAL
+      exit, so a crash in FreeCAD's teardown or an os._exit lost everything
+      unless the shim flushes it per line.
+    This check used to grep run_gate.py for the word "Console.PrintMessage",
+    which the doubling shim satisfied. It now RUNS a fixture gate through the
+    real shim under freecadcmd, captured exactly as run_battery captures it,
+    and counts with run_battery's own regex: a pass; a SystemExit("msg")
+    failure (the message once); an uncaught exception (the traceback); an
+    integer exit code (kept); an os._exit with nothing flushed (every line
+    still there); and ~77 KiB of INTERLEAVED print() and Console lines.
+    Skips out loud where freecadcmd is absent (CI).
     """
-    src = open(os.path.join(_ROOT, "tests", "run_gate.py"),
-               encoding="utf-8").read()
-    assert "Console.PrintMessage" in src, "run_gate no longer tees to Console"
-    assert "runpy.run_path" in src, "run_gate no longer runs the gate"
-    # the exit code must survive, or the shim is worse than the silence
-    assert "code = 0 if c is None else" in src,         "run_gate no longer preserves the gate's exit code"
+    import shutil as _shutil
+    import subprocess as _subprocess
+    import tempfile as _tempfile
+
+    fc = _shutil.which("freecadcmd")
+    if not fc:
+        # _log, not print: under a freecadcmd host a bare print is dropped,
+        # and a skip nobody can see reads exactly like a pass
+        _log("       (no freecadcmd on PATH — run_gate's transcript not "
+             "exercised here)")
+        return
+    sys.path.insert(0, os.path.join(_ROOT, "tests", "validation"))
+    try:
+        import run_battery as _rb
+    finally:
+        sys.path.pop(0)
+    shim = os.path.join(_ROOT, "tests", "run_gate.py")
+    fixture = (
+        "import os, sys\n"
+        "import FreeCAD\n"
+        "N, K, PAD = (int(os.environ[k]) for k in ('FX_N', 'FX_K', 'FX_PAD'))\n"
+        # INTERLEAVED, the way a mixed gate writes: a second writer's line
+        # landing between two of the first's is what lets a buffer boundary
+        # splice them — a fixture that writes in two blocks never exercises it
+        "for i in range(max(N, K)):\n"
+        "    if i < N:\n"
+        "        print('  ok    fixture print check %04d \u2014 %s' % (i, 'x' * PAD))\n"
+        "    if i < K:\n"
+        "        FreeCAD.Console.PrintMessage('  ok    fixture console check %04d \u2014 %s\\n' % (i, 'y' * PAD))\n"
+        "mode = os.environ['FX_MODE']\n"
+        "if mode == 'fail':\n"
+        "    raise SystemExit('FIXTURE GATE FAILED: on purpose')\n"
+        "if mode == 'raise':\n"
+        "    raise RuntimeError('FIXTURE GATE CRASHED: on purpose')\n"
+        "if mode == 'exit2':\n"
+        "    sys.exit(2)\n"
+        "if mode == 'osexit':\n"
+        "    os._exit(3)\n"
+        "print('FIXTURE GATE PASSED')\n"
+        "sys.exit(0)\n")
+    # Scrubbed because smoke also runs under the 1.1.1 AppImage host, which
+    # exports these for its own mount; there `freecadcmd` on PATH is the
+    # AppImage's OWN (1.1.1), so that leg exercises the shim under 1.1.1.
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH")}
+    env["PYTHONIOENCODING"] = "utf-8"
+    cases = [                       # mode, print, Console, pad, rc, must arrive once
+        ("pass", 11, 0, 20, 0, "FIXTURE GATE PASSED"),
+        ("fail", 11, 0, 20, 1, "FIXTURE GATE FAILED: on purpose"),
+        # the traceback's LAST line (its source line also quotes the text)
+        ("raise", 11, 0, 20, 1, "RuntimeError: FIXTURE GATE CRASHED: on purpose"),
+        ("exit2", 11, 0, 20, 2, None),
+        ("osexit", 11, 0, 20, 3, None),         # nothing flushed by the gate
+        ("pass", 400, 400, 60, 0, "FIXTURE GATE PASSED"),   # ~77 KiB, mixed
+    ]
+    with _tempfile.TemporaryDirectory() as tmp:
+        gate = os.path.join(tmp, "fixture_gate.py")
+        with open(gate, "x", encoding="utf-8") as fh:
+            fh.write(fixture)
+        for mode, n, k, pad, want_rc, banner in cases:
+            home = _tempfile.mkdtemp(dir=tmp)   # isolated: no Mod, fast start
+            run_env = dict(env, FX_MODE=mode, FX_N=str(n), FX_K=str(k),
+                           FX_PAD=str(pad), FREECAD_USER_HOME=home)
+            proc = _subprocess.run([fc, shim, gate], capture_output=True,
+                                   text=True, encoding="utf-8",
+                                   errors="replace", env=run_env, timeout=180,
+                                   stdin=_subprocess.DEVNULL)
+            out = (proc.stdout or "") + (proc.stderr or "")
+            counted = len(_rb._CHECK_LINE_RE.findall(out))
+            what = "%s, %d print + %d Console lines" % (mode, n, k)
+            assert counted == n + k, (
+                "run_gate delivered %d check lines for %d (%s) — the transcript "
+                "is %s" % (counted, n + k, what,
+                           "DOUBLED" if counted > n + k else "LOSSY"))
+            assert proc.returncode == want_rc, (
+                "run_gate turned exit %d into %d (%s)"
+                % (want_rc, proc.returncode, what))
+            if banner:
+                assert out.count(banner) == 1, (
+                    "%r arrived %d times (%s) — a failing gate must say why, "
+                    "once" % (banner, out.count(banner), what))
 
 
 def _battery_forces_utf8():
@@ -2256,8 +2346,8 @@ def main():
     check("solver detection runs", _solver_detection_runs)
     check("Elmer zip layout wires ELMER_Fortran_COMPILER (UDFs on Windows)",
           _elmer_env_fortran_compiler)
-    check("gate runner tees to FreeCAD.Console (a failing gate must say "
-          "why)", _gate_runner_tees_to_console)
+    check("gate runner delivers the transcript exactly once (a failing "
+          "gate must say why)", _gate_runner_one_transcript)
     check("gate battery forces UTF-8 (the console must not decide a "
           "gate's verdict)", _battery_forces_utf8)
     check("openEMS python resolver: FreeCAD-free, both venv layouts",

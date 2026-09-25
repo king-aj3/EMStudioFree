@@ -510,8 +510,12 @@ def main(argv=None):
         # line too. Until 2026-08-29 this branch printed only a name and a time,
         # and the child's stdout was kept ONLY in the failure branch — so the
         # battery discarded, on every green run, the single piece of evidence
-        # that distinguishes a gate which checked 118 things from one which
-        # checked none and printed its own PASS banner. An audit found 32 gates
+        # that distinguishes a gate which checked 59 things from one which
+        # checked none and printed its own PASS banner. (That gate,
+        # antenna_from_selection, read 118 here until 2026-09-25: run_gate.py
+        # delivered every freecadcmd-routed transcript twice, and this counter
+        # read both copies. A count is only as honest as the stream it reads.)
+        # An audit found 32 gates
         # of the second kind. A count is not a guarantee, but it is a number a
         # human can read and a future check can compare against: a gate whose
         # executed count silently drops is the shape this project keeps paying

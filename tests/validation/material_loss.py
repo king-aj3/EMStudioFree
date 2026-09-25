@@ -52,8 +52,9 @@ BUT a by-hand freecadcmd run (it is a FAST-tier gate; CI runs it under python3),
 so the one command documented to exercise it was testing nothing — the same
 "settable field that changes nothing" shape this gate exists to catch, one level
 up. The guard below now also fires when FreeCAD is in ``sys.modules``, and
-``run_gate.py`` additionally tees ``print`` into ``FreeCAD.Console`` so the
-verdict is visible rather than inferred from an exit code.
+``run_gate.py`` additionally routes ``print`` into ``FreeCAD.Console`` (which
+survives freecadcmd's exit, exactly once) so the verdict is visible rather than
+inferred from an exit code.
 """
 
 import os
