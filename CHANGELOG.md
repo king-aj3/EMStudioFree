@@ -126,6 +126,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validation
 
+* **The first `--all` since the double-count fix is clean, on a new
+  toolchain.** Master as of 2026-09-25 (26 commits after v1.13.0) ran 115
+  gates: 115 ok, 0 failed, 0 skipped, in 21,073 s, on kernel 7.0.0-34 and
+  Elmer PPA build 202609251017, both new since the v1.13.0 proof. The
+  launcher's verdict is CLEAN, with the tree and the toolchain unchanged at
+  exit. It executed **3,351** checks, which reconciles gate by gate with
+  v1.13.0's corrected 3,232: the nine SOLVER gates that now print check lines
+  add 89, `artefact_versions` adds 16 and `fasthenry_guidance` 14, and every
+  other gate's count is unchanged. That includes the 23 other
+  freecadcmd-routed gates, each equal to its re-measured true count, so the
+  one-copy runner holds in a full run.
 * `openfoam_runner_cancel` no longer fails when two batteries run at once.
   Its orphan probe and its clean-up used fixed markers (`sleep 987.653`, …),
   so one run saw the other's live child as an orphan, and one run's clean-up
