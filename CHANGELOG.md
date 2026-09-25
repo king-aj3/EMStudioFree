@@ -75,6 +75,41 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   checks the CHANGELOG section before bumping any version surface. The fetches
   are bounded and cannot orphan a process on a timeout or Ctrl+C, and a cp1252
   console cannot crash the tool.
+* New `tools/battery_proof.py` (Pro repo, manifest-denied) launches, watches
+  and reads the detached `--all` **proof run** a release's CHANGELOG line
+  cites: `preflight`, `launch --label …`, and `report LOG`. It replaces the
+  one-off launcher the v1.13.0 proof used, which was retired because running
+  it again would have RENAMED that proof's log and DELETED its verdict. The
+  new tool refuses an existing log, verdict or pid file rather than rotating
+  it and creates all three exclusively, so it cannot overwrite them. Each
+  run's verdict is written beside its own log by a detached watcher (a
+  finished-but-unreaped battery counts as exited), and the watcher re-reads
+  the tree and toolchain at exit: a commit, an edit or a package upgrade
+  during the run is named in the verdict as a PROOF CAVEAT. That is the
+  2026-09-23 morning's defect: an apt upgrade landed mid-run. Nothing in the header is
+  hand-typed any more: the gate count comes from `run_battery`, the version
+  from `package.xml`, and the kernel, glibc, Python, Elmer and FreeCAD builds
+  from the box. The run's relation to its tag is measured from git ("N
+  commits AFTER tag v1.13.0"), where the old header said "pre-tag proof" by
+  hand about a post-tag run. Preflight refuses a dirty tree, red artefacts,
+  and a second battery beside a running one. "Running" includes a gate
+  orphaned by killing only the runner's pid. The launch prints the
+  process-group kill that stops a run cleanly, and the check recognises
+  EMStudio's own layout, so other projects' test runners on the box do not
+  block it. It also warns when `artefact_versions` passes having checked
+  nothing. The report's verdict
+  reads completeness, not just failures: CLEAN, RED, NOT CLEAN (skips, or two
+  runs sharing one log), or INCOMPLETE (cut short, or no summary line). A
+  CLEAN verdict carries any zero-coverage warning with it. On real history it
+  reads the v1.13.0, v1.12.0 and v1.11.1 proofs as CLEAN and refuses the
+  2026-09-23 morning log, where two runs shared one file. `smoke` gains a
+  contract that the tool cannot rename, delete, copy over, truncate, shell out
+  or run a git write verb, and that its verdict tells clean, failed, skipped,
+  cut-short, summary-less, gate-missing and doubled-up logs apart. Twelve
+  mutations each turned it red, among them the old launcher's real
+  rotate-the-log behaviour. One review round found two bugs, both fixed: the
+  contract never fed it a skipped gate, and an orphaned gate was invisible
+  to the running-battery check.
 
 ### Validation
 

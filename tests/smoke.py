@@ -1173,6 +1173,144 @@ def _nec2_filename_length():
                      % ", ".join(bad))
 
 
+def _battery_proof_contract():
+    """tools/battery_proof.py (the proof-run launcher) can never clobber a
+    proof, and its verdict reads completeness, not just failures.
+
+    Its predecessor was retired because, run again, it would have RENAMED the
+    log a CHANGELOG line cites and DELETED that run's verdict. The structural
+    half makes that impossible to re-add quietly: no rename/remove/rmtree/
+    copy-over call anywhere in the tool, no shell, every write-mode open() is
+    "x" (O_EXCL) or "a" — and launch()'s FIRST open of the log is "x" — and no
+    git write verb. The behavioural half feeds report_text() seven synthetic
+    logs — clean, failed, a skipped gate, cut short, killed before its summary,
+    a gate missing from a finished run, and two runs sharing one file (the
+    2026-09-23 morning's shape) — and each must get its own verdict.
+    """
+    import ast as _ast
+    import importlib.util as _ilu
+    import tempfile as _tempfile
+
+    path = os.path.join(_ROOT, "tools", "battery_proof.py")
+    if not os.path.isfile(path):
+        # Denied by tools/free_manifest.toml on purpose: it launches the
+        # PRIVATE repo's proof runs. Absent by manifest, not by accident.
+        print("       (free tree: tools/battery_proof.py is manifest-denied)")
+        return
+    with open(path, encoding="utf-8") as fh:
+        tree = _ast.parse(fh.read())
+    # os./shutil. calls that move or delete; plus the pathlib spellings no
+    # str method shares (a bare .replace() is str.replace — not flagged).
+    banned_mod = {"os": {"remove", "unlink", "rename", "renames", "replace",
+                         "rmdir", "removedirs", "system", "popen"},
+                  "shutil": {"rmtree", "move", "copy", "copy2", "copyfile",
+                             "copyfileobj", "copytree"}}
+    bad = []
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Call):
+            continue
+        fn = node.func
+        name = fn.attr if isinstance(fn, _ast.Attribute) else getattr(fn, "id", "")
+        owner = (fn.value.id if isinstance(fn, _ast.Attribute)
+                 and isinstance(fn.value, _ast.Name) else None)
+        if (name in banned_mod.get(owner, ())
+                or (isinstance(fn, _ast.Attribute)
+                    and name in ("unlink", "rmdir", "rename", "write_text",
+                                 "write_bytes"))):
+            bad.append("%s() at line %d" % (name, node.lineno))
+        if any(k.arg == "shell" and not (isinstance(k.value, _ast.Constant)
+                                         and k.value.value is False)
+               for k in node.keywords):
+            bad.append("shell= at line %d" % node.lineno)
+        if name == "open":
+            mode = node.args[1] if len(node.args) > 1 else next(
+                (k.value for k in node.keywords if k.arg == "mode"), None)
+            if isinstance(mode, _ast.Constant) and "w" in str(mode.value):
+                bad.append('open(..., "%s") at line %d — use "x" or "a"'
+                           % (mode.value, node.lineno))
+        # argv literals, including `["git"] + ["push"]`: every string
+        # constant inside the first argument, wherever it sits
+        if isinstance(node.args[0] if node.args else None,
+                      (_ast.List, _ast.Tuple, _ast.BinOp)):
+            words = {c.value for c in _ast.walk(node.args[0])
+                     if isinstance(c, _ast.Constant) and isinstance(c.value, str)}
+            hit = words & {"commit", "push", "tag", "branch", "checkout",
+                           "switch", "reset", "stash", "add", "rm", "mv"}
+            if "git" in words and hit:
+                bad.append("git %s at line %d" % (sorted(hit), node.lineno))
+        if (isinstance(node.args[0] if node.args else None, (_ast.List, _ast.Tuple))
+                and node.args[0].elts
+                and isinstance(node.args[0].elts[0], _ast.Constant)
+                and node.args[0].elts[0].value in ("rm", "mv", "rmdir")):
+            bad.append("%s subprocess at line %d"
+                       % (node.args[0].elts[0].value, node.lineno))
+    # _git(*args) builds its argv at run time; its CALLERS are the verbs.
+    for node in _ast.walk(tree):
+        if (isinstance(node, _ast.Call) and getattr(node.func, "id", "") == "_git"
+                and node.args and isinstance(node.args[0], _ast.Constant)
+                and node.args[0].value not in ("rev-parse", "rev-list",
+                                               "status", "merge-base")):
+            bad.append("_git(%r) at line %d" % (node.args[0].value, node.lineno))
+    # launch()'s FIRST open of the log must be O_EXCL. "a" is legal later (the
+    # battery appends to it), so the blanket rule above cannot see an "x"
+    # quietly turned into an "a" on the header write.
+    launch = next(n for n in tree.body
+                  if isinstance(n, _ast.FunctionDef) and n.name == "launch")
+    log_opens = sorted(
+        (n.lineno, n.args[1].value if len(n.args) > 1
+         and isinstance(n.args[1], _ast.Constant) else None)
+        for n in _ast.walk(launch)
+        if isinstance(n, _ast.Call) and getattr(n.func, "id", "") == "open"
+        and n.args and _ast.unparse(n.args[0]) == "log")
+    if not log_opens or log_opens[0][1] != "x":
+        bad.append("launch() first opens the log with %r, not 'x'"
+                   % (log_opens[0][1] if log_opens else None))
+    assert not bad, "battery_proof.py can clobber or act on git: " + "; ".join(bad)
+
+    spec = _ilu.spec_from_file_location("_battery_proof_under_test", path)
+    mod = _ilu.module_from_spec(spec)
+    saved_path = list(sys.path)
+    try:
+        spec.loader.exec_module(mod)    # inserts tests/validation on sys.path
+    finally:
+        sys.path[:] = saved_path        # ...which must not leak into later checks
+    head = "tree: abc on master\n"
+    banner = "EMStudio validation battery — 2 gate(s), tier: FAST\n"
+    ok2 = "  ok    alpha      0.1s    3 checks\n  ok    beta       0.2s    4 checks\n"
+    tail = ("executed checks: 7 across 2 gate(s)\n"
+            "2 ok, 0 failed, 0 skipped in 0.3s\nBATTERY PASSED\n")
+    logs = {
+        "CLEAN": head + banner + ok2 + tail,
+        "RED": head + banner + "  ok    alpha      0.1s    3 checks\n"
+               "  FAIL  beta       0.2s (rc=1)\n        | boom\n"
+               "1 ok, 1 failed, 0 skipped in 0.3s\nBATTERY FAILED: ['beta']\n",
+        # cut short mid-run, and killed after its last gate but before the
+        # summary — "every gate ok" is not a verdict without the summary
+        "INCOMPLETE": head + banner + "  ok    alpha      0.1s    3 checks\n",
+        "INCOMPLETE ": head + banner + ok2,
+        # a finished run that reported only one of its two gates
+        "INCOMPLETE  ": head + banner + "  ok    alpha      0.1s    3 checks\n"
+                        + tail,
+        # a skipped gate is NOT a pass: preflight only WARNS on a missing
+        # backend precisely because this verdict refuses the skip
+        "NOT CLEAN": head + banner + "  ok    alpha      0.1s    3 checks\n"
+                     "  skip  beta                     — nec2c not on PATH\n"
+                     "1 ok, 0 failed, 1 skipped in 0.1s\nBATTERY PASSED\n",
+        "NOT CLEAN ": head + banner + ok2 + tail + banner + ok2 + tail,
+    }
+    with _tempfile.TemporaryDirectory() as tmp:
+        for i, (want, body) in enumerate(logs.items()):
+            want = want.strip()
+            lp = os.path.join(tmp, "case%d.log" % i)
+            with open(lp, "x", encoding="utf-8") as fh:
+                fh.write(body)
+            text, clean = mod.report_text(lp)
+            verdict = text.strip().splitlines()[-1]
+            assert verdict.startswith("VERDICT: " + want), (
+                "%s log read as %r" % (want, verdict))
+            assert clean == (want == "CLEAN"), (want, clean)
+
+
 def _nec_parser_reads_both_dialects():
     """The NEC2 parser must read nec2c AND nec2++ output.
 
@@ -2122,6 +2260,8 @@ def main():
           "wheel-python probe)", _openems_win_pipeline_pieces)
     check("release tool verifies, refuses, and cannot act outward",
           _release_tool_contract)
+    check("proof-run launcher cannot clobber a proof; verdict reads completeness",
+          _battery_proof_contract)
     check("NEC2 parser reads both nec2c and nec2++ output",
           _nec_parser_reads_both_dialects)
     check("nec2 argv uses basenames (macOS temp paths overflow nec2c)",
