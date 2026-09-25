@@ -78,6 +78,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validation
 
+* `fasthenry_guidance` now proves the FastHenry release binary is COMPILED from
+  the pinned download, not just that the builder fetches it: `build_binary()`
+  is driven for real under a simulated Windows, with the compiler lookup
+  stubbed and the download swapped for a tripwire, and must hand its archive
+  to the shipping build path (`run_fasthenry_win_build(src_zip=…)`) without
+  fetching anything; and `main()` itself is driven on a never-shipped tag, with
+  the network swapped for a recorder, and must make exactly ONE download (the
+  pinned one) and compile that archive. A positive control runs the same build
+  with no archive, and it must reach the download. Negative-controlled:
+  `main()` passing no archive to `build_binary()` turns the `main()` check red;
+  restoring the real
+  pre-2026-08-19 build code (which always downloaded) turns the check red, as
+  does dropping `src_zip` from `build_binary`'s call (no earlier version of
+  that call existed, so that regression is invented), and a build path that
+  never downloads turns the positive control red. Builder-only, like the
+  other builder checks: they skip in the free tree, whose count is unchanged.
 * `artefact_versions` now checks that sample inside the site zip before every
   Pro commit: the block is a clean full-tier run, the stamped record agrees
   with it, and every free FAST gate whose file changed since the stamp is

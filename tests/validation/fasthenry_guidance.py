@@ -429,6 +429,88 @@ def main():
                       "live {0!r} vs {1!r} — a release that moved the plan "
                       "must append its tag".format(bin_tag,
                                                    _bfd.PUBLISHED_TAGS))
+
+                # ⚠ THE BINARY SIDE OF THE PIN (2026-09-25). Everything above
+                # proves the builder FETCHES the pinned commit; nothing proved
+                # the binary is COMPILED from that download. main() hands
+                # download_source()'s archive to build_binary(), which must
+                # pass it on as run_fasthenry_win_build(src_zip=...), which
+                # must extract THAT archive and never download. True today,
+                # but it is two hops into solvers.py — the SHIPPING Build…
+                # path — and a refactor there that dropped src_zip would
+                # compile a fresh fetch of the MOVING ref under a provenance
+                # claim naming the pinned commit, with every check above
+                # still green. Driven for real under a faked Windows: the
+                # compiler lookup and install root are stubbed, the download
+                # is the tripwire above, and the fixture archive has no
+                # induct.c, so the build stops just AFTER extraction — past
+                # the point where a download would have happened.
+                fixture = os.path.join(scratch, "fh-src-fixture.zip")
+                with _zf.ZipFile(fixture, "w") as z:
+                    z.writestr("FastHenry2-fixture/README", "no induct.c here")
+                said = []
+
+                def _drive(build, dl=None):
+                    saved = (os.name, solvers.win_build_toolchain,
+                             solvers.win_install_root, _bfd.say)
+                    solvers._download_archive = dl or _tripwire
+                    solvers.win_build_toolchain = (
+                        lambda: ("cc-stub.exe", "make-stub.exe"))
+                    solvers.win_install_root = (
+                        lambda: os.path.join(scratch, "winroot"))
+                    _bfd.say = said.append
+                    os.name = "nt"
+                    try:
+                        build()
+                        return "returned normally"
+                    except _Reached as exc:
+                        return "went on to DOWNLOAD " + str(exc)
+                    except SystemExit as exc:   # fail(): a named FAIL, not an abort
+                        return "exited: {0}".format(exc)
+                    except Exception as exc:    # SolverError is the expected stop
+                        return "stopped: {0}".format(exc)
+                    finally:
+                        (os.name, solvers.win_build_toolchain,
+                         solvers.win_install_root, _bfd.say) = saved
+
+                out = _drive(lambda: _bfd.build_binary(fixture))
+                check("the builder COMPILES its pinned download: "
+                      "build_binary() hands the archive to the shipping build "
+                      "path, and nothing is fetched",
+                      "DOWNLOAD" not in out and "induct.c" in out
+                      and ("using provided source archive " + fixture) in said,
+                      out)
+                # ...and the FIRST hop, main() → build_binary(): driven for
+                # real on a never-shipped tag with the network swapped for the
+                # recorder. Exactly ONE download — the pinned one — and that
+                # archive is the one compiled. A refactor to build_binary(None)
+                # used to stay green (review 2026-09-25): the build would then
+                # fetch the MOVING ref a second time and be recorded here.
+                requested[:] = []
+                recorded[0] = _bfd.SRC_COMMIT
+                said[:] = []
+                saved_tag, _bfd.RELEASE_TAG = _bfd.RELEASE_TAG, fresh
+                try:
+                    out = _drive(lambda: _bfd.main([]), dl=_fake_download)
+                finally:
+                    _bfd.RELEASE_TAG = saved_tag
+                check("...and main() hands download_source()'s archive to "
+                      "build_binary() (one download, the pinned one, compiled)",
+                      requested == [_bfd.SRC_URL]
+                      and any(line.startswith("using provided source archive ")
+                              for line in said)
+                      and "induct.c" in out,
+                      "requested {0}; {1}".format(requested, out))
+                # POSITIVE control: the same build given NO archive must
+                # reach the download — otherwise a build path that never
+                # downloads anything at all would pass the check above.
+                said[:] = []
+                out = _drive(lambda: solvers.run_fasthenry_win_build(
+                    line_callback=said.append))
+                check("...and the same build WITHOUT an archive does reach "
+                      "the download (the tripwire is live)",
+                      out == "went on to DOWNLOAD "
+                      + solvers.FASTHENRY_WIN_SRC_URL, out)
             finally:
                 solvers._download_archive = real_dl
                 _bfd.OUT_DIR = real_out
