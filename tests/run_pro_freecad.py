@@ -68,7 +68,7 @@ def _find_freecad_windows(fcver, gui):
     """Locate FreeCAD's binaries. Returns a path or raises SystemExit.
 
     Windows installers use TWO-component versions ("FreeCAD 1.1"), unlike the
-    AppImage/DMG names the shell script matches ("FreeCAD_1.1.1-...").
+    AppImage/DMG names the shell script matches ("FreeCAD_1.1.4-...").
     """
     exe = "FreeCAD.exe" if gui else "freecadcmd.exe"
     roots = [

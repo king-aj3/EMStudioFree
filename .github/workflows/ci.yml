@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          # match the FreeCAD 1.1.1 AppImage's bundled python
+          # match the FreeCAD 1.1.x AppImage's bundled python (3.11.14 in 1.1.4)
           python-version: "3.11"
 
       - name: Install python deps

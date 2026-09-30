@@ -3,11 +3,11 @@
 #
 # WHY THIS EXISTS
 # ---------------
-# Since the Pro/Free split (2026-07-27), FreeCAD 1.1.1 loads the
-# Add-on-Manager-installed EMStudioFree from
-# ~/.local/share/FreeCAD/v1-1/Mod/EMStudioFree -- NOT this working tree. That is
-# correct and deliberate: 1.1.1 shows the customer's view of the free product.
-# But it means `import emstudio` under 1.1.1 resolves to the free copy, so:
+# Since the Pro/Free split (2026-07-27), a bare FreeCAD 1.1.x (every 1.1 build
+# shares the v1-1 user dir) loads the Add-on-Manager-installed EMStudioFree from
+# ~/.local/share/FreeCAD/v1-1/Mod/EMStudio -- NOT this working tree. That is
+# correct and deliberate: 1.1.x shows the customer's view of the free product.
+# But it means `import emstudio` under 1.1.x resolves to the free copy, so:
 #   * Pro-only code (emstudio/assistant/**) is not importable there at all, and
 #   * the Pro tree's smoke test compares this package.xml (0.71.0) against the
 #     free clone's version.py (0.70.0) and fails on a mismatch that is not a bug.
@@ -19,7 +19,7 @@
 #
 #   tests/run_pro_freecad.sh tests/smoke.py
 #   tests/run_pro_freecad.sh tests/gui_smoke.py        # offscreen, auto
-#   FREECAD_VER=1.1.3 tests/run_pro_freecad.sh tests/smoke.py
+#   FREECAD_VER=1.1.1 tests/run_pro_freecad.sh tests/smoke.py   # an older build
 #
 # Exit code is the FreeCAD run's own, so this drops straight into a gate chain.
 #
@@ -27,19 +27,28 @@
 # ---------
 # Linux: the FreeCAD AppImage in ~/Downloads. One binary takes --console.
 # macOS: /Applications/FreeCAD-<ver>.app, installed by hand from the upstream
-#   arm64 DMG (the build host carries 0.21.2, 1.1.1 and 1.1.3 side by side).
+#   arm64 DMG (the build host carries 0.21.2, 1.1.1, 1.1.3 and 1.1.4 side by
+#   side).
 #   Two things differ from Linux and both bite:
 #     * The real binaries are Contents/Resources/bin/{freecad,freecadcmd}.
 #       Contents/MacOS/FreeCAD is a wrapper script that `cat`s the bundle's
 #       conda packages.txt to stdout and then BLOCKS -- unusable in a gate.
-#     * There is NO version-suffixed user dir on macOS. 0.21.2, 1.1.1 and 1.1.3
+#     * There is NO version-suffixed user dir on macOS. 0.21.2 and every 1.1.x
 #       all report ~/Library/Application Support/FreeCAD/, so they would share
 #       one Mod/. FREECAD_USER_HOME isolation is not a convenience there, it is
 #       the only way to test a version independently.
 set -euo pipefail
 
-# Which FreeCAD to run. Default 1.1.1 keeps every existing caller unchanged.
-FCVER="${FREECAD_VER:-1.1.1}"
+# Which FreeCAD to run. Since 2026-09-30 (AJ's call) the default is the NEWEST
+# 1.1.x, because that is what a customer downloads: 1.1.4. (It had stayed on
+# 1.1.1 although 1.1.3 was out from 2026-07-25.) 1.1.4 passed smoke +
+# gui_smoke on Linux and Windows, and smoke on macOS; macOS OFFSCREEN gui_smoke
+# crashes on every 1.1.x build (no OpenGL there). Linux wants the AppImage in
+# ~/Downloads, macOS /Applications/FreeCAD-<ver>.app.
+# This line is the SINGLE SOURCE of the default: the Pro repo's
+# tools/check_installed.py and tools/release.py read it, in exactly this
+# FCVER="${FREECAD_VER:-X}" form.
+FCVER="${FREECAD_VER:-1.1.4}"
 
 # EMSTUDIO_TREE lets the same runner drive a BUILT FREE TREE under FreeCAD,
 # which is the only way to honour "verify every export under FreeCAD, not

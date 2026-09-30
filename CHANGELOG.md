@@ -17,6 +17,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Tooling
 
+* **The tooling's default FreeCAD 1.1.x is now 1.1.4** (it was 1.1.1), the
+  build customers download today. `tests/run_pro_freecad.sh` runs 1.1.4
+  unless `FREECAD_VER` names another build, and `tools/check_installed.py
+  --run-smoke` (Pro repo) runs the installed copy's own smoke under the 1.1.4
+  AppImage. Both now read the default from the runner's one `FCVER` line. On
+  1.1.4: the Pro tree's smoke and offscreen GUI smoke passed on Linux, and
+  its smoke passed on macOS; the installed free copy's own smoke passed; and
+  its workbench registered with every command, Pro's included.
+  `FREECAD_VER=1.1.1 tests/run_pro_freecad.sh …` still selects the old build.
 * `tools/release.py --check` no longer fails on a box that builds no
   release artefacts just because the site deploy zip is missing. That zip is
   built on the release box and gitignored, so the Windows VM's clone of the

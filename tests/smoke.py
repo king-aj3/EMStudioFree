@@ -257,9 +257,9 @@ def _gate_runner_one_transcript():
         "    os._exit(3)\n"
         "print('FIXTURE GATE PASSED')\n"
         "sys.exit(0)\n")
-    # Scrubbed because smoke also runs under the 1.1.1 AppImage host, which
-    # exports these for its own mount; there `freecadcmd` on PATH is the
-    # AppImage's OWN (1.1.1), so that leg exercises the shim under 1.1.1.
+    # Scrubbed because smoke also runs under the 1.1.x AppImage host (1.1.4 by
+    # default), which exports these for its own mount; there `freecadcmd` on
+    # PATH is the AppImage's OWN, so that leg exercises the shim under 1.1.x.
     env = {k: v for k, v in os.environ.items()
            if k not in ("PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH")}
     env["PYTHONIOENCODING"] = "utf-8"
@@ -869,7 +869,7 @@ def _release_tool_contract():
     import subprocess as _subprocess
 
     # The tool is a plain-python CLI, and the check runs under THREE hosts
-    # (python3, freecadcmd, the 1.1.1 AppImage). sys.executable is FreeCAD
+    # (python3, freecadcmd, the 1.1.x AppImage). sys.executable is FreeCAD
     # itself under freecadcmd, and the AppImage's bundled python cannot run
     # scripts outside its mount — both produce garbage that reads like a
     # refusal. The SYSTEM python is the tool's real runtime; prefer it
