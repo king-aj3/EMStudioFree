@@ -26,6 +26,20 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   its smoke passed on macOS; the installed free copy's own smoke passed; and
   its workbench registered with every command, Pro's included.
   `FREECAD_VER=1.1.1 tests/run_pro_freecad.sh …` still selects the old build.
+* **On macOS, `tests/run_pro_freecad.sh` runs GUI tests in the logged-in
+  desktop session instead of Qt's offscreen mode.** Offscreen on macOS has no
+  OpenGL, so `gui_smoke` segfaulted the moment FreeCAD painted a 3-D view
+  (in Coin3D, exit 139), on FreeCAD 1.1.1, 1.1.3 and 1.1.4 alike. The
+  runner now loads the run into the user's launchd GUI domain as a one-shot
+  job, which needs no administrator rights over SSH, only that the same user
+  is logged in at the Mac. It passes FreeCAD's own exit code back. If the
+  runner is stopped (Ctrl-C, SIGTERM, even SIGKILL) or times out, FreeCAD is
+  stopped too; a job left by a killed runner is cleared on the next run. `gui_smoke` now
+  passes on the macOS build host on all three builds. Forcing the old path
+  (`EMSTUDIO_MAC_GUI=offscreen`) still segfaults, so the session is what
+  fixed it. A Mac with no desktop session falls back to offscreen with a
+  warning; `EMSTUDIO_MAC_GUI=aqua` refuses that fallback. Linux, Windows
+  and console runs are unchanged.
 * `tools/release.py --check` no longer fails on a box that builds no
   release artefacts just because the site deploy zip is missing. That zip is
   built on the release box and gitignored, so the Windows VM's clone of the

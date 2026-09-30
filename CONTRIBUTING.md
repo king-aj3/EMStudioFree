@@ -76,5 +76,9 @@ python3 tests/validation/run_battery.py       # the FAST validation tier
 QT_QPA_PLATFORM=offscreen freecad tests/gui_smoke.py
 ```
 
+On macOS, Qt's offscreen mode has no OpenGL, so `gui_smoke` crashes as soon as
+FreeCAD draws a 3-D view. There, run `tests/run_pro_freecad.sh tests/gui_smoke.py`
+while you are logged in at the Mac: it runs the test in your desktop session.
+
 All of these should be green before you open a pull request. If one fails for a
 reason you believe is unrelated, say so rather than leaving it unmentioned.
