@@ -160,6 +160,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   other gate's count is unchanged. That includes the 23 other
   freecadcmd-routed gates, each equal to its re-measured true count, so the
   one-copy runner holds in a full run.
+* **A second `--all`, on kernel 7.0.0-38 and Elmer PPA build 202609302011,
+  is clean too.** Master as of 2026-10-03 (still unreleased work since
+  v1.13.0; `emstudio/` is unchanged since the tag) ran 115 gates: 115 ok,
+  0 failed, 0 skipped, in 19,760 s. The kernel and the Elmer build are both
+  new since the run above. The launcher's verdict is CLEAN, with the tree
+  and the toolchain unchanged at exit. It executed **3,351** checks, and
+  every gate's count equals its count in the run above.
 * `openfoam_runner_cancel` no longer fails when two batteries run at once.
   Its orphan probe and its clean-up used fixed markers (`sleep 987.653`, …),
   so one run saw the other's live child as an orphan, and one run's clean-up
