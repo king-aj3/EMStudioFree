@@ -1374,7 +1374,7 @@ WINDOWS_HINTS = {
                  "prints (the Install button replaces the Build… button here; "
                  "Build… remains the route on Linux and macOS).",
     "elmer": "One-click guided install available — the Install button downloads the "
-             "official CSC Windows build (~122 MB zip, per-user, no admin rights) "
+             "official CSC Windows build (~354 MB zip, per-user, no admin rights) "
              "and EMStudio detects it automatically. Manual alternative: the "
              "official installer at https://www.elmerfem.org/.",
     "palace": "No native Windows support (Linux/macOS only) — use WSL2.",
@@ -1444,50 +1444,70 @@ def _managed_dirs(key):
 #: publisher's own distribution point (funet is CSC's mirror — CSC writes
 #: Elmer; gmsh.info is gmsh's home).
 #:
-#: The Elmer URL is RELEASE-PINNED as of 2026-08-06, and the rolling
-#: "current build" name must not come back: CSC's NIGTLY_BUILD_IS_BROKEN.txt
+#: The Elmer URL is PINNED BY SHA-256 to CSC's 2026-09-17 devel snapshot
+#: (upstream commit 11c118114) since 2026-10-07, on AJ's go. The rolling
+#: "current build" name must never come back: CSC's NIGTLY_BUILD_IS_BROKEN.txt
 #: (funet, 2026-08-05, citing our ElmerCSC/elmerfem#858) says the nightly
 #: zips had AGAIN stopped bundling the MinGW runtime DLLs, the nightly is
-#: abandoned ("we will not try to repair"), the rolling names now hold a
-#: restored July-1 build, and fresh builds live behind a GitHub login
-#: (Actions artifacts) — unusable for unattended installs. The rel26.1/
-#: subdir is the release-pinned alternative: stable name AND stable content.
-#: VERIFIED before switching (2026-08-06, the exact zip below, downloaded
-#: and inspected): 3819 entries, bin/ElmerSolver.exe + bin/ElmerGrid.exe,
-#: 296 DLLs in bin/ including every runtime DLL in the completion list —
-#: which stays anyway, because it is free on a complete zip and repairs an
-#: incomplete one.
+#: abandoned ("we will not try to repair"), and the rolling names hold a
+#: restored July-1 build.
+#: History: rel26.1/ (release-pinned, stable name AND content) from
+#: 2026-08-06 to 2026-10-07. It was left because its elmerf90 execs an
+#: absolute D:/msys64/mingw64/bin/gfortran.exe from CSC's build machine
+#: (exit 127 anywhere else; no PATH shim reaches an absolute exec), so a
+#: Windows user could not compile a UDF. The snapshot carries upstream's
+#: relocation arc (#911/#912/#917/#918/#921; our retests are in
+#: docs/upstream/), so its elmerf90 finds the compiler it ships. funet
+#: listed it from 09-17 but served it 403 until at least 10-04 (our note on
+#: #858); it downloads since 10-07.
+#: The snapshot's name carries its date and commit, so unlike the rolling
+#: name it is not reused for new bytes; the hash makes that checkable rather
+#: than assumed. It is also the hash GitHub recorded for the same build as
+#: an Actions artifact (run 35218380847, commit 11c118114), so the funet
+#: bytes are CSC's CI output, not a re-pack.
+#: VERIFIED before switching (2026-10-07, the exact zip below, downloaded
+#: and inspected): 371,522,563 bytes, 7563 entries under ONE top-level
+#: folder (run_win_install finds the tree by the proof file, so the folder
+#: name does not matter), bin/ElmerSolver.exe + ElmerGrid.exe + ElmerGUI.exe,
+#: 231 DLLs in bin/ including every runtime DLL in the completion list
+#: (plus libgomp-1.dll), no msmpi.dll.
 #: Elmer gui/nompi is deliberate on BOTH axes: nompi because EMStudio drives
 #: a headless serial ElmerSolver and MS-MPI needs its own admin installer;
-#: gui — NOT nogui — because when this was chosen the nogui zip shipped no
-#: MinGW runtime DLLs at all (only static .a archives in its stripped
-#: toolchain), so its ElmerSolver.exe died 0xC0000135 before printing a
-#: byte. CSC's 2026-08-05 rebuild fixed the runtime across the board, but
-#: gui stays: it is the variant actually verified end to end here, and a
-#: rolling "current build" URL is not the place to switch variants on the
-#: strength of one upstream rebuild.
+#: gui — NOT nogui — because when this was chosen (rel26.1 era) the nogui
+#: zip shipped no MinGW runtime DLLs at all, so its ElmerSolver.exe died
+#: 0xC0000135 before printing a byte. The snapshot is published as one
+#: nompi zip that INCLUDES ElmerGUI (verified above), so that choice holds
+#: without a variant switch.
 WIN_INSTALL_PLANS = {
     "elmer": {
-        "estimate": "3-15 min (a ~210 MB download; no compile)",
+        "estimate": "3-20 min (a ~354 MB download; no compile)",
         "url": "https://www.nic.funet.fi/pub/sci/physics/elmer/bin/windows/"
-               "rel26.1/ElmerFEM-gui-nompi-Windows-AMD64-rel26.1.zip",
+               "elmerfem-nompi-devel-26.2-11c118114-20260917_Windows-AMD64.zip",
+        "sha256": "3ee35c8a1851319466b15e1d17ad6fe682bf13c048849404d141c7c3b47bb4ef",
         # The file that proves extraction found the real tree, relative to it.
         "proof": os.path.join("bin", "ElmerSolver.exe"),
         # UPSTREAM FIXED THIS — the completion step below is now normally a
         # NO-OP. When ElmerCSC/elmerfem#858 was filed the Windows zips shipped
         # NO MinGW runtime DLLs and ElmerSolver.exe died 0xC0000135 before
         # printing a byte. CSC refreshed the funet build on **2026-08-05** and
-        # it now carries 316 DLLs in bin/, beside the exe. VERIFIED on the
+        # that build carried 316 DLLs in bin/, beside the exe (the snapshot
+        # pinned since 2026-10-07 carries 231, all five below included).
+        # VERIFIED on the
         # Windows VM the same day: extracted the refreshed zip, stripped PATH
         # to C:\Windows, ran NO completion step — ElmerSolver reached "ELMER
         # SOLVER FINISHED" (exit 0) and ElmerGrid ran (exit 0). It is genuinely
         # self-contained.
         #
-        # The completion path is KEPT as a fallback, because the zip is a
-        # rolling "current build" URL: if CSC ever rebuilds without the
-        # runtime, this silently repairs it instead of handing the user a
-        # 0xC0000135 with no message. `need` is computed per-DLL, so on a
-        # complete zip nothing is downloaded at all.
+        # The completion path is KEPT as a fallback. It was written when the
+        # zip was a rolling "current build" URL that CSC could rebuild without
+        # the runtime; the pinned snapshot carries all five (verified
+        # 2026-10-07), so on it this is a no-op. ⚠ It was built and verified
+        # for the rel26.1-era MINGW64 (msvcrt) zips; the pinned snapshot is a
+        # UCRT64 build (its DLLs import api-ms-win-crt, not msvcrt.dll) made
+        # with GCC 16.2.0, so these MINGW64 packages would be the wrong runtime
+        # flavour for it. Before relying on this at a future re-pin, re-measure
+        # (or switch runtime_pkgs to the ucrt64 names). `need` is computed
+        # per-DLL, so on a complete zip nothing is downloaded at all.
         #
         # **libgomp-1.dll was REMOVED from this list on 2026-08-05.** It was
         # here because MSYS2's OpenBLAS is an OpenMP build — but CSC's own
@@ -1504,8 +1524,9 @@ WIN_INSTALL_PLANS = {
         # from gcc-LIBGFORTRAN, libwinpthread-1 from libwinpthread (the old
         # "-git" suffixed name is GONE from the index). GCC's Windows runtime
         # is backward-compatible — libgfortran so-version 5 covers GCC 8
-        # through current — so a newer runtime under a GCC 10-built Elmer is
-        # the supported direction.
+        # through current — so a newer runtime under the GCC 10-built rel26.1
+        # was the supported direction (the pinned snapshot is GCC 16.2.0 and
+        # UCRT64 — see the ⚠ above).
         "runtime_dlls": ("libgfortran-5.dll", "libgcc_s_seh-1.dll",
                          "libquadmath-0.dll", "libwinpthread-1.dll",
                          "libopenblas.dll"),
@@ -1576,12 +1597,14 @@ WIN_INSTALL_PLANS = {
     # stay published for as long as this URL is live. Bump BOTH together.
     #
     # The URL is version-pinned rather than a floating "current build" name,
-    # unlike elmer/gmsh: we control this one, so a rebuild gets a new tag and an
+    # unlike gmsh: we control this one, so a rebuild gets a new tag and an
     # explicit edit here, which is auditable instead of silently shifting under
-    # users.
+    # users. (Elmer's, an upstream URL, is pinned by name AND hash since
+    # 2026-10-07.)
     #
     # NO runtime_dlls: that key exists to COMPLETE a deficient upstream zip from
-    # MSYS2 (CSC's Elmer zips ship none). Ours ships its own complete set and was
+    # MSYS2 (CSC's Elmer zips shipped none when it was written; the pinned one
+    # ships all five). Ours ships its own complete set and was
     # clean-room verified with PATH stripped to C:\Windows, so there is nothing
     # to complete — and libnecpp.dll has no MSYS2 package anyway, so a fallback
     # attempt could only fail confusingly.
@@ -1600,8 +1623,11 @@ WIN_INSTALL_PLANS = {
         "proof": "nec2++.exe",
         # The GPL-2 section 3 offer. This is not documentation — the smoke gate
         # REQUIRES it for any self-hosted plan and requires it to sit in the
-        # same release tag as the binary, so a rebuild cannot ship new binaries
-        # against a stale source zip.
+        # same release folder as the binary, so a rebuild published under a new
+        # tag must bring a source zip with it. What smoke cannot prove is that
+        # the zip is the binary's ACTUAL source: its provenance table
+        # (`_NEC2PP_BUILDS`) ties each published build, by zip sha256, to a
+        # commit someone recorded, and a row that copies the old commit passes.
         "source_offer": "https://github.com/king-aj3/EMStudioFree/releases/"
                         "download/nec2pp-2.3.4-win64/nec2pp-source-46f7fbd.zip",
         # We publish this asset, and a GitHub release asset is mutable in
@@ -2002,8 +2028,11 @@ def run_win_install(key, line_callback=None, _plan=None):
         # that feeds attacker-controllable bytes to code, and a GitHub release
         # asset (the self-hosted plans) is mutable in place — a pinned hash is
         # what makes "the zip we verified is the zip users get" checkable.
-        # Optional per plan: elmer/gmsh point at upstream URLs whose content
-        # legitimately shifts, so pinning those would break every refresh.
+        # Optional per plan: gmsh points at an upstream rolling URL whose
+        # content legitimately shifts, so pinning it would break every
+        # refresh. Elmer's snapshot name is dated, so it IS pinned
+        # (2026-10-07): if CSC ever refilled it, this check would refuse the
+        # new bytes instead of installing them unverified.
         want = plan.get("sha256", "")
         if want:
             say("verifying sha256...")

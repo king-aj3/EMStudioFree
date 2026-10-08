@@ -31,6 +31,7 @@ all: any failure of the live solve is a FAILURE.
 import math
 import os
 import sys
+import tempfile
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
@@ -77,7 +78,10 @@ def _write_deck(model):
 
     body_ids = {"billet": 1, "air": 2}
     boundary_ids = {"router": 1, "surf_billet": 2}
-    tmp = os.path.join(os.environ.get("TMPDIR", "/tmp"),
+    # tempfile.gettempdir(), not "/tmp": it still prefers TMPDIR, and Windows
+    # has no /tmp — with TMPDIR unset this gate crashed there before checking
+    # anything (FileNotFoundError on "/tmp\\…sif", Windows VM, 2026-10-07).
+    tmp = os.path.join(tempfile.gettempdir(),
                        "emstudio_rad_deck_{0}.sif".format(os.getpid()))
     writer.write_sif(model, 100.0, tmp, body_ids, boundary_ids)
     with open(tmp, encoding="utf-8") as fh:

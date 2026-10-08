@@ -31,6 +31,7 @@ propagates and exits non-zero: only an ABSENT BACKEND is a skip.
 import math
 import os
 import sys
+import tempfile
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
@@ -143,7 +144,10 @@ def _interp(xs, ys, x):
 def gate_emission():
     from emstudio.solvers.elmer import writer3d
 
-    tmp = os.path.join(os.environ.get("TMPDIR", "/tmp"),
+    # tempfile.gettempdir(), not "/tmp": it still prefers TMPDIR, and Windows
+    # has no /tmp — with TMPDIR unset this gate crashed there before checking
+    # anything (FileNotFoundError on "/tmp\\…sif", Windows VM, 2026-10-07).
+    tmp = os.path.join(tempfile.gettempdir(),
                        "emstudio_w3d_deck_{0}.sif".format(os.getpid()))
     writer3d.write_sif3d(solenoid_model(), tmp, {"air": 1, "coil": 2},
                          {"outer": 3})

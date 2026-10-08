@@ -100,18 +100,33 @@ def elmer_env(exe):
             elmer_lib, os.environ.get("PATH", ""))),
     }
     # ELMER_Fortran_COMPILER — disarms a Windows landmine BEFORE we can step on
-    # it. `elmerf90` compiles Elmer USER FUNCTIONS, and on every machine that is
-    # not the build host it compiles nothing: the build host's compiler path is
-    # baked into the binary (`D:/msys64/mingw64/bin/gfortran.exe`). EMStudio
-    # ships no UDF today, so this changes NOTHING that currently runs — it is
-    # here so that the day one is added, it already works on Windows instead of
-    # failing in a way nobody would connect to the compiler.
+    # it. `elmerf90` compiles Elmer USER FUNCTIONS, and in the rel26.1 zip (the
+    # pin until 2026-10-07) it compiled nothing on any machine but the build
+    # host: that host's compiler path is baked into the binary
+    # (`D:/msys64/mingw64/bin/gfortran.exe`). The 11c118114 snapshot pinned
+    # since relocates (#912: the gfortran.exe beside it in bin/) and ships no
+    # stripped_gfortran/, so on it the override below stays dormant; it is kept
+    # for a tree that still has the old layout. EMStudio ships no UDF today, so
+    # this changes NOTHING that currently runs — it is here so that the day one
+    # is added, the compiler at least resolves on that layout (the ⚠ below says
+    # what else a compile needs).
     #
     # The variable is a RUNTIME override read by elmerf90.c
     # (`fc = env_fc ? env_fc : ELMERF90_FC`), pointed out by Juha Ruokolainen on
     # ElmerCSC/elmerfem#858 as untested. We tested it: with it set to the
     # compiler the zip ALREADY SHIPS, elmerf90 builds a real `USE DefUtils` UDF
     # (95 812-byte DLL, exit 0); without it, exit 127 and no output.
+    #
+    # ⚠ MEASURED 2026-10-07 on the Windows VM: that was NOT the environment this
+    # function returns. With the ELMER_LIB set above (the solver-module dir
+    # ElmerSolver wants), elmerf90 links a UDF on NEITHER zip — it also takes
+    # ELMER_LIB as its LINK dir, and the import library lives in
+    # <root>\lib\elmersolver (`ld: cannot find -lelmersolver`; rel26.1's
+    # wrapper even exits 0 on that). With NO ELMER_* and bin on PATH, the
+    # 11c118114 snapshot compiles and runs a `USE DefUtils` UDF. So the first
+    # UDF EMStudio ships must be compiled with ELMER_LIB unset (or pointed at
+    # <root>\lib\elmersolver): this env is for RUNNING Elmer, not compiling.
+    # Record: docs/upstream/elmer-repin-2026-10-07.md.
     #
     # Consistent with this function's standing rule — it is DEFENSIVE, setting
     # what a zip layout needs rather than the minimum one Elmer build happens to

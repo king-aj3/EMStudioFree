@@ -25,6 +25,7 @@ Pass: exit 0 and 'TEAM7 GATE PASSED'. Auto-skips without ElmerSolver/gmsh.
 import math
 import os
 import sys
+import tempfile
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
@@ -116,7 +117,10 @@ def team7_model():
 def gate_emission():
     from emstudio.solvers.elmer import writer3d
 
-    tmp = os.path.join(os.environ.get("TMPDIR", "/tmp"),
+    # tempfile.gettempdir(), not "/tmp": it still prefers TMPDIR, and Windows
+    # has no /tmp — with TMPDIR unset this gate crashed there before checking
+    # anything (FileNotFoundError on "/tmp\\…sif", Windows VM, 2026-10-07).
+    tmp = os.path.join(tempfile.gettempdir(),
                        "emstudio_team7_deck_{0}.sif".format(os.getpid()))
     writer3d.write_sif3d(team7_model(), tmp,
                          {"air": 1, "plate": 2, "coil": 3}, {"outer": 4})

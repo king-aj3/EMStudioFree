@@ -41,6 +41,7 @@ swallowed into a skip.
 import math
 import os
 import sys
+import tempfile
 
 def _trapz(y, x):
     """Trapezoidal integral, independent of the numpy version.
@@ -232,7 +233,10 @@ def _write_deck(model, f_hz=50.0):
 
     ids = {b["name"]: i + 1 for i, b in enumerate(model["bodies"])}
     ids["air"] = len(model["bodies"]) + 1
-    tmp = os.path.join(os.environ.get("TMPDIR", "/tmp"),
+    # tempfile.gettempdir(), not "/tmp": it still prefers TMPDIR, and Windows
+    # has no /tmp — with TMPDIR unset this gate crashed there before checking
+    # anything (FileNotFoundError on "/tmp\\…sif", Windows VM, 2026-10-07).
+    tmp = os.path.join(tempfile.gettempdir(),
                        "emstudio_bh_deck_{0}.sif".format(os.getpid()))
     writer.write_sif(model, f_hz, tmp, ids,
                      {"router": 1, "ztop": 2, "zbottom": 3})

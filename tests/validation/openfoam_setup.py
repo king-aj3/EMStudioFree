@@ -263,9 +263,22 @@ def main():
     check("openfoam is NOT a WIN_INSTALL_PLANS zip (its dialog flow is the "
           "WSL one; a plan entry here would shadow it)",
           "openfoam" not in solvers.WIN_INSTALL_PLANS)
-    check("Elmer's Windows zip is release-pinned (the rolling funet nightly "
-          "was abandoned upstream 2026-08-05)",
-          "rel26.1" in solvers.WIN_INSTALL_PLANS["elmer"]["url"])
+    # Pinned = a hash the installer checks before extracting AND a dated
+    # snapshot or a release zip by name. funet's rolling names (ElmerFEM-{gui,nogui}-{nompi,mpi}-Windows-
+    # AMD64.zip) carry no date and were refilled under the same name; a hash
+    # pinned to one of them breaks every install at CSC's next refill.
+    _elmer_plan = solvers.WIN_INSTALL_PLANS["elmer"]
+    _elmer_zip = _elmer_plan["url"].rsplit("/", 1)[-1]
+    check("Elmer's Windows zip is pinned by SHA-256 to a dated snapshot or a "
+          "release zip, never a rolling funet name (that nightly was abandoned "
+          "upstream 2026-08-05)",
+          re.fullmatch(r"[0-9a-f]{64}", _elmer_plan.get("sha256", ""))
+          is not None
+          and re.fullmatch(r"ElmerFEM-(gui|nogui)-(nompi|mpi)-Windows-AMD64"
+                           r"\.zip", _elmer_zip) is None
+          and re.search(r"(?<!\d)20\d{6}(?!\d)|-rel\d+\.\d+\.zip$",
+                        _elmer_zip) is not None,
+          "sha256=%r zip=%s" % (_elmer_plan.get("sha256", "")[:12], _elmer_zip))
 
     # --- live discovery self-consistency ------------------------------------
     # Environment-independent assertions: they hold on a box with no

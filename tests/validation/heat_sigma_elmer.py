@@ -50,6 +50,7 @@ every one of those regressions became a silent "skip" under a printed
 import math
 import os
 import sys
+import tempfile
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
@@ -99,7 +100,10 @@ def _billet_model(alpha=None, transient=False):
 def _write_deck(model):
     from emstudio.solvers.elmer import writer
 
-    tmp = os.path.join(os.environ.get("TMPDIR", "/tmp"),
+    # tempfile.gettempdir(), not "/tmp": it still prefers TMPDIR, and Windows
+    # has no /tmp — with TMPDIR unset this gate crashed there before checking
+    # anything (FileNotFoundError on "/tmp\\…sif", Windows VM, 2026-10-07).
+    tmp = os.path.join(tempfile.gettempdir(),
                        "emstudio_sigma_deck_{0}.sif".format(os.getpid()))
     writer.write_sif(model, F, tmp, {"billet": 1, "air": 2},
                      {"router": 1, "surf_billet": 2})

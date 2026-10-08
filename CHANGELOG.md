@@ -15,6 +15,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > next entry was written straight under the heading). It is the release safety
 > net; put it back rather than letting it go.
 
+## [1.13.1] — 2026-10-08
+
+> A maintenance release. The one change a Windows user sees is the Elmer
+> build the Install button fetches (Changed, below): CSC's 2026-09-17
+> snapshot, pinned by SHA-256, in place of `rel26.1`. The rest is test,
+> tooling and record work. The pre-tag `--all` proof on the release tree
+> is recorded here when it finishes.
+
+### Changed — Elmer on Windows
+
+* **The guided Windows Elmer install now fetches CSC's 2026-09-17 build
+  (upstream commit `11c118114`), pinned by SHA-256, instead of the `rel26.1`
+  release zip.** The download is about 354 MB (it was about 210 MB) and is
+  checked against the pinned hash before anything is extracted; the hash is
+  also the one GitHub recorded for the same build in CSC's own CI. Out of
+  the box, `rel26.1`'s Fortran wrapper (`elmerf90`) calls a compiler path
+  that exists only on CSC's build machine, so it cannot compile an Elmer
+  user function anywhere else; the new build's finds the compiler it ships
+  (measured on our Windows test machine). EMStudio itself ships no user
+  functions. On Windows the 11 Elmer validation gates pass on both builds
+  with the same 193 checks. An existing `rel26.1` install keeps working; the
+  Install button now fetches the new build.
+
 ### Tooling
 
 * **The tooling's default FreeCAD 1.1.x is now 1.1.4** (it was 1.1.1), the
@@ -149,6 +172,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Validation
 
+* **Six Elmer gates now run on Windows.** `bh_elmer`, `heat_ktemp_elmer`, `heat_radiation_elmer`, `heat_sigma_elmer`, `team7_elmer`, `whitney3d_elmer` wrote their
+  scratch solver deck to `$TMPDIR`, or `/tmp` when it is unset. Windows sets
+  no `TMPDIR` and has no `/tmp`, so all six crashed before checking
+  anything. They now use the platform's temp folder (`tempfile.gettempdir()`,
+  which still prefers `TMPDIR`). Measured on the Windows test machine with
+  `TMPDIR` unset, in the same environment before and after: before the fix
+  0 of the 6 ran; after it, the 11 Elmer gates are 11/0 with 193 checks, the
+  same count as on Linux. On Linux the counts are unchanged, and the deck
+  still goes to `TMPDIR` when it is set and to `/tmp` when none of `TMPDIR`,
+  `TEMP` or `TMP` is.
 * **The first `--all` since the double-count fix is clean, on a new
   toolchain.** Master as of 2026-09-25 (unreleased work since v1.13.0) ran
   115 gates: 115 ok, 0 failed, 0 skipped, in 21,073 s, on kernel 7.0.0-34 and
@@ -369,6 +402,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+* The comment on nec2's source offer in `emstudio/setup/solvers.py` no
+  longer claims more than `smoke` proves. `smoke` requires the source zip to
+  sit in the binary's release folder; it cannot prove the zip is the
+  binary's actual source, and the comment now says so.
 * **Correction to the `--all` coverage figures in the `[1.13.0]`, `[1.12.0]`
   and `[1.11.1]` entries below.** Those proof runs printed **3,536**, **3,535**
   and **3,524** executed checks. The true figures are **3,232**, **3,231** and

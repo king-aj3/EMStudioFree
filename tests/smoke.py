@@ -142,12 +142,17 @@ def _solver_detection_runs():
 def _elmer_env_fortran_compiler():
     """A zip-layout Elmer gets ELMER_Fortran_COMPILER when it ships a compiler.
 
-    `elmerf90` (which builds Elmer USER FUNCTIONS) has the BUILD HOST's compiler
-    path baked in, so on any other machine it compiles nothing — measured exit
-    127, no output. `ELMER_Fortran_COMPILER` is the runtime override, and the
-    Windows zip already ships a working GNU Fortran 10.2.0 under
-    `stripped_gfortran/`. Pointing one at the other makes UDFs work with no user
-    configuration (measured: a real `USE DefUtils` UDF, 95 812-byte DLL).
+    `elmerf90` (which builds Elmer USER FUNCTIONS) in the rel26.1 zip has the
+    BUILD HOST's compiler path baked in, so on any other machine it compiles
+    nothing — measured exit 127, no output. `ELMER_Fortran_COMPILER` is the
+    runtime override, and that zip ships GNU Fortran 10.2.0 under
+    `stripped_gfortran/`; pointed there, elmerf90 built a real `USE DefUtils`
+    UDF (95 812-byte DLL). ⚠ That was not under the full elmer_env: its
+    ELMER_LIB breaks the link on both zips (measured 2026-10-07,
+    docs/upstream/elmer-repin-2026-10-07.md). The snapshot pinned since
+    2026-10-07 has no `stripped_gfortran/` (its elmerf90 relocates to the
+    gfortran in bin/), so there the override stays dormant; this check pins
+    the override's logic on the layout that needs it.
 
     EMStudio ships no UDF today, so this changes nothing that runs — which is
     exactly why it needs a check, or it would rot unnoticed until the first
@@ -1955,8 +1960,10 @@ def _win_guided_install_contract():
             # Self-hosted implies PINNED. A GitHub release asset is mutable
             # in place, so an unpinned self-hosted zip can be silently
             # replaced under users and run_win_install would execute whatever
-            # is there. Upstream plans (elmer/gmsh) legitimately refresh
-            # their bytes and stay unpinned; ours must not.
+            # is there. An upstream plan on a rolling name (gmsh) legitimately
+            # refreshes its bytes and may stay unpinned (elmer's dated
+            # snapshot is pinned anyway, and openfoam_setup checks it); ours
+            # must not.
             sha = plan.get("sha256", "")
             assert len(sha) == 64 and all(
                 c in "0123456789abcdef" for c in sha.lower()), (
