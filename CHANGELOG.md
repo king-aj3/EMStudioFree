@@ -20,8 +20,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > A maintenance release. The one change a Windows user sees is the Elmer
 > build the Install button fetches (Changed, below): CSC's 2026-09-17
 > snapshot, pinned by SHA-256, in place of `rel26.1`. The rest is test,
-> tooling and record work. The pre-tag `--all` proof on the release tree
-> is recorded here when it finishes.
+> tooling and record work. Published 2026-10-08 (GitHub release, site and
+> Gumroad) before its full `--all` ran; that post-tag proof, on this tree,
+> is recorded here when it finishes — as for 1.13.0. Before the tag:
+> smoke green on the Pro and free trees, FAST 54/0/0 (2,304) and free
+> FAST 40/0/0 (1,625), 0.21.2 offscreen gui_smoke 41 checks, and the 11
+> Elmer gates 11/0, 193 on Linux and on Windows.
 
 ### Changed — Elmer on Windows
 
