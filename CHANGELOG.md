@@ -21,8 +21,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > build the Install button fetches (Changed, below): CSC's 2026-09-17
 > snapshot, pinned by SHA-256, in place of `rel26.1`. The rest is test,
 > tooling and record work. Published 2026-10-08 (GitHub release, site and
-> Gumroad) before its full `--all` ran; that post-tag proof, on this tree,
-> is recorded here when it finishes — as for 1.13.0. Before the tag:
+> Gumroad) before its full `--all` ran. That post-tag proof ran the same
+> evening on the tag plus four record docs (this file, the handoff,
+> `NEXT_SESSION`, `PROJECT_MEMORY`; nothing executable), on kernel 7.0.0-38
+> and Elmer PPA build 202610072056: **115 ok, 0 failed, 0 skipped, 3,351
+> checks, in 19,695 s**, every gate's count equal to the 2026-10-03 run's.
+> The launcher's verdict is CLEAN, with the tree and the toolchain
+> unchanged at exit. Before the tag:
 > smoke green on the Pro and free trees, FAST 54/0/0 (2,304) and free
 > FAST 40/0/0 (1,625), 0.21.2 offscreen gui_smoke 41 checks, and the 11
 > Elmer gates 11/0, 193 on Linux and on Windows.
