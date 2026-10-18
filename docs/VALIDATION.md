@@ -805,11 +805,11 @@ citations, one chart-read table and one gate-scoring offset note:
   * source: substrate.kappa = 1e-3 * 2*pi*2.45e9 * EPS0*substrate.epsR; feed.R = 50; AddLumpedPort(..., feed.R, start, stop, [0 1 0], true) spanning [0 0 0]+tl to [ifa.wf 0.5 0]+tl (a 0.5 mm y-slice, feed element starting at y=0.5);
   * cite: Same upstream inverted_f.m (thliebig/openEMS master), lines read directly: kappa/feed.R in the setup block, AddLumpedPort and SmoothMesh in the geometry/mesh block
 * [CONFIRMED] **'The file publishes no expected numbers — no resonance, no S11, no gain'**
-  * repo: Claim at docs/upstream/ifa-anchors.md:46-49 and docs/TUTORIALS.md:1771-1774 ('openEMS's example publishes no expected resonance, S11 or gain, only its title')
+  * repo: Claim at docs/upstream/ifa-anchors.md:46-49 and docs/TUTORIALS.md:1799-1803 ('openEMS's example publishes no expected resonance, S11 or gain, only its title')
   * source: Full 202-line read of upstream inverted_f.m: no numeric expected result anywhere; the only frequency statement beyond the solver setup is the header comment 'EXAMPLE / antennas / inverted-f antenna (ifa) 2.4GHz'; the dis
   * cite: raw.githubusercontent.com/thliebig/openEMS/master/matlab/examples/antennas/inverted_f.m, whole file read; docs.openems.de checked (it hosts only Python tutorials — no IFA page exists); web search foun
-* [UNVERIFIABLE] **IFA measured triple: 2.3934 GHz / -26.5 dB / 211 MHz bandwidth (2.295-2.507 GHz) and Zin ~54.7+1.4j**
-  * repo: 2.3934 GHz, -26.5 dB, 211 MHz (8.83%), Zin 54.76+1.40j — docs/TUTORIALS.md:1699-1702; CHANGELOG.md:330-331; and -26.57 dB / 54.72+1.38j at docs/upstream/ifa-anchors.md:118
+* [UNVERIFIABLE] **IFA measured triple (v1.14.0): 2.4229 GHz / -28.7 dB / 216 MHz bandwidth (2.320-2.536 GHz) and Zin ~53.5+1.5j**
+  * repo: 2.4229 GHz, -28.7 dB, 216 MHz (8.92%), Zin 53.49+1.49j — docs/TUTORIALS.md:1703-1706; CHANGELOG.md:239-241 (resonance only); and -28.71 dB / 53.49+1.49j at docs/upstream/ifa-anchors.md:121
   * source: No primary source exists: openEMS publishes no numeric results for this example (confirmed above), and no independently published run of inverted_f.m was found on the web
   * cite: Searched: the file itself, docs.openems.de (no IFA page), the openEMS wiki, GitHub (https://github.com/thliebig/openEMS/blob/master/matlab/examples/antennas/inverted_f.m), and web searches for publish
 * [CONFIRMED] **Standard-gain horn vendor gain curve: 19.70 dBi at 30 GHz (Mi-Wave 261A-20/599, WR-28 Ka band)**
@@ -860,9 +860,9 @@ citations, one chart-read table and one gate-scoring offset note:
   * repo: docstring lines 37-40 of /home/ajenkins/PycharmProjects/EMStudioPro/tests/validation/openfoam_ras_cavity.py; the constant itself: BETA = 3.3e-3 at /home/ajenkins/PycharmProjects/EMStudioPro/emstudio/s
   * source: Ideal-gas Boussinesq expansion coefficient beta = 1/T: 1/293.15 K = 3.411e-3 K^-1, matching the docstring's 3.41e-3. Buoyant velocity scale U0 = sqrt(g*beta*dT*W) (the writer's own u_b at writer.py:269) gives sqrt(3.411/
   * cite: recomputed from beta = 1/T (ideal gas) and the writer's own velocity-scale formula
-* [CONFIRMED] **Quarter-wave rule arithmetic: L_path 30.5 mm -> f_rule 2.4573 GHz; lambda0/4 at 2.45 GHz = 30.591 mm; 0.30% agreement; measured 2.3934 GHz is -2.6% off the rule**
-  * repo: 30.500 mm / 2.4573 GHz / 30.591 mm / 0.30% / -2.6% — docs/upstream/ifa-anchors.md:62-69,127-128; docs/TUTORIALS.md:1712-1719; emstudio/antenna/ifa.py:27-28
-  * source: Recomputed with c = 299792458 m/s (exact SI): c/(4*0.0305 m) = 2.457315 GHz; c/(2.45e9*4) = 30.5911 mm; (30.591-30.5)/30.5 = +0.2986%; (2.3934-2.4573)/2.4573 = -2.601%
+* [CONFIRMED] **Quarter-wave rule arithmetic: L_path 30.5 mm -> f_rule 2.4573 GHz; lambda0/4 at 2.45 GHz = 30.591 mm; 0.30% agreement; measured 2.4229 GHz is -1.4% off the rule**
+  * repo: 30.500 mm / 2.4573 GHz / 30.591 mm / 0.30% / -1.40% — docs/upstream/ifa-anchors.md:62-69,139-140; docs/TUTORIALS.md:1726-1732; emstudio/antenna/ifa.py:27-28
+  * source: Recomputed with c = 299792458 m/s (exact SI): c/(4*0.0305 m) = 2.457315 GHz; c/(2.45e9*4) = 30.5911 mm; (30.591-30.5)/30.5 = +0.2986%; (2.4229-2.4573)/2.4573 = -1.400%
   * cite: Direct recomputation from f = c/(4*L) with the geometry values confirmed against the primary source above; c is the exact SI definition
 
 ### Recomputed closed forms

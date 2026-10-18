@@ -50,8 +50,8 @@ thing; **System** designs a system of them. Every command has its own icon.
 | **Solve Wind Loading (cross-flow drag)…** | Steady-wind drag on a square or circular member: type the section width, wind speed and member length and OpenFOAM solves the cross-flow. **The method is chosen from the physics, not from a menu** — steady below the shedding onset, transient laminar to Re 200, and the **kOmegaSST URANS** configuration validated against the Lyn (1995) experiment / Tian (2013) study at Re 21,400, carried to **Re 1.5×10⁵** on the square's flat measured drag plateau. Reports Cd (plus St / Cl / cycles on the transient rungs), drag per metre and the total over the length. ⚠ **A circular mast above the shedding regime is REFUSED, not estimated** — its drag crisis is transition-location physics no single-Re anchor covers, and the engine says so instead of returning a plausible number. The chosen method and its honest runtime are shown before you press Solve; Cancel really stops it |
 | **Show Convection Field in 3-D View** | Convert the solved OpenFOAM case to VTK and load the temperature field into FreeCAD's own 3-D view, beside your geometry. Needs a convection solve to have been run first |
 | **Solver Setup ▸ parallel & GPU** | Palace and OpenFOAM run in **parallel** — Palace measured **18.9×** on 16 ranks (every solve before v1.4.0 used one core). Set `MPIRanks` (0 = auto), `OMPThreads` and `Device` on the solver. **GPU**: EMStudio detects a CUDA or HIP card and offers `Device = GPU` **only when the installed solver binary can actually honour it** — otherwise it says why, naming your card, rather than silently running on the CPU. Palace's default build is CPU-only; EMStudio now tells you on your machine exactly what a GPU build needs, which prerequisites are missing and how to get each one, **before** a 30-60 minute compile. ⚠ Linux does CUDA or HIP; **macOS cannot do GPU at all** (Palace offers only CUDA and HIP back ends and Apple silicon has neither — a limit of the solver, not a gap); Windows is WSL2-only. Recipe: `docs/PALACE_GPU_BUILD.md` |
-| **Pattern Frequencies…** | *(NEC2 and openEMS)* Compute a radiation pattern at several frequencies so the results dialog can **scrub the band**: sliders on both pattern tabs, frequency cursors with live readouts on the S11/VSWR/impedance plots, and (after *Show in 3D View*) a floating scrubber over the viewport that keeps working even after the results dialog closes. Opens on the analysis sweep with a recommended step — both editable. On NEC2, N patterns cost **one** extra solver run, not N, and ~0.33 MB of output each. On openEMS they cost **neither** — the near-field box is recorded across the whole band in one run, so each extra frequency is another transform of data already held (the dialog says which applies). **The same dialog pops up automatically when you press Run Solver** (pre-filled; a checkbox mutes it — re-tick here to bring it back) |
-| **Run Solver** | Solve + open results (**S-Parameters / VSWR / Impedance / Smith / Pattern** tabs, Touchstone export; magnetics: powers, L/M/k, fields in 3-D) |
+| **Pattern Frequencies…** | *(NEC2 and openEMS)* Compute a radiation pattern at several frequencies so the results dialog can **scrub the band**: sliders on both pattern tabs, frequency cursors with live readouts on the S11/VSWR/impedance plots (since v1.14.0 **click or drag on a plot to move the cursor** — it snaps to the nearest solved pattern frequency; with the plot toolbar's Pan or Zoom on, a drag pans or zooms instead), and (after *Show in 3D View*) a floating scrubber over the viewport that keeps working even after the results dialog closes. Opens on the analysis sweep with a recommended step — both editable. On NEC2, N patterns cost **one** extra solver run, not N, and ~0.33 MB of output each. On openEMS they cost **neither** — the near-field box is recorded across the whole band in one run, so each extra frequency is another transform of data already held (the dialog says which applies). **The same dialog pops up automatically when you press Run Solver** (pre-filled; a checkbox mutes it — re-tick here to bring it back) |
+| **Run Solver** | Solve + open results (**S-Parameters / VSWR / Impedance / Smith / Pattern** tabs, Touchstone export; magnetics: powers, L/M/k, fields in 3-D). Since v1.14.0 an openEMS run's own **warnings** (amber ⚠ — the numbers may be wrong) and **notes** are listed under the summary line, not only in the Report view |
 | **Show Results** | Reopen the LAST solve's results for this analysis — plots, Touchstone export, PDF report, Show in 3-D View — **without running the solver again**. The results are stored on the analysis, so this is free and instant. **This is where the Smith chart lives.** Four tabs are ALWAYS present — **S-Parameters · VSWR · Impedance · Smith** — and the rest appear only when the solve actually produced that data: **Pattern** and **Pattern 3D** with a far field (3-D needs full-sphere data), **Currents** with wire currents (NEC2), **Near Field** with a near-field box. ⚠ Greyed out until that analysis has been solved at least once — there is nothing stored to reopen. ⚠⚠ **If Smith is absent, your INSTALLED copy is older than 1.11.0** — the workbench you run is the Add-on Manager's copy, not this source tree. Add-on Manager ▸ EMStudio ▸ Update, then restart FreeCAD. The `installed_copy` gate exists to catch exactly that drift |
 | **Results ▸ Smith tab** | *(a tab in the results dialog, not a menu command — reached by **Run Solver** or **Show Results** above)* The impedance locus on the unit disc: constant-R/X grid, **VSWR 2 / 1.5 / 1.2** rings, a circle at the sweep start and a square at its end so the direction of increasing frequency is readable, and a star on the best match. The title states Z, VSWR, return loss and whether the load is inductive or capacitive. **Normalised to the PORT, and the z0 is printed on it** — on a 75 Ω or 100 Ω port an unlabelled Smith chart is actively misleading. ⚠ **Run a sweep, not a single frequency**: the locus is drawn across the swept points, so at one frequency the start, end and best-match markers all land on the same dot — not an error, just nothing to read. **Tutorial 37** teaches reading it, including the distinction an S11 dip cannot show: *resonant* is crossing the real axis, *matched* is crossing it AT THE CENTRE |
 | **WPT: Sweep Coil Gap** | Parametric study: coupling k across a range of coil gaps, plotted k(gap) |
@@ -106,7 +106,7 @@ to this same group — see [docs/PRO](docs/PRO.md).*
 |---|---|
 | **Assistant** | Grounded answers about this workbench and step-by-step guidance for the task you are on — it reads YOUR model and reports measured quantities from your run rather than generating prose about antennas. Every answer is checked against the model before you see it. **Off by default**, and it needs a local OpenAI-compatible endpoint: nothing leaves your machine unless you point it somewhere that does. ***EMStudio Pro** — §3 is the paid tier; the free workbench does not include this dialog* |
 | **EMStudio Pro — install / activate** | Install the EMStudio Pro module from the zip you downloaded after purchase and enter your licence key; also shows whether Pro is currently active, and removes it again. The free workbench is unaffected either way |
-| **About EMStudio** | Version, development status, what the workbench is, how results are validated, the solver backends and their licences, credits, and the brand notice |
+| **About EMStudio** | Version, development status, what the workbench is, how results are validated, the solver backends and their licences, credits, and the brand notice — plus a **Questions (Q&A)** button that opens GitHub Discussions ▸ Q&A (see *Getting help* below) |
 | **Legal notice & disclaimer** | Intended use (educational / hobbyist / experimental), no warranty and no liability, your duty to verify every result, the no-safety-critical exclusion, and the EMStudio / AJJ³ brand terms. Opens the Disclaimer / Trademark notice / Licence |
 
 Both are always available — no document and no solver needed. A summary of the
@@ -124,8 +124,16 @@ Geometry → select metal → **EM Material** (PEC) → select dielectric → **
 - **NEC2**: straight wire edges only; feed = the port's edge; second pass computes the
   radiation pattern automatically.
 - **openEMS**: automatic domain + mesh (thirds-rule metal edges, substrate
-  discretization); runs in a separate process — cancel anytime; artifacts stay in the
-  working dir printed in the Report view.
+  discretization, and — since v1.14.0 — **each part refined locally**: metal to
+  one cell across its thickness, dielectrics to three, so `MeshResolution`
+  sets the cell in open space and typical values stay 20–60); runs in a
+  separate process — cancel anytime; artifacts stay in the working dir printed
+  in the Report view. Every run prints its grid first
+  (`EMStudio: FDTD grid nx x ny x nz = N cells, needs about X GB`), and a grid
+  openEMS cannot index or this machine cannot hold is refused with those
+  numbers instead of crashing. Parts picked inside a group (tree or 3-D view)
+  are in the model; touching parts of one material are written as one closed
+  STL. `NumThreads` on the solver (0 = all cores) is honoured since v1.14.0.
 - **FastHenry**: used by the wire toolkit for bundle impedance cross-checks.
 - **Elmer (magnetics)** results include a **Save PDF Report** button (cross-section, |B| field map, powers/L/M/k + BOM).
 - **Elmer (magnetics)**: axisymmetric — coaxial cylinders/tubes/rings centered on the
@@ -210,7 +218,7 @@ Per-strand current sharing (twist quality): the **Current Sharing…** button
 ## Before a solve starts: "how long will this take?"
 
 Every solve asks first, showing what it is expected to cost and letting you
-back out. Two things about that number are worth knowing:
+back out. Three things about that number are worth knowing:
 
 * **It comes from YOUR machine's measured history, not a formula.** A cost
   model can give the shape of a problem but never a duration — the constant is
@@ -221,6 +229,10 @@ back out. Two things about that number are worth knowing:
 * **A full S-matrix costs one solve per port.** Both full-wave backends excite
   a single port per run, so `FullSMatrix` on a 4-port is four solves, and the
   estimate says so.
+* **openEMS is priced on the grid it will actually build** (local refinement
+  included) since v1.14.0. The history from earlier versions was keyed
+  differently, so the first openEMS solve of each size after the upgrade says
+  **no estimate yet** once.
 
 Tick *Don't ask again* in the dialog to silence it (preference
 `MuteSolveEstimate`). It can never block a solve: if the estimate itself
@@ -238,7 +250,47 @@ Every run's working directory (deck, raw solver output, `port_1.csv`,
   `~/.local/share/FreeCAD/v1-1/Mod/`.
 - Solver missing → **Detect Solvers** prints exact install commands.
 - Wrong resonance → raise `MeshResolution` / `DomainPaddingWavelengths` on the
-  Analysis object.
+  Analysis object — but watch the grid line each openEMS run prints: away from
+  locally refined parts the cell count grows as MeshResolution³, and EMStudio
+  refuses a grid openEMS cannot index (1,431,655,765 cells) or this machine
+  cannot hold (~125 bytes per cell, over 80 % of RAM; set
+  `EMSTUDIO_OPENEMS_ALLOW_LARGE=1` in the environment FreeCAD starts from to
+  lift the RAM limit only).
+- **openEMS: thin parts no longer need a huge MeshResolution.** Since v1.14.0
+  each part is refined locally (metal to one cell across, dielectrics to
+  three), so keep MeshResolution 20–60. A part refused as thinner than one
+  FDTD cell (now only where even local refinement cannot fit — a foil, say) is
+  named, with the price of the fix. Thin-walled tubes can be modelled as solid
+  rods (the message says when) — a coax shield never: the message says so when
+  something is inside the tube — and wire antennas belong in NEC2.
+- **openEMS "WARNING - … reaches no geometry"** → that reference is NOT in the
+  model (a face that no longer exists after an edit, a sketch or an edge in a
+  metal or dielectric material). Parts picked inside a group are in the model.
+  Two materials over the same volume at the same Priority are warned too:
+  give the one that should win the higher Priority.
+- **openEMS STL warnings** → "shared by more than two triangles" means two
+  faces of that part touch along a line or at a point (open a small gap, or
+  make the parts overlap); "NOT in the model at all" means the surface is open
+  (close the mesh, or draw a flat sheet axis-aligned).
+- **openEMS "could not place port N"** → the port's edge must run across the
+  feed gap with both ends on metal, inside the domain. openEMS had dropped the
+  port, which before v1.14.0 gave an all-NaN result reported as finished.
+- **openEMS "port N touches no metal"** → the port's edge is in air. Draw it
+  from conductor to conductor with both ends ON metal.
+- **openEMS waveguide "below its cut-off"** → samples below the mode's cut-off
+  (TE10: c/2a) have no answer and are left out. Start the sweep above the
+  cut-off.
+- **openEMS "stopped at its timestep limit" / "had to CUT its excitation
+  pulse"** → the run ended at `MaxTimesteps` before the fields decayed, so the
+  S-parameters may be wrong: raise the solver's `MaxTimesteps` and re-run (a
+  VHF antenna meshed down to millimetre hardware can need 100,000+ steps; the
+  default is 30000). A NOTE instead means openEMS never measured the decay (it
+  measures every ~4 s, so short runs are unmeasured).
+- **Amber ⚠ lines under the Results summary** are the run's own warnings: the
+  numbers above may be wrong — for example openEMS stopped at MaxTimesteps
+  before EndCriteriaDB, so raise MaxTimesteps and re-run. Plain "Note:" lines
+  say what a number is worth or what was left out of the model. Hover over
+  "… and N more" to see them all; every one is also in the Report view.
 - **VSWR tab looks empty** → it is not. Read the summary line under the tabs:
   if the minimum VSWR is above 10 the plot switches to a log scale, because
   nothing in the band is close to a match. An electrically small antenna with a
@@ -250,3 +302,12 @@ Every run's working directory (deck, raw solver output, `port_1.csv`,
 - **"Thin-wire check" warning under the results** → NEC-2's kernel assumes a
   segment is ≳ 8 wire radii long and says nothing when it is not. Use a thinner
   conductor, a coarser wire path, or a volume solver (Elmer 3-D / Palace).
+
+## Getting help
+
+- **Questions** → GitHub Discussions, Q&A:
+  https://github.com/king-aj3/EMStudioFree/discussions/categories/q-a (also **Help ▸ About EMStudio ▸ Questions**).
+- **Bugs** — a crash, a failed install, a wrong number → an issue at
+  https://github.com/king-aj3/EMStudioFree/issues with the error text and
+  FreeCAD's version block (Help ▸ About FreeCAD ▸ Copy to clipboard).
+- **EMStudio Pro** licence or install trouble → support@ajj3.us.

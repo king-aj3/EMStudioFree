@@ -39,5 +39,18 @@
   review found the original grid blind to). 1219 flat-earth rows, 1278
   residue-series rows.
   Column layout matches `LFMF_Examples.csv`; outputs printed with %.17g.
+  ⚠ **Before regenerating this file** (added 2026-10-17, v1.14.0): the
+  block's 32 pol-0 flat-earth rows sit exactly ON F(p)'s sqrt branch cut,
+  and their values are those of THIS build (g++ -O2, x86-64, no fused
+  multiply-add), which lands on the principal (+j) side. Which side a build
+  lands on depends on how it rounds two equal products and a complex sqrt.
+  A C++ mirror of the port's qi/p/sqrt lines (a mirror, NOT the upstream
+  file) lands on the other side under g++ -march=native (FMA) and under
+  Apple clang (libc++'s sqrt is not symmetric there); the upstream source
+  itself has only been built here. CPython does the same thing: every
+  Python on the macOS arm64 build host fuses its complex multiply, which put
+  21 of these 32 rows up to 1.69 dB off until the port's `_cmul_unfused`
+  (the gate's section 1b guards it). Regenerate on plain x86-64 g++, or
+  expect those rows to move by design.
 - Consumed by `tests/validation/lfmf.py`, which replays both files through
   the Python port `emstudio/coverage/lfmf.py`.

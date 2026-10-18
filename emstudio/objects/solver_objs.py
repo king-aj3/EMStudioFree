@@ -114,11 +114,20 @@ class SolverOpenEMS(_SolverBase):
             )
             obj.MaxTimesteps = 30000
         if "NumThreads" not in props:
+            # ⚠ Until v1.14.0 NOTHING read this: every run used all cores
+            # whatever it said. The writer now passes it to openEMS as
+            # ``numThreads`` (a documented FDTD.Run keyword in v0.0.35+ and
+            # v0.37), and leaves the deck untouched at 0. The tooltip is
+            # stored in each document when the property is created, so files
+            # saved before v1.14.0 keep showing the old one-liner.
             obj.addProperty(
                 "App::PropertyInteger",
                 "NumThreads",
                 _GROUP,
-                "Solver threads (0 = all cores)",
+                "openEMS engine threads (0 = all cores, openEMS's own default). "
+                "A positive value is passed to openEMS as numThreads; the "
+                "solver log then shows 'fixed number of threads'. Lower it to "
+                "leave cores free for other work.",
             )
             obj.NumThreads = 0
         if "ComputeFarField" not in props:

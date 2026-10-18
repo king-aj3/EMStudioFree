@@ -18,7 +18,10 @@
 # installs stay exactly as they are.
 #
 #   tests/run_pro_freecad.sh tests/smoke.py
-#   tests/run_pro_freecad.sh tests/gui_smoke.py        # GUI: Linux offscreen, macOS the desktop session
+#   tests/run_pro_freecad.sh tests/gui_smoke.py        # GUI: macOS the desktop session; Linux asks Qt
+#                                                      # for offscreen, but the 1.1.4 AppImage's AppRun
+#                                                      # forces xcb, so it draws on the LIVE display
+#                                                      # (keep the mouse still)
 #   FREECAD_VER=1.1.1 tests/run_pro_freecad.sh tests/smoke.py   # an older build
 #
 # Exit code is the FreeCAD run's own, so this drops straight into a gate chain.
@@ -106,8 +109,10 @@ REPO="$(cd "$REPO" && pwd)"
 SCRIPT="${1:?usage: run_pro_freecad.sh <test-script> [more args]}"
 shift || true
 
-# gui_smoke needs a real QApplication, so it must run in GUI mode (Qt's
-# offscreen platform on Linux; on macOS the desktop session, see PLATFORMS) --
+# gui_smoke needs a real QApplication, so it must run in GUI mode (on Linux
+# QT_QPA_PLATFORM=offscreen below, which the 1.1.4 AppImage's AppRun overrides
+# with xcb, so the run draws on the live display; on macOS the desktop
+# session, see PLATFORMS) --
 # NOT `--console`, which has no QApplication and aborts
 # with "QWidget: Must construct a QApplication before a QWidget" (core dumped).
 # smoke.py is the opposite: it is headless and wants the console binary.

@@ -15,6 +15,603 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 > next entry was written straight under the heading). It is the release safety
 > net; put it back rather than letting it go.
 
+## [1.14.0] — 2026-10-18
+
+> **One FreeCAD-forum user's three reports, and his J-pole file, made this
+> release.** *nett* (macOS arm64, FreeCAD 1.1.4) asked where to ask questions;
+> found that the red frequency marker on the S-Parameters plot would not drag;
+> saw the `lfmf` validation gate fail on his Mac; and had openEMS crash
+> (exit -11) on his J-pole. The marker had never listened to the mouse on any
+> platform. The `lfmf` failure is Apple silicon's fused complex multiply at a
+> degenerate corner of P.368-10 that no dialog reaches. The crash was the
+> visible end of seven openEMS problems his file exposed, each one something
+> EMStudio should have caught: a grid openEMS cannot index; a refusal that sent
+> him to MeshResolution 2700; part picks dropped without a word; touching parts
+> written as one leaky STL; local refinement that reached none of his parts;
+> port ends that could snap into air; and an all-NaN result reported as
+> finished. All are fixed below, with what the review of those fixes found.
+> With two changes on his side (the whole-'Feed' group reference removed from
+> the metal, so his back plate is no longer PEC, and the plate given its own
+> dielectric) and MaxTimesteps raised to fit, his model now meshes at
+> MeshResolution 20 in **2,939,116 cells (~0.45 GB)** and solves in 20-26 min
+> on 16 threads, within 0.02 of a hand-graded reference mesh's VSWR from 85 to
+> 105 MHz and 0.11 at 110 MHz.
+>
+> **Owner rulings, 2026-10-17:** (1) P.368-10 keeps the NTIA reference's
+> value at ground permittivity exactly 1 (Fix A), and the boundary is
+> documented, not smoothed; (2) local refinement gives metal ONE cell across
+> its thickness, dielectrics three; (3) MaxTimesteps stays a ceiling: a run
+> cut short is warned, never silently extended; (4) questions go to GitHub
+> Discussions ▸ Q&A, turned on the same day.
+>
+> **Who sees a difference.** openEMS users, most of all: read "What can change
+> for an existing document" below before re-solving a saved model.
+> Mac users of the P.368 engine, only at ground permittivity exactly 1 with
+> horizontal polarization. Everyone: the grabbable cursor, the run notes under
+> the Results summary, and the help signposts. NEC2, Elmer and Palace solves
+> are unchanged.
+>
+> **Proof before the tag (2026-10-17, the home Linux box and the M1 build
+> host):**
+> * Every SOLVER gate this release touches, run one at a time through the
+>   battery's own routing (freecadcmd 0.21.2, openEMS v0.37.0-rc1), is green:
+>   `stl_mesh_openems` 140 checks, `preflight_live_openems` 61, `patch_openems`
+>   18, `patch_auto_openems` 5, `patch_n78_openems` 10, `patch_stl_openems` 2,
+>   `ifa_openems` 10, `pifa_openems` 19, `two_port_openems` 17,
+>   `waveguide_port_openems` 13, `msl_notch_openems` 5, `isolation_openems` 4,
+>   `isolation_patch_openems` 4 and `horn_openems` 13 (1,234 s; 19.29 dBi
+>   against 19.70 published). No openEMS core dump was written in any of these
+>   runs (see Detect Solvers, below).
+> * FAST tier, Linux, after the docs sweep: **55 ok / 0 failed / 0 skipped,
+>   2,366 executed checks** (`lfmf` 20, `openems_preflight` 51,
+>   `solve_estimate` 32; v1.13.1's was 54/0/0, 2,304). Before the sweep the
+>   only reds were `doc_counts` and `capability_counts`, on the counts it
+>   updated.
+> * `gui_smoke` 43/43: Linux FreeCAD 1.1.4 on the live display at
+>   device-pixel ratio 2, twice; macOS arm64 FreeCAD 1.1.4 in the desktop
+>   session at ratio 1 and at ratio 2 (`QT_SCALE_FACTOR=2`); FreeCAD 0.21.2
+>   offscreen.
+> * `smoke`: green but for the release tool's site-zip read-back, which
+>   `release.py` rebuilds.
+> * macOS FAST, under FreeCAD 1.1.4's Python: `lfmf` 20/20; 49 ok / 3 failed /
+>   3 skipped. The failures are the same two doc-count gates plus
+>   `solver_versions`, which fails identically on the Mac's own clean master
+>   checkout (Known, below).
+> * Free tree, exported from a scratch copy with the three new files
+>   `git add -N`-ed: audit clean, 532 public files, `--check` 0 drift; free
+>   FAST 41/0/0, 1,687 checks.
+> * Windows (the build VM; Python 3.14.3, numpy 2.4.3, scipy 1.18.1), a fresh
+>   clone of the release commit: `smoke` passed; FAST gate-by-gate verdicts
+>   identical to v1.13.1's on the same VM, plus the new `openems_preflight`
+>   50/50 (its RAM reader included) and `lfmf` 20/20. The VM's three
+>   non-passing items are identical on v1.13.1 (Known, below).
+> * **Pre-tag proof: the FULL `--all` battery ran complete on the release
+>   commit itself — 117 ok / 0 failed / 0 skipped in 19,800.4 s (5.5 h),
+>   3,596 executed checks across 116 gates** (one gate reports in its own
+>   format), launched 2026-10-18 06:38 by `tools/battery_proof.py`. The
+>   toolchain was stamped at launch and was unchanged at exit (kernel
+>   7.0.0-38, Elmer PPA 202610171348, FreeCAD 0.21.2 `freecadcmd`), the tree
+>   was clean at exit, and all 11 Elmer gates were green. The release was
+>   committed first and the battery started on that commit, so the only
+>   delta between the proved tree and the tag is this proof paragraph.
+
+### Fixed — openEMS: the forum J-pole, and everything it exposed
+
+* **A grid too big for openEMS crashed it. It is now counted first and
+  refused with the numbers.** The forum J-pole was set to MeshResolution
+  2700: a 0.925 mm cell across a 1.6 × 1.5 × 3.0 m domain, 1724 × 1666 ×
+  3283 = **9,429,380,072 cells**. openEMS v0.37.0-rc1 indexes its operator in
+  32 bits: its three-component arrays wrap at 2^32/3 ≈ 1.43e9 cells (fixed on
+  openEMS master 2026-10-15) and its address operator at 2^32 (still 32-bit on
+  master). The forum run died right after "Create FDTD operator". Every deck
+  now prints `EMStudio: FDTD grid nx x ny x nz = N cells, needs about X GB
+  (this machine has Y GB)`. A grid of **1,431,655,765 cells** ((2^32 − 1) // 3)
+  or more is refused, with no override. A grid needing more than 80 % of this
+  machine's RAM (80 MB + 125 bytes per cell) is refused unless
+  `EMSTUDIO_OPENEMS_ALLOW_LARGE=1` is set in the environment FreeCAD starts
+  from. A certain case is refused at deck-writing time, before any STL is
+  written; a borderline one inside the deck, before openEMS starts, so
+  FullSMatrix excitations and hand re-runs are covered too. `--preview` only
+  warns, so an oversized grid can still be inspected. The deck-writing count
+  reads the parts through the same call the model uses, so a wire-only
+  reference (a sketch, a Part::Line), which the model leaves out with a
+  WARNING, is not counted. (In review, a 2-3 GHz dipole of 16,758 cells with an
+  8 m construction line in its PEC had been refused at "at least 4,093,427,212
+  cells".) When a model really is over a limit, the warnings about references
+  left out are shown first and carried in the refusal.
+  ⚠ The same over-limit deck ends with -11, -6, -9 or exit 1 depending on the
+  OS, the memory cap and the openEMS version, so no message is keyed on the
+  signal. The 125 B/cell is measured on Linux openEMS v0.37.0-rc1 only
+  (97-124 B, rounded up). An 8 GB machine therefore refuses grids above
+  roughly 50-55 M cells without the override; the shipped horn (20.0 M cells,
+  2.58 GB) still runs there.
+* **The thin-body refusal pointed at the wrong fix.** It told the forum user
+  to "raise MeshResolution until the cell is under 0.9475 mm" (the 2V/A of a
+  whole GROUP, named by its deck id `mat1_EMMaterial001`, with no word of the
+  cost), and he chose 2700. It now names the part and its material, judges
+  every solid on its own (a 1 mm sheet inside a multi-solid object no longer
+  hides behind the object's average), and prices the fix with the preflight's
+  count: the MeshResolution that puts one cell across the part, the cell count
+  and the GB. When that is more than openEMS can index or this machine can
+  hold, it says so and does not tell you to raise MeshResolution.
+  * A thin-walled hollow body gets "a PEC tube and a solid rod of the same OD
+    are identical from outside — model it as a solid rod" (a closed shell: "a
+    solid body"), priced too, but only when its bore is far below waveguide
+    cut-off in the band.
+  * A waveguide or horn feed is told NOT to fill. So is any tube with
+    something inside its bore (an inner conductor, a dielectric or a port): it
+    is a coax or feed structure, which carries a TEM wave with no cut-off. The
+    refusal says so, and suggests thickening the wall outward or feeding with a
+    lumped port where the line ends. (Found in review: the first version told a
+    coax shield to fill itself around its own inner conductor.)
+  * Each tube is measured along its own axis, so a sloped radial gets the
+    right advice and price: MeshResolution 404 for a filled 10 mm, 520 mm rod
+    at 150 MHz, where the old bounding-box measure gave 211, and where a 45°
+    copy of the forum's 18 mm tube had read as a closed shell with a 1 m
+    "bore" that must not be filled. A part whose axis cannot be read exactly
+    (B-spline faces, faces at oblique angles to each other) or whose box is
+    not its cross-section (a flanged tube) gets no fill advice rather than
+    wrong advice.
+  * Further thin parts are listed by name. With more than one refused, a
+    whole-model sentence prices the thinnest part left once every fillable
+    part is filled.
+  * Since local refinement now resolves such parts itself (below), the
+    refusal fires only where even local refinement cannot fit (a 0.01 mm
+    foil, say), and it then says so first.
+* **Parts picked through a group were silently left out of the model.** A
+  material or port that referenced a part inside a group (what FreeCAD stores
+  as `("Group", "Body004.")` when you pick it in the tree or the 3-D view)
+  resolved to nothing (`Shape.getElement` only knows face and edge names) and
+  was skipped without a word. On the forum J-pole all sixteen part picks
+  (feed mount, shorting bar, mast parts, twelve screws and nuts) vanished; only
+  the whole-group references reached the deck. That is how his back plate
+  ended up in the metal: it came in with the whole 'Feed' group, and it
+  bridges the feed. Picks are now resolved with `getSubObject`, placements
+  included (App::Part, links). Whole groups are exported part by part, and
+  every part ONCE even when a document references both a group and its
+  children (without this they would be coincident duplicates); the forum model
+  now reaches the deck as 19 parts. A reference that still reaches nothing (a
+  stale face, an object with no shape, a sketch or edge in a volume material)
+  is a WARNING naming it, in the Report view and in the solver log, never a
+  silent skip. A model whose every reference fails is refused with the
+  reasons. Hidden parts of a referenced group are left out, as FreeCAD's own
+  group shape leaves them out, and said so. A group referenced whole beside
+  picks of some of its parts gets a NOTE naming the parts it also brings in.
+  Port edges picked through a group now give the port its span. (openEMS only:
+  NEC2, Elmer and Palace resolve references as before; see Known.)
+* **Touching parts were written as one leaky STL.** Each referenced object was
+  one STL however many solids it held, so parts touching face to face left
+  coincident, duplicated triangles. The forum J-pole's Feed group (two clamps
+  and a back plate) had 240 edges shared by four triangles and 78 duplicated
+  triangles; openEMS's reader refused 458 of them and filled the body by ray
+  parity through the holes. Solids of one material that touch are now fused
+  into closed solids, one STL each. A fuse that fails, runs past 30 s, or
+  would leave more defects than its parts is undone (part by part, each still
+  closed, with a NOTE). Every STL is checked as openEMS reads it, and open,
+  non-manifold, pinched or duplicated triangles are a WARNING naming the parts.
+  An open STL (an imported mesh with a hole, or a tilted sheet drawn as a face)
+  is now a WARNING that it is not in the model at all: openEMS counts no grid
+  point inside an open surface, so such a body used to vanish without a word
+  (read from openEMS's and CSXCAD's source; the gate checks the warning, not a
+  field). Tessellation is now finer where it matters: at most half a part's
+  thinnest dimension and a quarter of the global cell. That binds only on
+  large-radius curves (a 600 mm-radius disc at a 5 mm cell: 2.28 mm of facet
+  sag before, 0.62 mm now). Small curves were already faceted finely by the
+  angular limit, so the forum's 18 mm tube writes the same STL as before
+  (0.034 mm of sag on its 1.2 mm wall), as does an M3 screw on its own.
+* **Local refinement now reaches every thin part, and the forum J-pole meshes
+  at MeshResolution 20.** Local refinement used to fill a body's whole
+  bounding box at a third of its thickness, and gave up past 400 lines an axis
+  or 200,000 cells. Every body of the forum J-pole crossed that, so none was
+  refined at any MeshResolution, and the refusal's only remedy was a global
+  MeshResolution in the thousands. Each part is now refined on its own, axis
+  by axis: filled across a short axis; along a long one, only where its
+  section changes (read exactly from its faces: end planes, shoulders, cones),
+  graded back to the global cell at MeshSmoothRatio. There is no per-body cap.
+  The whole refined grid is counted first (that count runs high; see Known).
+  Past openEMS's index limit the finest parts are left at the global cell, and
+  refused by name if it cannot hold them. Past this machine's RAM the model is
+  refused, naming the parts that set the grid, except large dielectric parts,
+  which fall back to the v1.13 mesh with a NOTE. Metal is refined to ONE cell
+  across its thickness (fields inside metal are zero, and the thin-body
+  refusal already used that threshold); dielectrics to three (owner ruling,
+  below).
+  * **The forum J-pole** (tubes as drawn; whole-'Feed' reference removed from
+    the metal; back plate an εr 3 dielectric): MeshResolution 20 / 30 / 40
+    gives 2,939,116 / 3,498,222 / 4,163,796 cells (0.45 / 0.52 / 0.60 GB by the
+    deck's estimate), with 0.7-1.4 mm lines at the hardware. At MR 20 (with
+    MaxTimesteps raised; see Changed) it ended on its −40 dB criterion after
+    134,696 timesteps of 1.152 ps, in 1,208-1,573 s of solver time on 16
+    threads over three runs (peak RSS 0.36 GB). VSWR at
+    85/90/95/100/105/110 MHz was **1.18/1.61/1.75/1.51/1.88/3.62** in all three
+    runs, against an independent hand-graded 1 mm mesh's
+    1.20/1.62/1.76/1.52/1.86/3.51 (0.5 mm: 1.20/1.59/1.77/1.54/1.82/3.35). MR 40
+    (4,207,320 cells with the far field off, 139,216 steps, 2,024 s, peak RSS
+    0.49 GB): 1.17/1.61/1.74/1.52/1.93/3.69.
+  * Local refinement moved no shipped template's grid. The horn's two wall
+    STLs are now one fused STL on an identical grid, and its numbers are
+    unchanged (19.29 / 18.95 dBi).
+* **A lumped port could land off the metal it was drawn on, or vanish.**
+  openEMS snaps each end of a lumped port to the NEAREST grid line, and nothing
+  put a line there: the metal thirds rule sets lines a third of a cell inside
+  and two thirds outside each face, never on it. Where an end landed therefore
+  depended on MeshResolution. On a box-bar J-pole fed across a 38.7 mm gap,
+  the feed end landed 4.16 mm into air at MR 100 and 2.78 mm at MR 150 (VSWR
+  22.3 and 7.1 at 85 MHz, against 2.5 at MR 20-60). On the forum J-pole with
+  the v1.13 writer (refusal bypassed to measure), both ends snapped to one line
+  at MR 20, 60 and 120, and openEMS dropped the port. Each lumped-port end is
+  now a grid line on its excitation axis at every MeshResolution; the same box
+  J-pole reads VSWR 2.50 at MR 100 and 2.41 at MR 150. A thirds-rule line a
+  hair from a port end is moved onto it, rather than leaving a hair-thin cell
+  (which would shrink the timestep by hundreds). Geometry planes and MSL /
+  waveguide ports are untouched. Every shipped template and gate keeps a
+  byte-identical grid except the inverted-F family (the template, the Element
+  Designer's synthesized IFA at its 2.45 GHz default, and the shipped
+  `ifa_2p45GHz` example), whose feed gap now spans exactly the drawn 0.5 mm. The template's resonance moved 2.393
+  → 2.423 GHz, from −2.60 % to −1.40 % against its 2.457 GHz quarter-wave
+  reference; the other two moved by the same mechanism and were not solved
+  separately. At EMStudio's default MeshResolution 20 (the template sets 60)
+  the inverted-F used to solve as a short (0.05 + 9.52j Ω, S11 −0.02 dB);
+  with the port spanning the drawn gap it now reads 46.1 − 0.4j Ω, −27.7 dB
+  at 2.4966 GHz.
+* **A run whose port openEMS had dropped "finished OK" with an all-NaN
+  result.** openEMS reports "Lumped Element snapping failed! … skipping" (or,
+  for a port outside the domain, only "Unused primitive … port_excite_1") as a
+  warning and exits 0; the deck wrote `port_1.csv` full of NaN, and it loaded
+  as a result. Such a run is now a failure that names the port and quotes
+  openEMS, stopped as soon as timestepping starts instead of running to the end
+  on a model with no source. A result file with any NaN or infinity (S11, Zin,
+  the reference impedance or a transmission term, including each FullSMatrix
+  excitation) is refused with the port and the first bad frequency. "Run:
+  Setup failed", after which the deck used to carry on, also fails the run.
+* **A lumped port drawn in air is now a WARNING.** Since its ends became grid
+  lines, a port whose end touches no metal is no longer dropped by openEMS: it
+  runs and returns finite S11 and impedance that describe nothing. Each end of
+  every lumped port is now checked against the metal parts, and a WARNING names
+  the port, the end, the nearest part and its distance (first among the model
+  notes). An end within a tenth of its local cell of metal counts as touching.
+  The forum model's port ends both sit on M3 screws (0.0 mm), so it gets none.
+* **A waveguide sweep that started below cut-off carried NaN rows.**
+  openEMS's waveguide port returns NaN below its mode's cut-off frequency, by
+  design. v1.13 loaded those rows into the result without a word; this
+  release's first NaN refusal (above) threw the whole run away instead and
+  blamed a port "never in the simulation" (caught in review: a WR-28 run swept
+  18-30 GHz, TE10 cut-off 21.08 GHz, had 7 NaN rows and 18 good samples from
+  21.5 GHz up). The deck now leaves out the samples at or below the highest
+  waveguide cut-off in the model, and a NOTE names the port, its mode, the cut-off and
+  the samples left out. Radiation patterns asked for below cut-off move to the
+  first kept sample. A band wholly below cut-off is refused before anything is
+  written, naming the cut-off. A NaN below cut-off that still reaches the
+  runner (a deck edited by hand) is reported as below cut-off, never as a
+  missing port. The cut-off is openEMS's own, which treats the guide as air.
+* **Two materials tied on Priority over the same volume are warned.** openEMS
+  has no rule for that tie (CSXCAD orders primitives with an unstable sort), so
+  which material filled the overlap was arbitrary: for example a dielectric
+  back plate at the default Priority 10 against a PEC group that still
+  contains it. The warning names both parts and both materials, with the exact
+  overlap; give the one that should win the higher Priority.
+* **A run cut off at MaxTimesteps is now reported.** openEMS stops at its
+  timestep limit whether or not the fields have decayed, and its own "Max.
+  number of timesteps was reached" line prints on every run shorter than about
+  4 s of wall time, whatever the fields did. The runner now reads the evidence:
+  a WARNING when openEMS measured a shortfall (quoting the dB), had to cut its
+  excitation pulse, or was given fewer than three pulse lengths; a NOTE when
+  nothing was measured. Both go to the Report view, `result.meta` and the
+  Results dialog. One shipped gate runs truncated (`patch_stl_openems`: 30000
+  steps = 2.27 pulse lengths, energy about −15 dB at the cap) and now carries
+  that WARNING; see Known.
+* **openEMS under the Linux FreeCAD 1.1.4 AppImage.** The openEMS venv python
+  died with "No module named encodings": it inherited the AppImage's
+  `PYTHONHOME`. The child environment is now scrubbed (PYTHONHOME dropped; only
+  host entries removed from PYTHONPATH and only AppImage-mount entries from
+  LD_LIBRARY_PATH). Measured under the AppImage's `--console`; the GUI
+  AppImage runs the same AppRun but was not measured. FreeCAD 1.1.4 on macOS
+  sets none of the three.
+* **SolverOpenEMS.NumThreads was never read.** A value above 0 is now passed to
+  openEMS (`FDTD.Run(…, numThreads=N)`; a live run printed "fixed number of
+  threads: 2"). At 0, all cores as before, the deck line is byte-identical.
+* **Solver errors lead with the deck's own refusal**, and a crash names the
+  signal or the Windows status code, with the grid line added when it had
+  scrolled out of the tail.
+* **The pre-solve time estimate for openEMS now prices the grid openEMS will
+  actually build**, local refinement included, with the timestep its finest
+  lines set. It scored MeshResolution 20 and 2700 the same, and on the forum
+  J-pole the plain bounding-box count was 13 × 13 × 25 against 2.9 M real
+  cells. It is counted without writing anything (0.3 s on that model; without
+  FreeCAD it falls back to the bounding-box measure). openEMS timing history is
+  relearned once: the first solve of each size after the upgrade shows "no
+  estimate yet".
+* **Detect Solvers no longer crashes openEMS.** The version probe ran
+  `openEMS --version`, which openEMS v0.37 does not accept: it printed its
+  banner, then aborted on an uncaught exception. On a Linux box with
+  systemd-coredump every Detect Solvers, and every validation run that probed
+  it, left a core dump: 10,623 of them on the development box since July. The
+  probe now runs `openEMS --help`, which prints the same banner and exits
+  normally; the version shown is byte-identical. (Not yet run on the Windows MSVC build.)
+
+### Fixed — P.368-10 ground wave on Apple silicon
+
+* **The spherical-earth engine (the NTIA LFMF port) now replays the reference
+  implementation on macOS arm64 as closely as on x86** (worst 3.18e-5 dB over
+  all 2,497 oracle rows on both; the two platforms' outputs are not
+  bit-identical, only the qi product the fix computes is). Every Python probed on
+  Apple silicon (FreeCAD 0.21.2, 1.1.1, 1.1.3 and 1.1.4 bundles, Apple's 3.9.6,
+  Homebrew 3.12.13) computes a complex multiply with a fused multiply-add. At
+  ground permittivity exactly 1.0 with horizontal polarization, that tipped
+  one product to the other side of a square-root branch cut: 21 of the gate's
+  32 such rows came out up to 1.69 dB off (reported from the field on FreeCAD
+  1.1.4, where the `lfmf` gate failed), and at other heights and frequencies
+  on the same ground the Mac was up to 3.1 dB off. The product is now computed
+  in real arithmetic. On x86 the results are bit-identical to v1.13.1 (9,697
+  points compared on Linux; Windows x86 does the same arithmetic and was not
+  run); the Mac now passes the gate under the 1.1.1, 1.1.3 and 1.1.4 bundles. The
+  coverage and multistation dialogs never reached the case: they use vertical
+  polarization and ground presets with εr 3-80, where Linux and the Mac agree
+  to better than 1e-10 dB (worst 6.7e-11 dB, over sweeps of 4,200 and 11,200
+  points of that domain).
+* **The value at εr = 1.0 deliberately stays the reference's**, not the
+  εr → 1+ limit (owner ruling). The reference model is two-valued there:
+  εr = 1.0 and the next value up can differ by up to about 3 dB depending on
+  the inputs (3.12 dB the largest measured), and an εr-just-above-1 sliver
+  jumps the same way; both now identically on Linux and the Mac.
+* The `lfmf` gate gains 4 checks (16 → 20), including a source check that
+  catches a revert on x86, where no value check can, and a negative control
+  that must fail exactly the 21 rows the Mac failed.
+
+### Added
+
+* **The red frequency cursor on the S-Parameters, VSWR and Impedance plots can
+  be clicked, tapped and dragged.** A user on the FreeCAD forum (macOS) tried
+  to drag it and nothing happened. It was not a Mac bug: on every platform the
+  cursor only followed the Pattern / Pattern 3D / Currents sliders and the
+  viewport scrubber, and nothing listened to the plot. Now a left click, a
+  trackpad tap or a drag on any of the three plots moves the shared selection,
+  so the pattern tabs, the 3-D balloon, the currents overlay and the floating
+  scrubber follow. It snaps to the nearest SOLVED pattern frequency (five
+  patterns, five positions), because the plots, the pattern tabs and the
+  balloon must always name one frequency; for finer steps, solve with a smaller
+  step in **Analysis ▸ Pattern Frequencies…**. With the plot toolbar's Pan or
+  Zoom on, drags still pan and zoom. A result with one pattern, or none, has
+  nothing to scrub: the cursor stays hidden and a click does nothing.
+  `gui_smoke` drives the plots with real mouse events and reads the cursor back
+  off the painted pixels: a drag to an interior pattern checked mid-drag, a
+  press at one pattern released at another, a tap, a right click mid-drag,
+  VSWR and Impedance, Pan and Zoom, a lost release and the stale release after
+  it, and one- and no-pattern results. Fourteen deliberate breakages each fail
+  it; the two pixel-ratio ones fail only when the check runs at a device-pixel
+  ratio above 1. On a live desktop it moves the Results dialog off the mouse
+  pointer, and if a real pointer still reaches the plot it re-runs that step
+  once, then says "real pointer interfered — rerun with the mouse still"
+  instead of reporting a wrong index.
+* **The Results dialog shows a run's own warnings and notes.** An openEMS run
+  records what its numbers are worth: a run that stopped at MaxTimesteps before
+  the field energy reached EndCriteriaDB, an STL part openEMS will partly
+  refuse, a part local refinement had to leave coarse, a reference that reached
+  nothing, an equal-Priority overlap, a port in air, samples below a waveguide
+  cut-off. That went only to FreeCAD's Report view, where it scrolls away under
+  the solver log. It is now listed under the summary line, beside the plots it
+  qualifies: warnings in amber with ⚠ (like NEC-2's thin-wire warning), notes
+  in plain text, the "EMStudio: WARNING -" tag dropped. A repeated line is
+  shown once (a FullSMatrix run's notes appear once, not per excitation). Past
+  four of either kind the rest are counted, and hovering shows them all. A
+  result with none looks exactly as before; the PDF report does not list them.
+  `gui_smoke` builds the warnings with the openEMS runner's own code and checks
+  the painted colours; eleven deliberate breakages each fail it.
+* **A place to ask questions: GitHub Discussions ▸ Q&A** (turned on for
+  EMStudioFree 2026-10-17). A user on the FreeCAD forum asked where to ask —
+  the announcement thread "is not the best option" and an issue "is too much
+  for asking help from the community" — and nothing anywhere answered him: the
+  public README had no help section at all. Now signposted everywhere a user
+  looks: first entry on GitHub's new-issue chooser
+  (`.github/ISSUE_TEMPLATE/config.yml`), a **Getting help** section in the
+  public README and in HELP.md (questions → Q&A; bugs → issues, with the error
+  text and FreeCAD's version block; Pro licence trouble → support@ajj3.us; the
+  README also points announcements at the forum thread), a **Questions (Q&A)**
+  button in **Help ▸ About EMStudio**, and "Ask a question" in the product page
+  footer. `gui_smoke` asserts the About box offers exactly one Questions button
+  whose URL is the Q&A category (mutation: removing the button fails it).
+
+### Changed
+
+* **Local refinement gives metal one cell across its thickness, not three**
+  (owner ruling, 2026-10-17; `writer.MIN_CELLS_ACROSS_METAL = 1.0`). For PEC,
+  one line inside a wall is what makes it present, and three cells for every
+  metal part made the forum J-pole a 14-hour run. Measured on it at MR 20:
+  three cells for all metal is 21.8 M cells and a 0.457 ps timestep, about
+  14 h on 32 threads; three for small parts and one for big ones, 8.6 M cells
+  with the nuts still setting the timestep; one for all metal, 2.94 M cells
+  and 25 min on 16 threads. 2V/A under-reads some walls (the nuts read 0.98 mm
+  against ~1.5 mm, the mast junction 0.83 mm), so those parts get a finer cell
+  than they need. A small curved metal STL part gets coarser: a 1 mm solid
+  wire now has 2 cells across its diameter instead of 6. No shipped template or gated solve has refined metal, so
+  nothing gated moved. One constant restores three.
+* **MaxTimesteps stays a ceiling** (owner ruling). EMStudio does not raise it
+  to fit the pulse; a run cut short is warned (Fixed, above). Know the number
+  your model needs: the forum J-pole at MR 20 needs about 135,000 steps
+  (134,696 at MR 20, 139,216 at MR 40; its pulse alone is 124,331 steps at
+  1.15 ps), so the default and its saved 30000 truncate it, and the run says
+  so.
+* The **MeshResolution** tooltip now states the cube law (doubling it is about
+  8× the cells), typical values 20-60, the 1,431,655,765-cell limit and
+  ~125 bytes per cell; the **NumThreads** tooltip says it is passed to
+  openEMS. FreeCAD stores a dynamic property's tooltip in each document, so
+  files saved before v1.14.0 keep the old text.
+* openEMS decks are longer: about 180 lines of the pasted preflight, about 25
+  more when there is a lumped port, about 60 more when a part is zone-refined,
+  and a print block of model notes when there are any. Nothing in the repo
+  hashes deck text.
+* `write_deck` is slower on detailed models (the fuse and the STL checks): 4-5
+  s on the forum model on Linux, 2 s on the Mac; FullSMatrix repeats it per
+  excitation. A model note appears twice in the Report view (orange at
+  deck-writing time, then as a `[solver]` line when the deck prints it) and
+  once in the Results dialog.
+
+### What can change for an existing document
+
+NEC2, Elmer and Palace solves are unaffected. For openEMS:
+
+* **The model can hold more of what you drew.** Parts picked through a group,
+  App::Part or link now reach it; before v1.14.0 they were silently missing,
+  so such a document SIMULATES DIFFERENTLY. A group referenced whole is now
+  exported part by part (one STL per visible child instead of one compound):
+  the same union, but refinement is decided per part, so its grid and results
+  can move. No template or gate uses group references, and no solve was
+  compared on such a document.
+* **Grids of documents with STL bodies change**: metal refined to one cell
+  across 2V/A through zones (v1.13 blanketed small parts at three cells and
+  skipped big ones), big dielectric parts refined at three cells axis by axis,
+  multi-solid objects anchoring each solid's planes, touching solids fused,
+  finer facets on large-radius curves. Results move toward the resolved
+  geometry. Templates are unchanged, except the inverted-F family.
+* **Some documents that ran in v1.13 now stop with a reason:** a port openEMS
+  dropped, or any NaN in a result, is an error instead of a meaningless plot; a
+  model whose only geometry was wires is refused (it used to run a port in
+  empty space); a grid over this machine's RAM is refused unless the override
+  is set; a multi-solid body with one solid too thin even for local refinement
+  is refused (it used to pass on its averaged 2V/A, with the thin solid
+  silently absent).
+* **Some now warn where they were silent:** references that reach nothing,
+  STL defects, open STLs, equal-Priority overlaps, a port end in air, a run cut
+  at MaxTimesteps. A deliberately floating lumped port (a bare source used as
+  an elementary dipole) now carries a WARNING; it is not refused.
+* **A waveguide sweep that starts below cut-off** returns fewer points than
+  FrequencyPoints, and its patterns move to the first kept sample.
+* **A saved NumThreads above 0 now limits openEMS's threads.**
+* **A big dielectric part on a small-RAM machine** may have its refinement
+  shed (the v1.13 mesh, with a NOTE), so two machines can build different
+  grids for that part. By design; metal never is.
+* The first openEMS solve of each size shows "no estimate yet".
+
+And in the Results dialog, for everyone: a stray click on a plot now moves the
+shared selection, and with a 3-D balloon on screen that rewrites its VTU and
+recomputes the document, which marks it modified. Clicks on the legend or the
+readout box (both inside the axes) move it too. On macOS a click that only
+activates the non-modal Results window may also move it; that is not measured
+on real hardware.
+
+### Known, and deliberately not fixed in this release
+
+* **The refined-grid count runs high.** `writer._refined_floor`, which feeds
+  the index budget, the RAM refusal and the time estimate, counts every cell
+  stretched up to 5 % over the global cell as one openEMS will split, and
+  openEMS does not: 54 × 54 × 30 against 37 × 39 × 31 on the patch template,
+  3.85 M against 2.94 M (+31 %) on the forum J-pole. The bias is conservative:
+  near either limit a model can be refused, or lose refinement, that would
+  fit. The proposed fix counts no fill for a gap within that 5 % stretch.
+* **The fill advice's "then MeshResolution N is enough" is a global-cell
+  price.** Since local refinement, a filled tube is usually resolved at the
+  current MeshResolution, so N is sufficient, not necessary.
+* **NEC2, Elmer and Palace still drop a part picked through a group without a
+  word** (the 2026-08-20 audit finding, still open for them). Porting the
+  sub-object resolution needs the same de-duplication, or they would export
+  parts twice.
+* A direct reference to a body inside a PLACED App::Part is exported at its
+  local position (pre-existing, every backend).
+* The forum model keeps 3 WARNINGs: the two clamps of 'Feed > Mount' and the
+  shorting bar each touch themselves along a line, and openEMS refuses those 16
+  triangles. Splitting such a contact automatically was not done (warn only).
+* Model notes reach the Results dialog as the deck's ASCII copy, so a part
+  label with non-ASCII characters shows '?' there (the Report view shows the
+  original).
+* `patch_stl_openems` runs truncated (30000 steps, 2.27 pulse lengths) and its
+  2 checks pass on that signal; under the MaxTimesteps ruling it is warned,
+  not re-pinned. `patch_auto_openems`'s "S11 < −10 dB" passes at −10.4 to
+  −10.7 dB against about 0.3 dB of openEMS's run-to-run wobble.
+* **The shipped inverted-F at MeshResolution 30 runs truncated**, a second
+  shipped case under the MaxTimesteps ruling (Changed). At the default
+  MaxTimesteps 30000 openEMS stops with the field energy still at −0.0 dB,
+  the new timestep WARNING says so, and the result is wrong: 98.8 + 50.5j Ω,
+  −7.0 dB at 2.5556 GHz. With MaxTimesteps 200000 the same mesh gives
+  49.1 − 0.8j Ω, −38.6 dB at 2.4524 GHz. The template's own MeshResolution
+  60 does not truncate (tutorial 35 has the table).
+* openEMS results are not run-to-run deterministic: the stop timestep follows
+  openEMS's ~4 s wall-clock energy check (the same IFA deck: 10,434 vs 11,544
+  timesteps, −26.51 vs −26.78 dB). "No result change" in this release was
+  proved by hashing the decks' `--preview` grids, not by comparing two runs'
+  digits.
+* The dielectric thin-axis rule can still interleave with geometry planes: on
+  the forum back plate a 0.4 mm cell sets the timestep (about 46 % slower than
+  otherwise).
+* Not run on Windows in this release: the openEMS SOLVER gates (the VM has
+  no openEMS environment, so the `--help` probe on the MSVC v0.37 build is
+  unverified, rc 0 expected) and `gui_smoke`. The Windows RAM reader DID run
+  (`openems_preflight` 50/50 on the VM). The bytes per cell are unmeasured on
+  the Windows and macOS openEMS builds.
+* Three items fail on the Windows build VM on v1.13.1 and v1.14.0 alike, so
+  they predate this release: `openfoam_runner_cancel` exits rc 3;
+  `solver_versions` (the VM's NEC2 is nec2++ 2.3.4, the table says nec2c
+  1.3.1); and `run_battery.py`'s own closing "⚠ gates that printed ZERO
+  per-check lines" message raises UnicodeEncodeError when its output is
+  redirected to a file on a cp1252 Windows console — the gates still ran
+  and printed their verdicts; only the summary's last line is lost.
+* `solver_versions` fails on the macOS build host (gmsh, nec2 and openfoam are
+  newer there than the Linux-derived table); it fails identically on the Mac's
+  clean master checkout, and is not touched by this release.
+* EMStudio refuses at v0.37.0-rc1's limit (2^32/3 cells) whatever openEMS
+  build is installed. openEMS master has since lifted that one, but its
+  address operator still wraps at 2^32 cells, so the refusal stays
+  conservative rather than build-aware.
+
+### Validation
+
+* **Gate files 115 → 117.** FAST 54 → 55: `openems_preflight` (51 checks,
+  FreeCAD-free: the limit, the RAM branch on a simulated 8 GB machine, the
+  pasted deck lines EXECUTED against fake grids, the PYTHONHOME scrub with a
+  real-child negative control, the writer floor's reading of the model).
+  SOLVER 61 → 62: `preflight_live_openems` (61 checks, FreeCAD plus the
+  openEMS python: placement and name hygiene of the pasted block, the
+  writer-side refusal with an empty workdir, a hand-edited 1.95e9-cell deck
+  refusing itself before "Create FDTD operator" while the block-stripped
+  control reaches it, dropped ports and NaN results through the real runner,
+  the WR-28 band below cut-off, model notes in `result.meta`, the `--help`
+  probe under a 1-byte core limit).
+* `stl_mesh_openems` 18 → **140** checks: the refusal (section 4), references
+  (5), overlaps and deck notes (6), port ends on the grid with the v1.13
+  controls (7), watertight export (8), per-part refinement and the grid budget
+  (9), coax and tilted-tube advice (10), tessellation measured on written STLs,
+  ports in air and waveguide cut-off (11).
+* `lfmf` 16 → 20, `solve_estimate` 25 → 32, `gui_smoke` 41 → 43 (the About
+  box's Questions assertions sit inside an existing check).
+* **The new checks were mutation-proven** in scratch copies of the tree, never
+  the live repo, with `__pycache__` cleared and each restored file's sha256
+  verified: stage by stage 33 (references and refusal), 15 (ports and NaN), 26
+  (export and refinement), 16 (review fixes A) and 17 (review fixes B) for the
+  openEMS writer and runner; 14 for the cursor and 11 for the run notes; and
+  the preflight's and `lfmf`'s own sets. The two pixel-ratio cursor mutants are
+  caught only at a device-pixel ratio above 1, so a release needs one
+  `gui_smoke` leg there (this one had Linux at ratio 2 and the Mac at
+  `QT_SCALE_FACTOR=2`).
+* **No template moved but the inverted-F family**, proved by hashing every
+  deck's own `--preview` grid, STLs and deck text before and after each stage:
+  13 of 13 template and example decks and 14 of 14 gate decks byte-identical
+  across the review fixes; the horn's grid identical through the fuse.
+
+### Documentation
+
+* The user docs describe all of the above: README and `docs/README.free.md`
+  (the release summary; Getting help), HELP.md (Getting help, and a
+  troubleshooting line for each new openEMS refusal, warning and note and for
+  the amber lines under the Results summary), the User Manual (meshing and
+  local refinement, which geometry reaches the model, port placement, the
+  grabbable cursor, the run notes, troubleshooting rows), CAPABILITIES (a new
+  "openEMS on your own CAD" section; `gui_smoke` 43 checks) and TUTORIALS
+  (the cursor in tutorial 22; the inverted-F's measured numbers).
+* **Two published claims corrected.** "The reference patch with an STL
+  substrate resonates at the identical frequency" (README, User Manual): it
+  resonates at 2.425 GHz against the parametric patch's 2.435 GHz, and that
+  gate's run stops at its timestep cap. And the User Manual's "wire currents
+  stay solved at the best-match frequency only": the Currents tab and overlay
+  have scrubbed per frequency since 2026-08-07.
+* `CLAUDE.md`: gate counts 117 (FAST 55 / SOLVER 62), free tree 99 public.
+  Its `run_pro_freecad.sh tests/gui_smoke.py` line said "Linux: offscreen";
+  under the 1.1.4 AppImage that is false (its AppRun forces xcb, so the run
+  draws on the live display), and it now says so. It also records FreeCAD
+  1.1.4's NotificationArea deadlock under true offscreen and the `user.cfg`
+  setting that avoids it.
+* `tests/validation/data/lfmf/PROVENANCE.md`: the oracle grid's 32 εr = 1 /
+  horizontal-polarization rows sit on a branch cut; regenerate them only on
+  plain x86-64 g++.
+
 ## [1.13.1] — 2026-10-08
 
 > A maintenance release. The one change a Windows user sees is the Elmer

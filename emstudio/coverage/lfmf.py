@@ -24,6 +24,10 @@ Port provenance & acknowledgment (NTIA requests acknowledgment + change notes):
   by ``scipy.special.wofz`` (the same Faddeeva function). No algorithmic
   changes otherwise. Validated: ``tests/validation/lfmf.py`` replays a dense
   2497-point grid generated from the upstream binary — worst |delta| 3.2e-5 dB.
+* Change 2026-10-17 (v1.14.0): the flat-earth ``qi`` product is multiplied
+  out in real arithmetic (``_cmul_unfused``), so builds whose complex
+  multiply is FMA-fused (macOS arm64) replay the reference binary too, not
+  only x86. Same algorithm; on x86 every output is bit-identical.
 * References: DeMinco, NTIA Report 99-368 (flat-earth + curve correction);
   Hufford, NTIA Report 87-219 (Airy functions of the third kind); Wait 1956.
 
@@ -112,6 +116,44 @@ def _csqrt_glibc(z):
         c = math.sqrt(abs(z.imag) / 2.0)
         return complex(c, math.copysign(c, z.imag))
     return cmath.sqrt(z)
+
+
+def _cmul_unfused(a, b):
+    """Complex product ``a*b`` with each real product rounded on its own.
+
+    This is the value x86 CPython's complex ``*`` gives, and the value the
+    reference binary that generated the oracle grid computed (g++ 13,
+    x86-64, no FMA): ``Re = a.r*b.r - a.i*b.i`` with BOTH products rounded
+    to double before the subtraction.
+
+    WHY not plain ``a * b``: CPython's complex ``*`` (``_Py_c_prod``) is that
+    same C expression, and a compiler allowed to contract it emits a fused
+    multiply-add that rounds ONCE. Measured in FreeCAD 1.1.4's macOS arm64
+    libpython3.11: ``fnmul`` + ``fmadd``, i.e.
+    ``Re = fma(a.r, b.r, -round(a.i*b.i))``. It is not one odd build: EVERY
+    Python probed on the M1 build host fuses (2026-10-17: the FreeCAD 0.21.2,
+    1.1.1, 1.1.3 and 1.1.4 bundles, Apple's 3.9.6, Homebrew's 3.12.13), while
+    the x86 Linux box and the Windows VM replayed the unfixed engine cleanly.
+    When the two products are equal, the separately-rounded difference is
+    exactly 0.0, but the fused one is the rounding error of a product: about
+    1e-16 relative, of EITHER sign. Each Python float operation below is a
+    separate interpreter operation that rounds on its own, so no C compiler
+    can fuse across them. That gives the separately-rounded result on every
+    platform and build. On x86 the engine's outputs are bit-identical to the
+    ``a * b`` version on all 9697 points measured (the 2497 grid rows, a
+    3000-point eps-near-1 sweep and a 4200-point GUI-domain sweep).
+
+    Used only where an exact cancellation feeds a branch cut: qi in
+    :func:`_flat_earth_curve_correction`. Everywhere else in this module,
+    fused vs unfused moves the answer by ulps and nothing else (measured:
+    Linux vs M1 <= 2.3e-13 dB on every eps_r == 1 grid row once qi is
+    unfused). TRAP: the body must stay products of ``.real``/``.imag``
+    floats. ``tests/validation/lfmf.py`` checks that FROM THE SOURCE, because
+    on x86 a revert to ``a * b`` returns the very same numbers and no value
+    check run there can see it; only an FMA machine would, after shipping.
+    """
+    return complex(a.real * b.real - a.imag * b.imag,
+                   a.real * b.imag + a.imag * b.real)
 
 
 def _require_scipy():
@@ -218,8 +260,56 @@ def _flat_earth_curve_correction(delta, q, h_1__km, h_2__km, d__km, k,
                                  a_e__km):
     """Flat earth + curvature correction (FlatEarthCurveCorrection.cpp;
     DeMinco 99-368 eqs 28-32 + height-gain eq 36) — normalized E, mV/m."""
-    # qi defined as in the original GWFEC.FOR so wofz() serves both uses
-    qi = (-0.5 + 0.5j) * math.sqrt(k * d__km) * delta
+    # qi defined as in the original GWFEC.FOR so wofz() serves both uses.
+    # The product with delta goes through _cmul_unfused, NEVER complex '*'.
+    # At eps_r == 1.0 exactly with pol 0, eta - 1 is pure imaginary, so delta
+    # is exactly c*(1 - j) (_csqrt_glibc) and Re(qi) = s*c/2 - s*c/2 must come
+    # out as exactly +0.0. Then p = qi*qi lies ON the negative real axis with
+    # Im(p) = +0.0, and the principal sqrt(PI*p) below takes the +j side,
+    # which is what the reference binary does. (The SIGN of that zero
+    # matters: Re(qi) = -0.0 gives Im(p) = -0.0 and the -j side, just like a
+    # negative residue. x - x is +0.0 in round-to-nearest, which is why the
+    # unfused subtraction is right.) A fused multiply instead leaves
+    # Re(qi) equal to the rounding error of s*c/2. On 21 of the 32 such grid
+    # rows that error is negative, so Im(p) < 0, sqrt flips to the -j side,
+    # and E / A_btl / P_rx move by up to 1.69 dB. That is the FreeCAD 1.1.4
+    # macOS arm64 gate failure reported from the field, fixed 2026-10-17
+    # (v1.14.0). (The (-0.5 + 0.5j) * s factor is safe as complex '*': s has
+    # a zero imaginary part, so each component has only one non-zero product,
+    # which fusing cannot change; scaling by 0.5 is exact anyway.)
+    #
+    # The boundary belongs to the REFERENCE MODEL; the port did not create it:
+    #  * at eps_r == 1.0 / pol 0, F(p) is two-valued. The reference returns
+    #    the +j side at exactly 1.0, while its own limit as eps -> 1+ is the
+    #    -j side. On x86 at f 1 MHz, d 50 km, sigma 1e-6: E = 50.0002 dB(uV/m)
+    #    at eps 1.0, and 48.3108 at eps 1 + 1 ulp. The oracle's +j values are
+    #    its x86-64 g++ build's; a C++ mirror of these lines lands on -j under
+    #    g++ -march=native or Apple clang (tests/validation/data/lfmf/
+    #    PROVENANCE.md has the regeneration warning).
+    #  * just above 1 there is a sliver, (eps - 1)/b up to ~2.6e-16 with
+    #    b = sigma/(eps0*omega) (eps up to ~1 + 2e-10 at LF over sea), where
+    #    rounding inside sqrt(eta - 1) itself makes delta's two parts equal
+    #    or swapped, and the same up-to-2.6 dB jump happens on EVERY
+    #    platform. Measured: 424 of a 3000-point near-1 sweep jump on Linux
+    #    x86, and with this fix the same 424 on the M1 (before it, 263, and
+    #    the two machines disagreed on 161 points). It comes from rounding
+    #    in delta, not from FMA, so the reference binary, which evaluates the
+    #    same expression, shares it. That is inferred; no copy of the binary
+    #    is on disk to re-run.
+    # The GUI never reaches either case. The coverage and multistation dialogs
+    # call field_strength_dbuv_m with pol=1 (vertical) and the GROUND_TYPES
+    # presets, eps_r 3-80. There Linux and the M1 differed by <= 6.7e-11 dB
+    # (4200-point sweep) even before this fix, and the fix leaves that as it
+    # was (<= 4.9e-11 dB over a 10,920-point sweep, before and after).
+    # This fix deliberately KEEPS the reference's behaviour at eps_r == 1.0
+    # (bit-for-bit oracle replication) instead of taking the continuous -j
+    # branch. That is the owner's ruling, 2026-10-17. So eps 1.0 and eps
+    # 1 + 1 ulp still differ by ~1.7 dB, on purpose; do not "smooth" it here.
+    qi = _cmul_unfused((-0.5 + 0.5j) * math.sqrt(k * d__km), delta)
+    # complex '*' is safe here: in the eps_r == 1 / pol 0 case Re(qi) is now
+    # exactly +0.0, so each component of qi*qi has one non-zero product and
+    # fused and unfused agree to the bit; in every other case they differ by
+    # ulps, with no cancellation to expose.
     p = qi * qi
 
     p2 = p ** 2

@@ -1,5 +1,15 @@
 blank_issues_enabled: true
 contact_links:
+  # First on purpose: most people arriving here have a QUESTION, not a bug.
+  # Discussions were turned on 2026-10-17 after a user said the forum thread
+  # "is not the best option" and an issue "is too much for asking help from
+  # the community" — he was right on both counts.
+  - name: Ask a question (Q&A)
+    url: https://github.com/king-aj3/EMStudioFree/discussions/categories/q-a
+    about: >
+      How do I…, why does…, is this the right way to model…? Ask in
+      Discussions — answers can be marked accepted, searched, and given by
+      other users too. Issues are for something EMStudio got wrong.
   - name: Does a gate already answer this?
     url: https://github.com/king-aj3/EMStudioFree/blob/master/docs/TUTORIALS.md
     about: >

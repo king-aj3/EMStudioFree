@@ -66,6 +66,9 @@ FAST = {
     "smith": None,
     "solid_setup": None,
     "solve_estimate": None,
+    # The openEMS grid preflight, pure half (limits, RAM branch, the pasted
+    # deck code, solver-process plumbing). Live half: preflight_live_openems.
+    "openems_preflight": None,
     "solver_progress": None,
     "thermal": None,
     "touchstone_export": None,
@@ -106,7 +109,7 @@ SOLVER = [
     "patch_auto_openems",
     "patch_n78_openems",
     "patch_openems",
-    "patch_stl_openems", "solenoid3d_elmer",
+    "patch_stl_openems", "preflight_live_openems", "solenoid3d_elmer",
     "stl_mesh_openems", "n_port_live_palace",
     "team7_elmer", "two_port_openems", "two_port_palace", "waveguide_palace",
     "waveguide_port_openems",
@@ -198,6 +201,7 @@ SOLVER_REQS = {
     "isolation_openems": "openems_python",
     "isolation_patch_openems": "openems_python",
     "stl_mesh_openems": "openems_python",
+    "preflight_live_openems": "openems_python",
     "openfoam_solid": "openfoam",
     "openfoam_ras_cavity": "openfoam",
     "openfoam_ras_solid": "openfoam",
@@ -377,6 +381,8 @@ NEEDS_FREECAD = {
     "lpda_nec2", "yagi_nec2", "antenna_from_selection",
     "curved_wire_nec2", "solenoid3d_elmer", "stl_mesh_openems",
     "horn_openems", "ifa_openems", "pifa_openems",
+    # Builds its decks from the shipped patch template, so FreeCAD throughout.
+    "preflight_live_openems",
 }
 
 #: SOLVER gates that RUN under python3 but carry a FreeCAD-only template half

@@ -122,6 +122,78 @@ Meshing is automatic: EMStudio sizes the simulation domain, grids metal edges wi
 the thirds rule, and discretizes thin substrates. Override density via the analysis'
 `MeshResolution` (lines per wavelength, default 20).
 
+**What `MeshResolution` costs (openEMS).** It sets the cell in open space, and
+the cost grows fast: away from locally refined parts the FDTD cell count goes
+as the **cube** of MeshResolution, so doubling it is about 8× the cells and
+~16× the run time (the timestep halves too). Typical values are **20–60**;
+small parts no longer need more, because they are refined locally (below).
+Every run prints its grid first —
+`EMStudio: FDTD grid nx x ny x nz = N cells, needs about X GB (this machine has Y GB)`
+— and EMStudio **refuses**, with those numbers, a grid of **1,431,655,765 cells
+or more** (openEMS sizes its arrays in 32 bits and cannot index it: past it,
+openEMS crashes or corrupts memory, so there is no override) or one needing
+more than **80 % of this machine's RAM** (about 125 bytes per cell — 1.25 GB
+per 10 million cells; set `EMSTUDIO_OPENEMS_ALLOW_LARGE=1` in the environment
+FreeCAD is started from to run such a grid anyway). A certain case is refused
+within a second, before any STL is written; a borderline one by the deck just
+before openEMS starts. ⚠ The 125 B/cell figure was measured on Linux openEMS
+v0.37; Windows and macOS builds are unmeasured. The openEMS solver's
+`NumThreads` (0 = all cores) is passed to openEMS since v1.14.0 — before, it
+was ignored.
+
+**Thin parts are refined locally (openEMS, v1.14.0).** Each part is refined on
+its own: a **metal** part to at least **one cell across its thickness**, a
+**dielectric** to **three**, but only where its cross-section changes — a long
+tube gets fine lines across it and at its two ends, not all along it — and the
+spacing grades back to the global cell at `MeshSmoothRatio`. (Axis-aligned
+boxes and flat axis-aligned sheets are modelled natively and already get grid
+lines on their faces; this is for every other part — tubes, screws, curved
+and imported bodies.) So MeshResolution
+sets the cell in open space and the parts set the cell where they are: raising
+MeshResolution changes the grid of a detailed model far less than it used to.
+Measured on a forum user's 85–110 MHz J-pole with M3 hardware and 1.2 mm tube
+walls: MeshResolution 20 / 30 / 40 gives 2.9 / 3.5 / 4.2 million cells, not the
+cube law — but its finest lines (0.7–1.4 mm at the hardware) set a ~1.15 ps
+timestep, so it needs about 135,000 timesteps, far more than the default
+`MaxTimesteps` of 30000 (see the timestep warning in §8). If refining every
+part cannot fit (openEMS's index limit, or this machine's RAM), you are told
+which parts set the grid; a large dielectric part whose refinement does not fit
+in RAM falls back to the pre-v1.14.0 mesh with a NOTE. ⚠ One cell across a
+metal wall is a deliberate choice (fields inside metal are zero; it is what
+makes the wall present): a small curved metal STL part is meshed coarser than
+before v1.14.0 (a 1 mm solid wire: 2 cells across, was 6).
+
+**Which geometry reaches the model (openEMS).** Pick whole objects, faces, or
+parts inside a group or App::Part, in the tree or the 3-D view; each part is
+exported once, where it sits, even if you also reference the group that holds
+it. (Before v1.14.0 a part picked through a group was silently left out.) A
+group referenced whole brings in all its VISIBLE parts — hidden parts are left
+out, as FreeCAD's own group shape leaves them out, and a NOTE says so — and if
+you referenced the group AND picked some of its parts, a NOTE names the parts
+the group also brings in. If a reference reaches nothing (a face that no
+longer exists after an edit, a sketch or an edge in a metal or dielectric
+material) the Report view says
+"EMStudio: WARNING - material …: the reference … reaches no geometry" and the
+solver log repeats it: that part is NOT in the model. If two materials fill
+the same volume at the same `Priority` you are warned too, because openEMS has
+no rule for the tie — give the one that should win the higher Priority. Parts
+of one material that touch are merged into one closed solid for openEMS; if a
+part touches itself along a line or at a point (a clamp closed on itself), a
+WARNING names it, because openEMS's reader drops a few triangles there.
+⚠ This is openEMS only: NEC2, Elmer and Palace still leave out a part picked
+through a group — pick the object itself for those.
+
+**Ports (openEMS).** Each end of a lumped port is placed exactly on the FDTD
+grid, at every MeshResolution, so a port drawn from one conductor to the other
+touches both. The port must actually touch metal: EMStudio places it where you
+drew it, and a port drawn in air between two parts is simulated as drawn.
+EMStudio checks this: an end touching no metal is a WARNING naming the end, the
+nearest part and how far away it is. A port openEMS cannot place at all fails
+the run, naming the port. A waveguide port carries its mode only above the
+mode's cut-off; openEMS returns no number below it, so sweep samples below
+cut-off are left out of the result, with a NOTE (a sweep wholly below cut-off
+is refused).
+
 ## 5. Tutorial: analyzing an STL file
 
 Imported STL meshes work directly — no conversion to solids needed:
@@ -131,8 +203,20 @@ Imported STL meshes work directly — no conversion to solids needed:
 3. Proceed exactly as in Tutorial 4 (port, sweep, solver, run).
 
 EMStudio passes the triangles straight to the solver's native STL reader. The
-validation suite proves this path: the reference patch antenna with an STL substrate
-resonates at the identical frequency as the parametric version.
+validation suite proves this path: the reference patch antenna with an STL
+substrate resonates at 2.425 GHz, against 2.435 GHz for the parametric version
+(the STL substrate is stair-cased onto the grid). ⚠ That gate's run stops at
+its 30,000-step limit with the field energy at about −15 dB, so its match depth
+(about −14 dB) comes from a truncated signal; since v1.14.0 the run says so
+with a timestep WARNING.
+
+⚠ **The mesh must be closed.** openEMS counts no grid point as inside an open
+surface, so an imported mesh with a hole is simply not in the model. Before
+v1.14.0 that happened in silence; now every STL is read back as openEMS reads
+it, and an open one is a WARNING that says the body "is NOT in the model at
+all" (close the holes in the Mesh workbench — Analyze ▸ Evaluate and repair — or
+export the mesh from a solid). Non-manifold, pinched or duplicated triangles —
+which openEMS's reader partly refuses — are warned by part name too.
 
 ---
 
@@ -545,7 +629,8 @@ Every results window offers two levels of 3-D:
 
 By default a solve computes **one** radiation pattern, at the best-match
 frequency. To get a pattern you can scroll, run **EMStudio ▸ Analysis ▸ Pattern
-Frequencies…** *before* solving (NEC2 only).
+Frequencies…** *before* solving (NEC2 and openEMS; the same dialog also pops up
+when you press **Run Solver**).
 
 The dialog opens on the analysis sweep band and a recommended step. Both are
 editable:
@@ -558,26 +643,56 @@ editable:
   your own and the dialog shows the resulting count, the output size, and where
   the last pattern actually falls if your step does not divide the band evenly.
 
-N patterns cost **one** extra solver run, not N — NEC2 evaluates the pattern at
-every step of its frequency card (measured: 201 patterns in 7.18 s). What they
-cost is disk: about 0.33 MB each.
+On NEC2, N patterns cost **one** extra solver run, not N — NEC2 evaluates the
+pattern at every step of its frequency card (measured: 201 patterns in
+7.18 s). What they cost is disk: about 0.33 MB each. On openEMS they cost
+neither: the near-field box is recorded across the whole band in one run, so
+each extra pattern is another transform of data already held.
 
 After a multi-pattern solve, the whole results dialog scrubs as one: a
 **slider** at the bottom of both pattern tabs (and a combo box at the top)
 slides through the solved frequencies, the 2-D cut and 3-D balloon redraw
 live, and the S-Parameters, VSWR and Impedance plots each show a **frequency
 cursor** — a vertical line with intersection markers and a readout of the
-values at the selected frequency. **Show in 3D View** additionally floats a
-small **scrubber slider over the 3-D viewport**: it drives the same shared
-selection while the dialog is open, keeps scrubbing the viewport balloon
-after you close it, and disappears if you delete the balloon. Wire currents
-stay solved at the best-match frequency only — their overlay and tab are
-labelled with it.
+values at the selected frequency. **Click or drag on any of those three plots
+to move the cursor** (a trackpad tap works too; since v1.14.0 — before, the
+cursor only followed the sliders). It snaps to the nearest **solved** pattern
+frequency — five patterns, five positions — because the plots, the pattern
+tabs and the balloon must always name one frequency; for finer steps, solve
+with a smaller step in Pattern Frequencies…. Everything else follows the
+cursor: the pattern tabs, the Currents tab, the 3-D balloon and the viewport
+scrubber. If the plot toolbar's **Pan** or **Zoom** button is on, a drag pans
+or zooms instead; click the button again to turn it off. With only one solved
+pattern there is nothing to scrub, so the cursor stays hidden and a click
+does nothing. ⚠ A click on a plot now also re-points a balloon you have shown
+in the 3-D view, which rewrites it and marks the FreeCAD document modified.
+**Show in 3D View** additionally floats a small **scrubber slider over the 3-D
+viewport**: it drives the same shared selection while the dialog is open,
+keeps scrubbing the viewport balloon after you close it, and disappears if you
+delete the balloon. NEC2's wire currents are solved at every pattern
+frequency in the same run, so the **Currents** tab scrubs with the rest and
+the 3-D wire-currents overlay follows the selection too, labelled with its
+frequency.
 
 Both the **Pattern** and **Pattern 3D** tabs then grow a **Frequency** picker,
 and **Show in 3D View** exports whichever frequency the picker is on — the two
-tabs and the viewport always agree. The wire-currents overlay is labelled with
-its own frequency, because currents are still solved only at the best match.
+tabs and the viewport always agree.
+
+### Warnings and notes about the run
+
+Under the summary line the dialog lists what the solver said about **this**
+run (openEMS, since v1.14.0 — before, these went only to FreeCAD's Report view,
+where they scrolled away under the solver log). **Warnings** are amber with ⚠
+and mean the numbers above may be wrong — for example, openEMS stopped at
+`MaxTimesteps` before the field energy fell to `EndCriteriaDB`. **Notes** are
+plain text and say what a number is worth or what was left out of the model —
+parts left coarse, samples below a waveguide cut-off, a reference that reached
+nothing, an STL defect. A repeated line is shown once; past four of either
+kind the rest are counted, and hovering over that line shows them all. They
+are also in the Report view (a part label with non-ASCII characters shows `?`
+in the dialog; the Report view has the original). A run with nothing to say
+shows nothing here, so NEC2, Elmer and Palace results look exactly as before.
+⚠ The PDF report does not list them.
 
 ### When the VSWR plot looks empty
 
@@ -1391,7 +1506,16 @@ else is running. So:
 - an estimate taken from a neighbouring problem size is scaled by the size
   ratio and labelled **EXTRAPOLATED**; two sizes away it declines to guess;
 - the estimate is the **median** of past runs at that size, so one run on a
-  laptop that went to sleep cannot move it.
+  laptop that went to sleep cannot move it;
+- for openEMS, "size" is the grid openEMS will actually build — local
+  refinement included, with the timestep its finest lines set — counted
+  without writing anything (0.3 s on a forum J-pole). Until v1.14.0 it was the
+  number of frequency points, which priced MeshResolution 20 and 2700 the
+  same. Because the key changed, the first openEMS solve of each size after
+  upgrading says **no estimate yet** once. ⚠ The refined-grid count runs high
+  (on that J-pole 3.85 million counted against 2.94 million built); the
+  history is keyed on the same count every time, so the estimate stays
+  consistent.
 
 It can never block a solve — every error path in the estimator proceeds, since
 a broken estimate stopping real work would be the worse bug. Tick *Don't ask
@@ -1471,15 +1595,39 @@ platform-aware and shows Windows-specific guidance when run on native Windows.
 | EMStudio missing from workbench list | Symlink in the wrong Mod dir — FreeCAD ≥1.1 uses `~/.local/share/FreeCAD/v1-1/Mod/` |
 | "solver not found" | Run **Detect Solvers** and follow its install hint |
 | openEMS runs but no plots | Check Report view; the working dir path is printed there |
+| openEMS fails at once under the Linux FreeCAD AppImage with "No module named encodings" | Fixed in v1.14.0 — openEMS's Python inherited the AppImage's `PYTHONHOME`; update EMStudio. (Measured with the 1.1.4 AppImage's `--console`; the GUI AppImage starts through the same launcher) |
 | NEC2: "not straight" error | NEC2 needs line segments; curved wires come in a later phase |
-| Patch resonance shifted | Increase `MeshResolution`, widen `DomainPaddingWavelengths` |
+| Patch resonance shifted | Increase `MeshResolution`, widen `DomainPaddingWavelengths` — but check the grid line each openEMS run prints first: away from locally refined parts the cell count grows as MeshResolution³ (doubling it is about 8× the cells), and a grid over openEMS's 1,431,655,765-cell index limit or 80 % of this machine's RAM is refused (see "EMStudio: REFUSED — grid … cells" below) |
 | Microstrip \|S\| > 1 (non-physical) | The MSL port needs trace-aware meshing — set the openEMS solver's `MicrostripMeshMode = Auto` (default); ensure the ground is the PEC Zmin boundary and a substrate dielectric sits under the strip |
+| "EMStudio: REFUSED — grid … cells" | The grid is too big for openEMS (its 1,431,655,765-cell index limit) or for this machine's RAM (~125 bytes per cell, over 80 % of RAM). Lower `MeshResolution`. If the message names parts that set the grid ("Local refinement of the thin parts sets this grid"), a lower MeshResolution will not shrink it much: thicken, simplify or leave out those parts, or use NEC2 for wires. `EMSTUDIO_OPENEMS_ALLOW_LARGE=1` in the environment FreeCAD starts from lifts the RAM limit only |
+| "… has a smallest feature of X mm, but the FDTD cell is Y mm" | A part is thinner than one FDTD cell and local refinement cannot hold it (a foil, say), so it would be absent from the grid. The message names the part, the MeshResolution that would resolve it and what that grid costs. If it says "more than openEMS can index", no MeshResolution will run it: fill thin-walled tubes (a PEC tube and a solid rod of the same OD are identical from outside — the message says when that is safe; never a tube with anything inside it, and only when its axis can be read from its faces), thicken or leave out thin plates, or model wire antennas in NEC2 |
+| "… lies inside it, so it is a coax or feed structure … must NOT be filled" | The part refused for being thinner than one cell is a tube with something in its bore: an inner conductor, a dielectric or a port. Filling it would delete the feed. Thicken its wall OUTWARD to at least one cell (keeping the inside diameter keeps the line impedance), or feed the antenna with a lumped port where the line ends and leave the line out |
+| "Local refinement could not resolve every thin part …" | Resolving every part locally needs more cells than openEMS can index; the finest parts were left at the global cell and are named. Thicken, simplify or leave them out, fill thin-walled tubes whose bore carries no field, or use NEC2 for wires |
+| "WARNING - material …: the reference … reaches no geometry" | That reference is not in the model — re-pick the face or part, or remove the sketch or edge from the volume material |
+| "NOTE - material …: '…' is referenced WHOLE … ALSO brings in …" | A group you referenced whole contains parts you did not pick, and they are in this material too. Remove the group reference if they should not be |
+| "WARNING - '…' and '…' … at the same Priority" | Two materials fill the same volume and openEMS has no rule for the tie. Give the one that should win the higher `Priority` |
+| "WARNING - … the STL openEMS reads for 'X' has N edge(s) shared by more than two triangles …" | Two faces of the part touch along a line or at a point (a clamp closed on itself). openEMS drops those triangles and can fill a few cells wrongly near there. Open a small gap, or make the parts overlap |
+| "… is NOT in the model at all" | The STL is not closed (an imported mesh with a hole, or a tilted sheet drawn as a face). openEMS counts no point inside an open surface. Close the mesh or export it from a solid; draw flat sheets axis-aligned |
+| "openEMS could not place port N on the FDTD grid and left it out of the simulation" | openEMS dropped that port: its ends collapsed onto one grid line, or it lies outside the simulation domain. Draw the port edge across the feed gap from one conductor to the other, with both ends ON metal, along the port's `Direction` |
+| "openEMS finished, but the result for port N is not a number" | The run produced NaN — almost always a port that was not in the simulation. See the row above |
+| "WARNING - port N touches no metal at one end / either end: … the nearest metal, 'Part', is D mm away" | The port is drawn in air. A lumped port is simulated exactly where it is drawn, so its S11 and impedance mean nothing. Draw the port edge from one conductor to the other with both ends ON metal (snap to the vertices or faces) |
+| "NOTE - waveguide port N (TE10, …) only carries its mode above its cut-off of X GHz, so the K frequency sample(s) from A to B are left out" | The sweep starts below the port mode's cut-off, where openEMS's waveguide port gives no number. The result starts at the first sample above cut-off. Start the band above the cut-off (TE10: c / 2a; WR-28 21.08 GHz) to keep every sample. A band wholly below the cut-off is refused before anything is written: check the port face (a and b come from its size) and its `WaveguideMode` |
+| "openEMS finished, but the result for port N has no number below X GHz … the TE10 cut-off of waveguide port M" | The deck kept samples below the waveguide cut-off (an edited or old deck). Re-run it from EMStudio, or start the band above X GHz |
+| "WARNING - openEMS stopped at its timestep limit" / "had to CUT its excitation pulse" | The run ended at `MaxTimesteps` before the fields decayed, so the S-parameters come from a truncated signal. Raise the openEMS solver's `MaxTimesteps` and re-run — a VHF antenna meshed down to millimetre hardware can need 100,000+ steps; the default is 30000. A NOTE instead ("ran all N timesteps … without measuring the field energy") means openEMS never measured the decay (it measures every ~4 s, so short runs are unmeasured) |
+
+**Still stuck?** Ask in GitHub Discussions ▸
+[Q&A](https://github.com/king-aj3/EMStudioFree/discussions/categories/q-a) (also
+**Help ▸ About EMStudio ▸ Questions**). Something EMStudio got wrong — a crash,
+a failed install, a number that disagrees with a reference — is an
+[issue](https://github.com/king-aj3/EMStudioFree/issues/new/choose): paste the
+actual error text and FreeCAD's version block (**Help ▸ About FreeCAD ▸ Copy to
+clipboard**). EMStudio Pro licence or install trouble → support@ajj3.us.
 
 ## 9. Validation
 
 Every physics feature ships with an automated gate (`tests/validation/`):
 half-wave dipole (feedpoint R and 2.13 dBi pattern vs literature), patch antenna
-(resonance vs the published openEMS reference), STL import (identical resonance),
+(resonance vs the published openEMS reference), STL import (2.425 GHz against the parametric 2.435 GHz),
 wire analytics (exact-solution self-checks), FastHenry cross-validation of the
 litz model (0.0% at the litz design point), **induction heating** (billet eddy
 power vs the exact Bessel solution: +0.03% at 1 kHz; solenoid B vs the
@@ -1503,6 +1651,9 @@ freecadcmd tests/validation/isolation_nec2.py       # co-site antenna isolation 
 freecadcmd tests/validation/patch_openems.py
 freecadcmd tests/validation/patch_stl_openems.py
 freecadcmd tests/validation/msl_notch_openems.py   # microstrip notch (~40 s)
+python3 tests/validation/openems_preflight.py       # openEMS grid count, index limit, RAM test (no solver needed)
+freecadcmd tests/run_gate.py tests/validation/stl_mesh_openems.py       # openEMS geometry: references, refusals, local refinement, watertight STLs, port placement
+freecadcmd tests/run_gate.py tests/validation/preflight_live_openems.py  # the same through real openEMS runs: refusals, dropped ports, NaN results, waveguide cut-off
 freecadcmd tests/validation/cavity_palace.py        # Palace box eigenmodes
 freecadcmd tests/validation/cylcavity_palace.py     # Palace cylindrical (BREP) eigenmodes
 freecadcmd tests/validation/waveguide_palace.py     # Palace wave-port S-params
@@ -1516,7 +1667,7 @@ python3 tests/validation/small_antenna.py           # VLF/LF small-antenna analy
 python3 tests/validation/cosite.py                  # co-site interference (IMD/desense/D-U + optimizer)
 python3 tests/validation/propagation.py             # point-to-point path loss (FSPL/knife-edge/plane-earth)
 python3 tests/validation/coverage.py                # DEM import + terrain profiles + coverage heatmap + KML + LF/MF ground-wave (P.368) + multi-station D/U contours + multi-edge diffraction + Hata/COST-231
-python3 tests/validation/lfmf.py                    # P.368-10 spherical-earth ground wave — 2497-point oracle grid + official NTIA examples
+python3 tests/validation/lfmf.py                    # P.368-10 spherical-earth ground wave — 2497-point oracle grid + official NTIA examples (passes on Apple Silicon since v1.14.0)
 python3 tests/validation/p452.py                    # ITU-R P.452-18 — official CG-3M examples (needs ITU maps: itu_maps.install_p452_maps())
 python3 tests/validation/p2001.py                   # ITU-R P.2001-6 — official examples (needs ITU maps: itu_maps.install_p2001_maps())
 python3 tests/validation/cable.py                   # §2 Cable Designer — coax/pair/bundle + insulated-bundle MoM C (Paul + GETCAP anchors)

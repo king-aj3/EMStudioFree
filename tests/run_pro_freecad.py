@@ -2,7 +2,7 @@
 """Run a test script against the PRO working tree under a chosen FreeCAD.
 
     python tests/run_pro_freecad.py tests/smoke.py
-    python tests/run_pro_freecad.py tests/gui_smoke.py      # GUI: offscreen (Linux, Windows), desktop session (macOS)
+    python tests/run_pro_freecad.py tests/gui_smoke.py      # GUI: offscreen (Windows; Linux 0.21.2), live display (Linux 1.1.4 AppImage forces xcb), desktop session (macOS)
     FREECAD_VER=1.0 python tests/run_pro_freecad.py tests/gui_smoke.py
 
 WHY THIS EXISTS

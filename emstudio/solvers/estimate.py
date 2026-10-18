@@ -27,8 +27,9 @@ every other number the tool prints.
 HOW THE HISTORY IS KEYED
 ------------------------
 Runs are bucketed by backend and by a scalar ``work`` measure (segments x
-frequency points for MoM, timesteps for FDTD, cells x iterations for CFD —
-whatever that backend's runner can cheaply state). Buckets are **logarithmic**,
+frequency points for MoM, grid cells x a timestep proxy for FDTD — see
+:func:`openems_work` — cells x iterations for CFD — whatever that backend's
+runner can cheaply state). Buckets are **logarithmic**,
 so a 10 % change in problem size lands in the same bucket and the history
 stays dense enough to be useful, while a 10x change does not borrow the
 smaller problem's timing.
@@ -254,6 +255,15 @@ def work_of(analysis, solver_obj=None):
         except (TypeError, ValueError):
             return default
 
+    # ⚠⚠ openEMS COST IS THE GRID, and until v1.14.0 this never looked at it.
+    # The generic measure below is frequency points x (properties openEMS
+    # does not have), so EVERY openEMS solve scored the same: measured 201.0,
+    # bucket 7, at MeshResolution 20 and at 2700 — a 77-thousand-cell run and
+    # a 9.4-billion-cell one were quoted the same history. See openems_work.
+    ow = openems_work(analysis, solver_obj)
+    if ow > 0.0:
+        return ow * excitation_count(analysis, solver_obj)
+
     pts = _num(analysis, "FrequencyPoints", 1.0) or 1.0
     # Whichever of these the analysis carries; absent ones contribute nothing.
     size = 1.0
@@ -269,6 +279,107 @@ def work_of(analysis, solver_obj=None):
     # under-estimate in the product.
     size *= excitation_count(analysis, solver_obj)
     return float(pts * size)
+
+
+#: The EMStudioType of the openEMS solver object — matched by tag, like every
+#: other lookup here, so this module never has to import FreeCAD to ask.
+OPENEMS_SOLVER_TYPE = "EMStudio::SolverOpenEMS"
+
+
+def openems_preflight():
+    """``emstudio.solvers.openems.preflight``, importable WITHOUT FreeCAD.
+
+    Through the package it is the normal module. Without FreeCAD the package
+    import fails (``openems/__init__`` -> runner -> writer -> ``import
+    FreeCAD``) even though preflight itself needs nothing but the stdlib, so
+    the file is loaded by path instead — which is what keeps this module, and
+    the FAST gate that tests it, runnable from plain python3.
+    """
+    try:
+        from emstudio.solvers.openems import preflight
+        return preflight
+    except ImportError:
+        import importlib.util
+        import os
+
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "openems", "preflight.py")
+        spec = importlib.util.spec_from_file_location(
+            "_emstudio_openems_preflight", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+
+def openems_refined_grid(analysis, solver_obj=None):
+    """The REFINED grid the openEMS writer will build, or None.
+
+    ``writer.grid_estimate``: the writer's own refinement plan and budget,
+    counted without writing a file. None wherever the writer cannot be
+    imported (no FreeCAD — the FAST gates, a headless caller) or cannot read
+    the model; :func:`openems_work` then falls back to the bounding-box
+    floor. A module-level function on purpose, so a FreeCAD-free gate can
+    stand in for it and still prove that a refined grid is what gets priced.
+    """
+    try:
+        from emstudio.solvers.openems import writer
+    except ImportError:
+        return None                     # no FreeCAD: the floor below is all
+    try:
+        return writer.grid_estimate(analysis, solver_obj)
+    except Exception:                                      # noqa: BLE001
+        return None
+
+
+def openems_work(analysis, solver_obj=None):
+    """openEMS work: grid cells x a timestep proxy, or 0 if not openEMS.
+
+    FDTD cost is cell-updates: cells x timesteps.
+
+    * **Cells** are the REFINED grid's (:func:`openems_refined_grid` — the
+      writer's own count of what local refinement adds). ⚠⚠ Until the
+      v1.14.0 review they were the bounding-box floor at the GLOBAL cell
+      (preflight.grid_lower_bound), which knows nothing of refinement — and
+      since v1.14.0 refinement is what sets a detailed model's grid: the
+      forum J-pole at MeshResolution 20 is 2.94 M cells (stage O4, measured
+      openEMS grid) against a fraction of that in the floor, so the "how
+      long?" dialog borrowed the timing of models a fraction of its size.
+      Without FreeCAD (or when the writer cannot read the model) the floor
+      is still used — cheap, nothing tessellated, and still a valid key.
+    * **Timesteps** are the LONGEST domain extent over the FINEST cell: the
+      Courant step shrinks with the smallest cell anywhere in the grid, and
+      the time a wave needs to cross the domain and ring down is set by the
+      domain. On a uniform grid this is the longest axis' line count (less
+      one) — the measure this used before refinement was counted, so it
+      scales as MeshResolution^4, the textbook FDTD cost law; on a refined
+      grid the finest refinement step sets it (nett: 0.7 mm lines, 1.15 ps,
+      ~135 k steps — not the ~35 lines of its 125 mm global grid).
+    ⚠ It is a history KEY, not a duration: like every work measure here it
+    only has to rise with cost, because the seconds come from this machine's
+    own measured runs. Frequency points are deliberately absent — FDTD is
+    broadband, so they cost only post-processing.
+    ⚠ Returns 0 (the caller falls back to the generic measure) for anything
+    it cannot read, never a guess.
+    """
+    if str(getattr(solver_obj, "EMStudioType", "") or "") != OPENEMS_SOLVER_TYPE:
+        return 0.0
+    grid = openems_refined_grid(analysis, solver_obj)
+    if grid:
+        lines = grid["lines"]
+        cells = float(lines[0]) * float(lines[1]) * float(lines[2])
+        h = float(grid["min_cell_mm"])
+        steps = max(grid["extent_mm"]) / h if h > 0.0 else 0.0
+        if cells > 0.0 and steps > 0.0:
+            return cells * max(1.0, steps)
+    try:
+        floor = openems_preflight().grid_lower_bound(analysis, solver_obj)
+    except Exception:                                      # noqa: BLE001
+        return 0.0
+    if not floor:
+        return 0.0
+    lines = floor["lines"]
+    cells = float(lines[0]) * float(lines[1]) * float(lines[2])
+    return cells * float(max(lines))
 
 
 def excitation_count(analysis, solver_obj=None):

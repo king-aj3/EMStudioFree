@@ -684,9 +684,10 @@ class ElementDesignerDialog(QtWidgets.QDialog):
         note = QtWidgets.QLabel(
             "Uses the shared Frequency (left). h + l = \u03bb/4 is the physics "
             "and is good to ~\u00b15 %; the widths and feed offset are SCALED "
-            "SEEDS from openEMS's own published example, not models. \u26a0 At "
-            "a coarse grid this element solves as a SHORT while still showing "
-            "a dip at the right frequency -- the template sets a fine one. "
+            "SEEDS from openEMS's own published example, not models. \u26a0 "
+            "Below MeshResolution 40 this element can stop at its timestep "
+            "limit with a wrong feed impedance that still dips near the right "
+            "frequency (a short, before v1.14.0) -- the template sets 60. "
             "\u26a0 Element model, not a phone model: on a real handset the "
             "chassis radiates too.")
         note.setWordWrap(True)

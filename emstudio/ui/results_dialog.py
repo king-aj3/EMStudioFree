@@ -36,6 +36,47 @@ VSWR_VIEW_TOP = 10.0
 #: marker three decades below the data teaches nothing.
 VSWR_ACCEPT = 2.0
 
+#: How many of a run's WARNINGs — and, separately, of its NOTEs — the dialog
+#: lists before it says "… and N more". One FullSMatrix openEMS run can carry a
+#: truncation warning PER EXCITATION plus the model's own notes, and every line
+#: is two or three wrapped lines long; uncapped, a messy model would push the
+#: plots the warnings qualify off a 600 px dialog. Four covers a 4-port
+#: FullSMatrix truncation in full. The rest are in the label's tooltip and in
+#: the solver log in FreeCAD's Report view, where every one was printed.
+RUN_NOTES_SHOWN = 4
+
+#: The tags the openEMS runner and deck writer put at the front of every line
+#: they emit. In the Report view the tag is what makes a line findable among
+#: everything else printed there; in this dialog the ⚠ / "Note:" lead-in
+#: already says which it is, so the tag is dropped rather than shown twice.
+_RUN_NOTE_TAGS = ("EMStudio: WARNING - ", "EMStudio: NOTE - ")
+
+
+def _run_note_lines(value):
+    """A result.meta ``"warnings"`` / ``"notes"`` entry as distinct strings.
+
+    The runner's contract is a list of strings (a list because a FullSMatrix
+    run appends one per excitation). Anything else is tolerated rather than
+    trusted — a lone string is one line, not a list of characters, and a
+    non-list is one item — because this runs inside the results dialog's
+    constructor, and an exception there loses the WHOLE result, plots and all,
+    to save one line of text. Exact repeats are dropped: every excitation deck
+    of a FullSMatrix run carries the same model notes.
+    """
+    if not value:
+        return []
+    items = value if isinstance(value, (list, tuple)) else [value]
+    out = []
+    for item in items:
+        text = str(item).strip()
+        for tag in _RUN_NOTE_TAGS:
+            if text.startswith(tag):
+                text = text[len(tag):]
+                break
+        if text and text not in out:
+            out.append(text)
+    return out
+
 
 #: Open non-modal results dialogs. WA_DeleteOnClose destroys the C++ side on
 #: close, and with a None parent nothing else would keep the PYTHON wrapper
@@ -363,7 +404,9 @@ class SweepResultsDialog(QtWidgets.QDialog):
         # a vertical line with intersection markers and a live readout —
         # that follows the same shared selection the pattern tabs and the
         # 3-D balloon use, so sliding through the band moves everything at
-        # once (AJ, 2026-08-06).
+        # once (AJ, 2026-08-06). Since v1.14.0 the cursor is also grabbable:
+        # a click or drag on any of those plots drives the same selection
+        # (``_wire_cursor_mouse``).
         farfield = getattr(result, "farfield", None)
         self._freq_cursors = []
         if farfield is not None:
@@ -432,6 +475,15 @@ class SweepResultsDialog(QtWidgets.QDialog):
             warn.setStyleSheet("color: #b06000;")
             layout.addWidget(warn)
 
+        # The solver's own WARNINGs and NOTEs about THIS run — openEMS puts
+        # them in meta["warnings"] / meta["notes"]: a run stopped at
+        # MaxTimesteps before EndCriteriaDB, an STL part with defects, a part
+        # local refinement had to leave coarse. Left to FreeCAD's Report view
+        # they scroll away under the solver's own log (and a user may never
+        # open it), while the plots they qualify look as trustworthy as any
+        # other. Shown HERE, beside the numbers, like the thin-wire warning.
+        self._add_run_notes(layout, result)
+
         # The one place a matching network is unambiguously the next question:
         # the sweep just said this element is NOT matched. legal.PRO_TEASER_*
         # was written for exactly this moment ("shown WHERE THE NEED APPEARS
@@ -466,6 +518,43 @@ class SweepResultsDialog(QtWidgets.QDialog):
         buttons.addStretch(1)
         buttons.addWidget(close_btn)
         layout.addLayout(buttons)
+
+    def _add_run_notes(self, layout, result):
+        """One label for the run's WARNINGs, one for its NOTEs; none if empty.
+
+        Warnings take the thin-wire warning's look (⚠, the same amber), because
+        they say the numbers above may be WRONG. Notes are plain: they say what
+        a number is worth or what was left out, not that it is broken. A result
+        with neither — every NEC2, Elmer and Palace sweep today, and most
+        openEMS runs — gets no label and no blank line, so its dialog is
+        exactly what it was. Plain-text format on purpose: a message quoting a
+        part label or an openEMS line may contain '<', which rich text would
+        swallow as a tag.
+        """
+        meta = getattr(result, "meta", None) or {}
+        for key, lead, style, name in (
+                ("warnings", "⚠ ", "color: #b06000;", "runWarnings"),
+                ("notes", "Note: ", "", "runNotes")):
+            items = _run_note_lines(meta.get(key))
+            if not items:
+                continue
+            shown = items[:RUN_NOTES_SHOWN]
+            text = "\n".join(lead + t for t in shown)
+            label = QtWidgets.QLabel()
+            label.setObjectName(name)          # what gui_smoke finds it by
+            label.setTextFormat(QtCore.Qt.PlainText)
+            if len(items) > len(shown):
+                text += ("\n… and {0} more — hover here for all of them, or "
+                         "see the solver log in FreeCAD's Report view".format(
+                             len(items) - len(shown)))
+                # Qt guesses a tooltip's format from an HTML tag in its FIRST
+                # line; solver messages carry none, so it shows as written.
+                label.setToolTip("\n\n".join(lead + t for t in items))
+            label.setText(text)
+            label.setWordWrap(True)
+            if style:
+                label.setStyleSheet(style)
+            layout.addWidget(label)
 
     # -- tabs -----------------------------------------------------------------
     def _canvas(self):
@@ -537,6 +626,140 @@ class SweepResultsDialog(QtWidgets.QDialog):
             return text
 
         self._freq_cursors.append(update)
+        # ...and the cursor can be GRABBED: a click or a drag on this plot
+        # moves the shared selection (v1.14.0). Wired per plot, here, so a
+        # sweep plot cannot grow a cursor without also growing the handlers.
+        self._wire_cursor_mouse(ax, canvas)
+
+    def _wire_cursor_mouse(self, ax, canvas):
+        """Click or drag on a sweep plot to move the shared frequency selection.
+
+        Until v1.14.0 the cursor was DISPLAY-ONLY on every platform: it
+        followed the pattern-tab sliders and combos and the viewport
+        scrubber, and the plot it is drawn on ignored the mouse. A FreeCAD-
+        forum user (2026-10, macOS) tried clicking and dragging all over the
+        S-Parameters plot, found the red line would not move, and reported it
+        as a Mac bug. It was never wired, on any OS; the follow path itself
+        worked (measured on Linux and macOS at device-pixel ratio 1 and 2, and
+        on Windows). A red line drawn ON a plot reads as something to grab.
+
+        * It SNAPS to the nearest SOLVED pattern frequency — the scope AJ
+          approved for v1.14.0 (2026-10-17); a free cursor was not asked for.
+          The selection is an index into ``self._farfields``, and the cursor,
+          the pattern tabs, the Currents tab and the 3-D balloon must all
+          name ONE frequency — a free cursor would let the plots say 312 MHz
+          while the balloon shows 300.
+        * Everything moves through ``_select_frequency``, the same entry the
+          sliders use, so the combos, sliders, balloon, currents overlay and
+          viewport scrubber follow, and the expensive rebuilds stay coalesced
+          (~16 fps). A second path here would be a second set of rules.
+        * A press alone moves it. A trackpad tap-to-click delivers press and
+          release with no motion between them; a cursor that only moved on a
+          drag would ignore exactly the gesture a laptop user makes.
+        * The toolbar wins. In Pan or Zoom mode a drag belongs to it, or one
+          gesture would pan the axes AND retarget the balloon. ``mode`` is a
+          str enum whose idle value is ``""`` (falsy), and ANY non-idle mode
+          defers — testing for Pan alone would hijack every Zoom rectangle.
+        * Coordinates are matplotlib's only: ``event.xdata``, or
+          ``transData.inverted()`` applied to ``event.x``. Its Qt backend has
+          already turned Qt's LOGICAL pixels into its PHYSICAL display pixels
+          (``device_pixel_ratio``); mixing a raw Qt position with
+          ``transData`` output is off by 2x on a Retina or 200 % screen and
+          lands on the right answer at ratio 1, so it would pass any test
+          run on an ordinary monitor (gui_smoke prints the ratio it ran at).
+        * The handlers are CLOSURES on purpose. matplotlib's callback
+          registry keeps a plain function alive as long as the canvas, but
+          holds a bound method only WEAKLY — that would tie the handlers'
+          life to the dialog's Python wrapper instead of to the plot they
+          serve, and a dropped wrapper would disconnect them silently while
+          the plot stayed on screen. Closures also keep each plot's drag
+          state private, so three plots cannot share one half-finished drag.
+        """
+        drag = {"on": False}
+
+        def scrubbable():
+            # Single-pattern and pattern-less sweeps have nothing to scrub:
+            # the cursor stays hidden (``_fire_freq_cursors`` never fires it)
+            # and a click must stay a no-op. No ``_farfields`` at all is the
+            # pattern-less case (e.g. an openEMS sweep without NF2FF) —
+            # reading it there would raise inside a matplotlib callback, which
+            # prints and carries on, so it would surface as a console
+            # traceback per click, not a crash.
+            ffs = getattr(self, "_farfields", None)
+            return bool(ffs) and len(ffs) >= 2
+
+        def toolbar_busy():
+            tb = getattr(canvas, "toolbar", None)
+            return tb is not None and bool(getattr(tb, "mode", ""))
+
+        def x_of(event):
+            # Physical display px -> data MHz. Used off the axes too (where
+            # ``xdata`` is None), so a drag past an edge keeps tracking along
+            # x and pins the cursor to that end of the band.
+            return float(ax.transData.inverted().transform(
+                (event.x, event.y))[0])
+
+        def pick(x_mhz):
+            if not np.isfinite(x_mhz):
+                return                         # degenerate transform; ignore
+            hz = x_mhz * 1e6
+            ffs = self._farfields
+            idx = min(range(len(ffs)), key=lambda i: abs(ffs[i].freq - hz))
+            # Only on a CHANGE: a drag inside one snap cell emits a motion
+            # per pixel, and each re-select would restart the coalescing
+            # timer and redraw three canvases for nothing.
+            if idx != self._ff_index:
+                self._select_frequency(idx)
+
+        def on_press(event):
+            if (event.button != 1 or event.inaxes is not ax
+                    or event.xdata is None or not scrubbable()
+                    or toolbar_busy()):
+                return
+            drag["on"] = True
+            pick(float(event.xdata))
+
+        def on_motion(event):
+            if not drag["on"]:
+                return
+            # A release that never arrived (focus stolen mid-drag, a modal
+            # box popping up) must not turn plain HOVERING into scrubbing:
+            # the canvas has mouse tracking on, so it sees every hover. Ask
+            # whether the left button is still down. matplotlib >= 3.8 says
+            # so on the motion event itself (``buttons``, a frozenset — the
+            # Qt backend fills it; a backend that did not would read as
+            # "nothing held" and end the drag, the safe direction). Older
+            # builds have no ``buttons`` at all — FreeCAD 0.21.2's system
+            # matplotlib 3.6.3, measured to scrub on hover without this — so
+            # ask the Qt event behind it instead.
+            held = getattr(event, "buttons", None)
+            if held is None:
+                gui = getattr(event, "guiEvent", None)
+                if gui is not None:
+                    held = ({1} if gui.buttons() & QtCore.Qt.LeftButton
+                            else set())
+            if held is not None and 1 not in held:
+                drag["on"] = False
+                return
+            pick(x_of(event))
+
+        def on_release(event):
+            # Only the LEFT button's release ends a drag: a right or middle
+            # click made mid-drag neither ends nor moves it.
+            if event.button != 1:
+                return
+            if drag["on"]:
+                # Land on where the button came UP. The last motion normally
+                # already did, but a platform that coalesces motion events
+                # may deliver the final position only with the release —
+                # the same "trailing edge always lands" rule the slider's
+                # coalescing keeps.
+                pick(x_of(event))
+            drag["on"] = False
+
+        canvas.mpl_connect("button_press_event", on_press)
+        canvas.mpl_connect("motion_notify_event", on_motion)
+        canvas.mpl_connect("button_release_event", on_release)
 
     def _fire_freq_cursors(self):
         ffs = getattr(self, "_farfields", None)

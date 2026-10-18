@@ -1443,7 +1443,7 @@
   },
   {
    "anchor": "IFA reference solver setup: tan-d 1e-3 at 2.45 GHz, 50-ohm lumped port exciting [0 1 0] over a 0.5 mm gap, f0 2.5 GHz / fc 1 GHz, MUR x6, mesh lambda_min/20",
-   "repo_value": "kappa = 1e-3*2*pi*2.45e9*EPS0*epsR; 50-ohm lumped port; excitation f0 2.5 GHz, fc 1 GHz; MUR; lambda_min/20; 0.5 mm port slice \u2014 docs/upstream/ifa-anchors.md:40-44,74-78; emstudio/antenna/ifa.py:74-78; emstudio/templates/ifa.py:157-160",
+   "repo_value": "kappa = 1e-3*2*pi*2.45e9*EPS0*epsR; 50-ohm lumped port; excitation f0 2.5 GHz, fc 1 GHz; MUR; lambda_min/20; 0.5 mm port slice \u2014 docs/upstream/ifa-anchors.md:40-44,74-78; emstudio/antenna/ifa.py:74-78; emstudio/templates/ifa.py:158-162",
    "source_kind": "primary",
    "source_value": "substrate.kappa = 1e-3 * 2*pi*2.45e9 * EPS0*substrate.epsR; feed.R = 50; AddLumpedPort(..., feed.R, start, stop, [0 1 0], true) spanning [0 0 0]+tl to [ifa.wf 0.5 0]+tl (a 0.5 mm y-slice, feed element starting at y=0.5); f0 = 2.5e9; fc = 1e9; BC = {'MUR' x6}; SmoothMesh(mesh, c0/(f0+fc)/unit/20)",
    "citation": "Same upstream inverted_f.m (thliebig/openEMS master), lines read directly: kappa/feed.R in the setup block, AddLumpedPort and SmoothMesh in the geometry/mesh block",
@@ -1452,30 +1452,30 @@
   },
   {
    "anchor": "'The file publishes no expected numbers \u2014 no resonance, no S11, no gain'",
-   "repo_value": "Claim at docs/upstream/ifa-anchors.md:46-49 and docs/TUTORIALS.md:1771-1774 ('openEMS's example publishes no expected resonance, S11 or gain, only its title')",
+   "repo_value": "Claim at docs/upstream/ifa-anchors.md:46-49 and docs/TUTORIALS.md:1799-1803 ('openEMS's example publishes no expected resonance, S11 or gain, only its title')",
    "source_kind": "primary",
    "source_value": "Full 202-line read of upstream inverted_f.m: no numeric expected result anywhere; the only frequency statement beyond the solver setup is the header comment 'EXAMPLE / antennas / inverted-f antenna (ifa) 2.4GHz'; the disp() lines print run-time computed values, not published expectations",
    "citation": "raw.githubusercontent.com/thliebig/openEMS/master/matlab/examples/antennas/inverted_f.m, whole file read; docs.openems.de checked (it hosts only Python tutorials \u2014 no IFA page exists); web search found no openEMS-published numeric IFA results anywhere",
    "verdict": "CONFIRMED",
-   "detail": "The claim is exactly right, including the repo's own nuance that the '2.4GHz' in the title and the kappa referenced at 2.45 GHz are the only statements of design frequency. This means EMStudio's 2.3934 GHz / -26.5 dB / 211 MHz CANNOT be openEMS's numbers \u2014 see the last anchor for how the repo handles that."
+   "detail": "The claim is exactly right, including the repo's own nuance that the '2.4GHz' in the title and the kappa referenced at 2.45 GHz are the only statements of design frequency. This means EMStudio's 2.4229 GHz / -28.7 dB / 216 MHz (2.3934 GHz / -26.5 dB / 211 MHz before v1.14.0) CANNOT be openEMS's numbers \u2014 see the last anchor for how the repo handles that."
   },
   {
-   "anchor": "Quarter-wave rule arithmetic: L_path 30.5 mm -> f_rule 2.4573 GHz; lambda0/4 at 2.45 GHz = 30.591 mm; 0.30% agreement; measured 2.3934 GHz is -2.6% off the rule",
-   "repo_value": "30.500 mm / 2.4573 GHz / 30.591 mm / 0.30% / -2.6% \u2014 docs/upstream/ifa-anchors.md:62-69,127-128; docs/TUTORIALS.md:1712-1719; emstudio/antenna/ifa.py:27-28",
+   "anchor": "Quarter-wave rule arithmetic: L_path 30.5 mm -> f_rule 2.4573 GHz; lambda0/4 at 2.45 GHz = 30.591 mm; 0.30% agreement; measured 2.4229 GHz is -1.4% off the rule",
+   "repo_value": "30.500 mm / 2.4573 GHz / 30.591 mm / 0.30% / -1.40% \u2014 docs/upstream/ifa-anchors.md:62-69,139-140; docs/TUTORIALS.md:1726-1732; emstudio/antenna/ifa.py:27-28",
    "source_kind": "formula-recomputed",
-   "source_value": "Recomputed with c = 299792458 m/s (exact SI): c/(4*0.0305 m) = 2.457315 GHz; c/(2.45e9*4) = 30.5911 mm; (30.591-30.5)/30.5 = +0.2986%; (2.3934-2.4573)/2.4573 = -2.601%",
+   "source_value": "Recomputed with c = 299792458 m/s (exact SI): c/(4*0.0305 m) = 2.457315 GHz; c/(2.45e9*4) = 30.5911 mm; (30.591-30.5)/30.5 = +0.2986%; (2.4229-2.4573)/2.4573 = -1.400%",
    "citation": "Direct recomputation from f = c/(4*L) with the geometry values confirmed against the primary source above; c is the exact SI definition",
    "verdict": "CONFIRMED",
-   "detail": "All four derived numbers reproduce to the quoted precision. The 8+22.5 = 30.5 mm path uses the h and l values confirmed digit-by-digit from inverted_f.m, so the '0.30% agreement without either being fitted to the other' claim rests on verified inputs."
+   "detail": "All four derived numbers reproduce to the quoted precision. The 8+22.5 = 30.5 mm path uses the h and l values confirmed digit-by-digit from inverted_f.m, so the '0.30% agreement without either being fitted to the other' claim rests on verified inputs. [2026-10-18, v1.14.0: the measured resonance moved 2.3934 -> 2.4229 GHz when each lumped-port end became a grid line, so the port now spans exactly the drawn 0.5 mm gap. (2.4229-2.4573)/2.4573 = -1.400% was recomputed and reproduces the quoted -1.40%. Before v1.14.0 the same arithmetic gave -2.601% for 2.3934 GHz, quoted as -2.6%.]"
   },
   {
-   "anchor": "IFA measured triple: 2.3934 GHz / -26.5 dB / 211 MHz bandwidth (2.295-2.507 GHz) and Zin ~54.7+1.4j",
-   "repo_value": "2.3934 GHz, -26.5 dB, 211 MHz (8.83%), Zin 54.76+1.40j \u2014 docs/TUTORIALS.md:1699-1702; CHANGELOG.md:330-331; and -26.57 dB / 54.72+1.38j at docs/upstream/ifa-anchors.md:118",
+   "anchor": "IFA measured triple (v1.14.0): 2.4229 GHz / -28.7 dB / 216 MHz bandwidth (2.320-2.536 GHz) and Zin ~53.5+1.5j",
+   "repo_value": "2.4229 GHz, -28.7 dB, 216 MHz (8.92%), Zin 53.49+1.49j \u2014 docs/TUTORIALS.md:1703-1706; CHANGELOG.md:239-241 (resonance only); and -28.71 dB / 53.49+1.49j at docs/upstream/ifa-anchors.md:121",
    "source_kind": "none",
    "source_value": "No primary source exists: openEMS publishes no numeric results for this example (confirmed above), and no independently published run of inverted_f.m was found on the web",
    "citation": "Searched: the file itself, docs.openems.de (no IFA page), the openEMS wiki, GitHub (https://github.com/thliebig/openEMS/blob/master/matlab/examples/antennas/inverted_f.m), and web searches for published runs \u2014 results were patents and the file itself only",
    "verdict": "UNVERIFIABLE",
-   "detail": "UNVERIFIABLE against any primary because none exists \u2014 and the repo says exactly that, in place: these are presented as EMStudio's own mesh-60 run of the rebuilt geometry ('reference run' column, and TUTORIALS.md:1771-1774 states the numbers are not external), so this is NOT a repeat of the -29 dB misattribution. Two small internal inconsistencies worth knowing: (1) ifa-anchors.md:118 records the mesh-60 run as -26.57 dB / Zin 54.72+1.38j while TUTORIALS.md:1700-1701 and CHANGELOG.md:330-331 quote -26.5 dB / 54.76+1.40j \u2014 two slightly different runs quoted as one reference run; (2) the rounded band edges 2.295-2.507 GHz difference is 212 MHz, not the quoted 211 MHz, and 211/2.3934 = 8.82% vs the quoted 8.83% \u2014 sub-rounding drift, not an error of substance."
+   "detail": "UNVERIFIABLE against any primary because none exists \u2014 and the repo says exactly that, in place: these are presented as EMStudio's own mesh-60 run of the rebuilt geometry ('reference run' column, and TUTORIALS.md:1799-1803 states the numbers are not external), so this is NOT a repeat of the -29 dB misattribution. [2026-10-18, v1.14.0: re-measured after v1.14.0 made each lumped-port end a grid line, so the port spans exactly the drawn 0.5 mm gap. The triple is now that run: 2.4229 GHz (-1.40% against the rule), -28.71 dB, -10 dB band 2.3197-2.5359 GHz = 216.2 MHz (8.92%), Zin 53.49+1.49j. TUTORIALS.md and ifa-anchors.md quote that same run (CHANGELOG.md [1.14.0] quotes its resonance, 2.423 GHz), so (1) below no longer applies, and the rounded band edges 2.320-2.536 GHz now give the quoted 216 MHz. The values the sweep traced, 2.3934 GHz / -26.5 dB / 211 MHz / Zin 54.76+1.40j, are kept as history at CHANGELOG.md:1495-1497 (the v1.10.0 entry) and in ifa-anchors.md's pre-v1.14.0 table. The sweep's 2026-08-30 note on them follows.] Two small internal inconsistencies worth knowing: (1) ifa-anchors.md:118 records the mesh-60 run as -26.57 dB / Zin 54.72+1.38j while TUTORIALS.md:1700-1701 and CHANGELOG.md:330-331 quote -26.5 dB / 54.76+1.40j \u2014 two slightly different runs quoted as one reference run; (2) the rounded band edges 2.295-2.507 GHz difference is 212 MHz, not the quoted 211 MHz, and 211/2.3934 = 8.82% vs the quoted 8.83% \u2014 sub-rounding drift, not an error of substance."
   },
   {
    "anchor": "Coupled-patch E-plane |S21| at s=0.5 lambda0 (Jedlicka-Poe-Carver measured benchmark)",

@@ -30,6 +30,9 @@ _PREF_GROUP = "User parameter:BaseApp/Preferences/Mod/EMStudio"
 _NOTICE_VERSION_KEY = "LegalNoticeAcknowledgedVersion"
 
 REPO_URL = "https://github.com/king-aj3/EMStudioFree"
+#: Questions go to Discussions ▸ Q&A, not issues (turned on 2026-10-17): the
+#: About box is where a user who never visits GitHub looks for "where do I ask".
+QUESTIONS_URL = REPO_URL + "/discussions/categories/q-a"
 SITE_URL = "https://ajj3.us"
 
 #: solver backends are separate programs under their own licences — naming
@@ -307,6 +310,11 @@ class AboutDialog(QtWidgets.QDialog):
         b_src.clicked.connect(
             lambda: QtGui.QDesktopServices.openUrl(QtCore.QUrl(REPO_URL)))
         btns.addWidget(b_src)
+        b_q = QtWidgets.QPushButton("Questions (Q&&A)")
+        b_q.setToolTip(QUESTIONS_URL)
+        b_q.clicked.connect(
+            lambda: QtGui.QDesktopServices.openUrl(QtCore.QUrl(QUESTIONS_URL)))
+        btns.addWidget(b_q)
         btns.addStretch(1)
         close = QtWidgets.QPushButton("Close")
         close.setDefault(True)

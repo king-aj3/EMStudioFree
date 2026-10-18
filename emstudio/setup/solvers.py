@@ -253,7 +253,30 @@ BACKENDS = {
         label="openEMS (FDTD)",
         method="EC-FDTD",
         executables=("openEMS", "openEMS.sh", "openems"),
-        version_args=("--version",),
+        # ⚠⚠ "--help", NOT "--version": openEMS HAS NO --version. Since
+        # v0.37 its command line is boost::program_options, and an unknown
+        # option is an exception nobody catches, so "openEMS --version"
+        # prints its banner and then ABORTS (SIGABRT, "terminate called
+        # after throwing ... unrecognised option '--version'"; measured
+        # 2026-10-17, v0.37.0-rc1 Linux). Every Detect Solvers and every
+        # gate run probed it, and systemd-coredump kept each crash — 261 and
+        # 409 cores in two of the v1.14.0 stages' gate runs alone (on
+        # Windows the same uncaught throw is an abort() that Windows Error
+        # Reporting records; macOS's ReportCrash keeps one too).
+        # ⚠ A child RLIMIT_CORE of 0 would NOT have stopped it on this box:
+        # its core_pattern pipes to systemd-coredump with the limit written
+        # into the pattern itself, so a 0 limit is overridden (only the
+        # kernel's special value 1 aborts a piped dump). Not crashing is the
+        # fix, not hiding the crash.
+        # "--help" is a real option there: same banner, then usage, exit 0.
+        # The banner's "| openEMS 64bit -- version v0.37.0-rc1" is still the
+        # FIRST line _probe_version accepts (the rule line above it starts
+        # with "-", the usage lines below say "usage"/"option" or carry no
+        # digit), so the reported version is byte-identical. Older builds
+        # (v0.0.35/36, hand-parsed argv) take any first argument as the XML
+        # file and print the same banner before failing to open it — as
+        # they did for "--version".
+        version_args=("--help",),
         # Dropped from Ubuntu 24.04+/Mint 22 archives — source build is the
         # official path on modern Linux; Windows has prebuilt zips.
         manual_hint=(

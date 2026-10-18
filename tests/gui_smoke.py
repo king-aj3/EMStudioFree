@@ -776,6 +776,940 @@ def _pattern_frequency_picker():
            "survives the dialog".format(len(ffs))
 
 
+def _spin_until(cond, timeout_ms=5000, what="condition"):
+    """Pump events until ``cond()`` holds — NEVER a fixed sleep budget.
+
+    The module-level twin of the helper inside ``_pattern_frequency_picker``,
+    for the same measured reason: a fixed-budget spin was ~50 % flaky on
+    0.21.2, because Qt5's glib dispatcher can starve a fresh single-shot timer
+    for a whole spin — and matplotlib's ``draw_idle`` IS a single-shot timer,
+    so a repaint check on a fixed budget is exposed to exactly that flake
+    (adversarial review, 2026-10-17). Plain processEvents() delivers them; the
+    loop leaves the moment the condition holds and the deadline is generous.
+    Deferred deletes are flushed so a WA_DeleteOnClose dialog can be waited
+    out (a manual pump never sees one through on its own).
+    """
+    import time as _time
+
+    from PySide import QtCore as _QtC
+    from PySide import QtGui as _QtW  # noqa: N813
+    t_end = _time.time() + timeout_ms / 1000.0
+    while True:
+        _QtW.QApplication.processEvents()
+        _QtW.QApplication.sendPostedEvents(None, _QtC.QEvent.DeferredDelete)
+        if cond():
+            return
+        if _time.time() >= t_end:
+            raise AssertionError("timed out waiting for " + what)
+        _time.sleep(0.01)
+
+
+def _freq_cursor_follows_the_mouse():
+    """A click or a drag ON a sweep plot moves the shared frequency selection.
+
+    A FreeCAD-forum user (2026-10, macOS) tried clicking and dragging all
+    over the S-Parameters plot and the red cursor would not move. It could
+    not, on ANY platform: until v1.14.0 the cursor only followed the pattern
+    tabs' sliders and combos and the viewport scrubber, and nothing listened
+    to the plot. ``_pattern_frequency_picker`` stayed green throughout,
+    because it drives the selection from the sliders — it never touches a
+    plot. This check drives the PLOT, and reads the result back off the
+    screen.
+
+    * Input goes in as REAL mouse events, never by calling a handler, so a
+      coordinate mistake shows: window-level QTest where the binding has it
+      (Qt's own dispatch, child-at-point routing, then matplotlib's
+      logical->physical conversion), else QApplication.sendEvent on the plot
+      widget. FreeCAD 0.21.2's system PySide2 ships no QtTest, and the detail
+      line SAYS which route ran rather than skipping.
+    * The drag goes 250 -> 300 -> 350 MHz, an INTERIOR pattern, and the index
+      is asserted MID-drag. A drag that ends on a band edge cannot catch a
+      pixel-ratio slip in the motion path: every error pulls toward the edge
+      and snaps to the same index (a reviewer's mutant halving ``event.x`` on
+      motion passed the first draft of this gate at ratio 2 that way).
+    * A Qt-logical vs matplotlib-physical pixel mix-up is INVISIBLE at
+      device-pixel ratio 1 — both are the same number. It shows only above 1,
+      so the detail line prints the ratio this run had. A release run needs at
+      least one leg above 1 (``QT_SCALE_FACTOR=2``, or a 200 % display).
+    * Every position is checked twice: the selection index, and the cursor as
+      PAINTED — the red column found in ``canvas.grab()`` pixels and mapped
+      back to MHz — so a cursor that moves in the data but never repaints
+      fails here. Repaints are waited for by condition (``_spin_until``).
+    * Each of the handler's three extra rules has its own step, because a
+      rule no step can break is not covered (the review of the first draft
+      proved two of them by mutants that passed): a press at one pattern and
+      a release at ANOTHER with no motion between lands on the release; a
+      right click made mid-drag neither ends nor moves the drag; a drag past
+      the right spine pins to the band's top end.
+    * Pan AND Zoom modes must leave the selection alone, and each is proved to
+      have really panned / zoomed, so the "left alone" is not vacuous.
+    * A press then a NO-BUTTON move (a release that never arrived) must not
+      scrub, and the release that finally comes up ELSEWHERE must not move it
+      either. That move is widget-level on every route: QTest would send the
+      button it believes is still held.
+    * VSWR and Impedance are driven too, one click each: a cursor wired to
+      the first plot only is the obvious half-done version.
+    * A one-pattern and a no-pattern result: a click is harmless (matplotlib
+      swallows a handler exception and prints it, so every handler exception
+      is RECORDED here and must be none) and no cursor is painted.
+    * Each step starts from a selection it SETS (through the dialog's own
+      ``_select_frequency``, the slider's entry), chosen so that a handler
+      which did nothing would leave the index visibly wrong.
+
+    ⚠ THE REAL MOUSE. On Linux the documented runner draws on the owner's
+    LIVE X display (the 1.1.4 AppImage forces xcb), and a real pointer moving
+    over the dialog sends real no-button motions — which CORRECTLY end the
+    injected drag, so the first draft failed on correct code in 5 of 8 live
+    runs whenever the owner's hand was on the mouse ("mid-drag at 300 MHz:
+    selection index 1, wanted 2" — a true statement that blamed the wrong
+    thing). Moving the dialog away is not enough on its own: while an
+    injected press is held, Qt's implicit grab (``qt_button_down`` is
+    application-wide) should hand the plot the pointer's events from
+    FreeCAD's other windows too — read from Qt's source, not measured. So:
+    the dialog is first moved off the pointer where the screen has room
+    (and the detail line says whether it ended up clear), and a Qt event
+    filter on every plot records each mouse event with its GLOBAL position.
+    One at a position this check never sent to is the real pointer: that
+    step is run once more from its own starting state, whether it failed or
+    passed (a step a real pointer reached proves nothing either way), and if
+    the pointer interferes again the check fails SAYING so — "real pointer
+    interfered — rerun with the mouse still" — instead of reporting an index
+    that the handler got right. A step with no foreign event is never
+    retried: a genuine failure is reported the first time, as it was.
+    """
+    import numpy as np
+
+    import FreeCADGui
+    from PySide import QtCore, QtGui, QtWidgets
+
+    from emstudio.post.farfield import FarFieldResult
+    from emstudio.post.sparams import SweepResult
+    from emstudio.ui.results_dialog import show_sweep_results
+
+    app = QtWidgets.QApplication.instance()
+    # QtTest for the binding FreeCAD is RUNNING. Never "try PySide6 first":
+    # importing it into a Qt5 FreeCAD would load a second Qt into the process.
+    QTest = None
+    try:
+        if int(QtCore.qVersion().split(".")[0]) >= 6:
+            from PySide6.QtTest import QTest
+        else:
+            from PySide2.QtTest import QTest
+    except ImportError:
+        QTest = None
+    route = ("window-level QTest" if QTest is not None else
+             "widget-level sendEvent (no QtTest in this binding)")
+    L, R = QtCore.Qt.LeftButton, QtCore.Qt.RightButton
+    NB, NM = QtCore.Qt.NoButton, QtCore.Qt.NoModifier
+    MOVE = QtCore.QEvent.MouseMove
+    PRESS = QtCore.QEvent.MouseButtonPress
+    RELEASE = QtCore.QEvent.MouseButtonRelease
+    MOUSE_TYPES = (MOVE, PRESS, RELEASE, QtCore.QEvent.MouseButtonDblClick)
+
+    # A 200-400 MHz sweep dipping at 300 MHz, with five solved patterns at
+    # 200/250/300/350/400 MHz. The second positional is Zin, NOT S11.
+    th = [0.0, 45.0, 90.0, 135.0, 180.0]
+    ph = [float(p) for p in range(0, 360, 45)]
+    freq = np.linspace(200e6, 400e6, 41)
+    g = 0.9 - 0.85 * np.exp(-((freq - 300e6) / 30e6) ** 2)
+    zin = 50.0 * (1 + g) / (1 - g) + 0j
+    ffs = [FarFieldResult(f, th, ph, np.full((len(th), len(ph)), -3.0 + 0.1 * i),
+                          meta={"backend": "nec2c"})
+           for i, f in enumerate(np.linspace(200e6, 400e6, 5))]
+    res = SweepResult(freq, zin, z0=50.0, meta={"backend": "nec2c"})
+    res.farfields = ffs
+    res.farfield = ffs[2]                     # opens on 300 MHz, index 2
+
+    mw = FreeCADGui.getMainWindow()
+
+    # Input bookkeeping. ``injected`` is every GLOBAL position this check has
+    # sent a mouse event to — the spy's yardstick for "not ours". ``held`` is
+    # the buttons the check itself holds down on its route, so a step cut
+    # short can be tidied before it is re-run. ``last_canvas`` is where to.
+    injected, held, last_canvas = [], [], [None]
+    # Every mouse event a watched plot received, as (type, gx, gy, foreign).
+    qt_log, spy_errs = [], []
+    interfered = []                           # steps re-run, by name
+
+    def ratio(canvas):
+        return float(getattr(canvas, "device_pixel_ratio", None) or 1.0)
+
+    def alive(widget):
+        try:
+            widget.isVisible()
+            return True
+        except RuntimeError:
+            return False
+
+    def clear_of_pointer(dlg):
+        """Move the dialog off the REAL mouse pointer; say whether it is clear.
+
+        Only where the screen has room: a dialog that fills a small screen
+        cannot be (the build Mac at QT_SCALE_FACTOR=2, measured), and that is
+        fine — the event spy, not the placement, is what keeps a moving hand
+        from failing the check. The placement only makes a retry rarer.
+        ``frameGeometry`` is compared, not ``geometry``: the pointer on the
+        title bar is over the dialog too.
+        """
+        if QtGui.QGuiApplication.platformName() == "offscreen":
+            return "offscreen, no real pointer"
+        cur = QtGui.QCursor.pos()
+        fg = dlg.frameGeometry()
+        if not fg.contains(cur):
+            return "dialog clear of the pointer"
+        win = dlg.windowHandle()
+        scr = (win.screen() if win is not None else None) \
+            or QtGui.QGuiApplication.primaryScreen()
+        geo = scr.availableGeometry()
+        w, h = fg.width(), fg.height()
+        moved = False
+        for x, y in ((geo.left(), geo.top()),
+                     (geo.right() - w + 1, geo.top()),
+                     (geo.left(), geo.bottom() - h + 1),
+                     (geo.right() - w + 1, geo.bottom() - h + 1)):
+            if QtCore.QRect(x, y, w, h).contains(cur):
+                continue
+            moved = True
+            dlg.move(x, y)                     # move() places the FRAME
+            try:
+                # The window manager moves it, on its own schedule. Wait for
+                # the frame to land, so the positions the check computes next
+                # are the ones Qt delivers at (else every event is "foreign").
+                _spin_until(lambda: dlg.frameGeometry().topLeft()
+                            == QtCore.QPoint(x, y), timeout_ms=2000,
+                            what="the dialog moving off the pointer")
+            except AssertionError:
+                pass                           # judged below either way
+            break
+        if dlg.frameGeometry().contains(QtGui.QCursor.pos()):
+            return ("pointer over the dialog ({0})".format(
+                "the window manager kept it there" if moved
+                else "no room on the screen to move it clear"))
+        return "dialog moved clear of the pointer"
+
+    pointer_state = [None]
+
+    def open_dialog(result):
+        # The production call, parented the way commands.py parents it.
+        dlg = show_sweep_results(result, parent=mw)
+        _spin_until(dlg.isVisible, what="the results dialog showing")
+        state = clear_of_pointer(dlg)
+        if pointer_state[0] is None:
+            pointer_state[0] = state
+        return dlg, dlg.findChild(QtWidgets.QTabWidget)
+
+    def close_dialog(dlg):
+        dlg.close()
+        _spin_until(lambda: not alive(dlg),
+                    what="the results dialog really deleting on close")
+
+    def plot(tabs, tab):
+        """Show one sweep tab and wait until its figure has the widget's size.
+
+        matplotlib adopts the widget size in its resizeEvent; coordinates read
+        before that land on a figure about to be re-laid-out.
+        """
+        tabs.setCurrentIndex(tab)
+        canvas = tabs.widget(tab)._canvas
+
+        def settled():
+            r = ratio(canvas)
+            return (canvas.isVisible() and canvas.width() > 200
+                    and abs(canvas.figure.bbox.width - canvas.width() * r) < 2
+                    and abs(canvas.figure.bbox.height
+                            - canvas.height() * r) < 2)
+        _spin_until(settled, what="the plot adopting its widget's size")
+        canvas.draw()                          # final tight_layout + transforms
+        app.processEvents()
+        if QTest is not None:
+            win = canvas.window().windowHandle()
+            _spin_until(lambda: win is not None and win.isExposed(),
+                        what="the dialog's window exposed")
+        return canvas, canvas.figure.axes[0]
+
+    def local(canvas, ax, f_mhz, yfrac=0.5):
+        """Canvas-local LOGICAL point over f_mhz at yfrac of the axes height.
+
+        matplotlib's display coordinates are PHYSICAL pixels from the bottom;
+        a Qt widget's are LOGICAL pixels from the top. Converting here, once,
+        is the test's half of the ratio contract.
+        """
+        dx = ax.transData.transform((f_mhz, ax.get_ylim()[0]))[0]
+        dy = ax.transAxes.transform((0.0, yfrac))[1]
+        r = ratio(canvas)
+        return QtCore.QPoint(int(round(dx / r)),
+                             int(round((canvas.figure.bbox.height - dy) / r)))
+
+    def aim(canvas, lp):
+        # Recorded BEFORE the event goes in: Qt delivers it synchronously,
+        # and the spy must already know the position when it arrives.
+        gp = canvas.mapToGlobal(lp)
+        injected.append((gp.x(), gp.y()))
+        last_canvas[0] = canvas
+
+    def held_flags():
+        flags = NB
+        for b in held:
+            flags = flags | b
+        return flags
+
+    def send(canvas, etype, lp, button, buttons):
+        """One widget-level event, straight to the plot (no Qt dispatch)."""
+        aim(canvas, lp)
+        ev = QtGui.QMouseEvent(etype, QtCore.QPointF(lp),
+                               QtCore.QPointF(canvas.mapToGlobal(lp)),
+                               button, buttons, NM)
+        app.sendEvent(canvas, ev)
+
+    def press(canvas, lp, button=L):
+        if button not in held:
+            held.append(button)
+        if QTest is not None:
+            aim(canvas, lp)
+            QTest.mousePress(canvas.window().windowHandle(), button, NM,
+                             canvas.mapTo(canvas.window(), lp))
+        else:
+            send(canvas, PRESS, lp, button, held_flags())
+
+    def move(canvas, lp):
+        """A motion with whatever the check holds (QTest tracks its own)."""
+        if QTest is not None:
+            aim(canvas, lp)
+            QTest.mouseMove(canvas.window().windowHandle(),
+                            canvas.mapTo(canvas.window(), lp))
+        else:
+            send(canvas, MOVE, lp, NB, held_flags())
+
+    def release(canvas, lp, button=L):
+        if button in held:
+            held.remove(button)
+        if QTest is not None:
+            aim(canvas, lp)
+            QTest.mouseRelease(canvas.window().windowHandle(), button, NM,
+                               canvas.mapTo(canvas.window(), lp))
+        else:
+            send(canvas, RELEASE, lp, button, held_flags())
+
+    def tidy():
+        """Let go of everything a step cut short was holding, before a re-run."""
+        c = last_canvas[0]
+        if c is None or not alive(c):
+            del held[:]
+            return
+        lp = QtCore.QPoint(c.width() // 2, c.height() // 2)
+        for b in list(held):
+            release(c, lp, b)
+        # Widget-level too: a step that pressed through sendEvent (on any
+        # route) left nothing in QTest's state, but may have left the plot's
+        # own drag running.
+        send(c, RELEASE, lp, L, NB)
+        app.processEvents()
+
+    class _PointerSpy(QtCore.QObject):
+        """Every mouse event the plot receives, flagged if it is not ours.
+
+        A Qt event filter, not a matplotlib callback: it sees the GLOBAL
+        position, and it sees an event whatever matplotlib then does with it.
+        Our events are matched within 1.5 px, because at a fractional scale
+        factor Qt rounds on the way through; a real hand moves further than
+        that between any two motions it sends.
+        """
+
+        def eventFilter(self, obj, ev):          # noqa: N802 (Qt's name)
+            try:
+                if ev.type() in MOUSE_TYPES:
+                    gp = (ev.globalPosition() if hasattr(ev, "globalPosition")
+                          else ev.screenPos())       # Qt5: no globalPosition
+                    gx, gy = float(gp.x()), float(gp.y())
+                    ours = any(abs(gx - x) <= 1.5 and abs(gy - y) <= 1.5
+                               for x, y in injected)
+                    qt_log.append((ev.type(), gx, gy, not ours))
+            except Exception as exc:               # noqa: BLE001
+                spy_errs.append(repr(exc))         # asserted empty at the end
+            return False                           # observe only, never eat
+
+    def watch(canvas):
+        """Record what matplotlib RECEIVED, and every handler exception.
+
+        The matplotlib spy proves an event was delivered (and where), which is
+        what makes each "nothing moved" assertion mean something. matplotlib's
+        callback registry catches a handler's exception and PRINTS it, so
+        without the recorder a crashing handler would leave this check green.
+        The Qt spy beside it is the real-pointer detector (see the docstring).
+        """
+        seen, errs = [], []
+        canvas.callbacks.exception_handler = errs.append
+        for name in ("button_press_event", "motion_notify_event",
+                     "button_release_event"):
+            canvas.mpl_connect(
+                name, (lambda n: lambda e: seen.append((n, e.xdata)))(name))
+        spy = _PointerSpy(canvas)              # parented: dies with the plot
+        canvas.installEventFilter(spy)
+        canvas._gui_smoke_spy = spy            # and the wrapper stays alive
+        return seen, errs
+
+    def painted_mhz(canvas, ax):
+        """Where the cursor is PAINTED, in MHz — or None if it is not.
+
+        Reads ``canvas.grab()``. The cursor is ``#c8553d`` at alpha 0.8 over
+        white, (211, 119, 100), and antialiased edges are paler versions of
+        it: red minus green and red minus blue grow together. matplotlib's
+        orange (C1, the Impedance X curve) has red-minus-blue ~1.9x its
+        red-minus-green, blue curves have green above red, and greys have
+        neither — so the colour rule alone excludes every other artist. A
+        column counts when at least half of 24 sampled rows are cursor-red: a
+        vertical line fills its column, while a curve crossing a sample row,
+        the readout text or the legend contributes a pixel or two, and the
+        legend/readout box covering part of the line costs only a few rows.
+        """
+        img = canvas.grab().toImage()
+        s = img.width() / float(canvas.figure.bbox.width)  # image px / mpl px
+        bb = ax.bbox
+        h = canvas.figure.bbox.height
+        rows = [int((h - (bb.y0 + (0.04 + 0.92 * k / 23.0) * bb.height)) * s)
+                for k in range(24)]
+        rows = [y for y in rows if 0 <= y < img.height()]
+        cols = []
+        for x in range(max(int(bb.x0 * s) + 2, 0),
+                       min(int(bb.x1 * s) - 2, img.width())):
+            n = 0
+            for y in rows:
+                p = img.pixel(x, y)
+                rd, gr, bl = (p >> 16) & 255, (p >> 8) & 255, p & 255
+                if (rd - gr >= 40 and rd - bl >= 40
+                        and rd - bl <= 1.5 * (rd - gr)):
+                    n += 1
+            if 2 * n >= len(rows):
+                cols.append(x)
+        if not cols:
+            return None
+        return float(ax.transData.inverted().transform(
+            (sum(cols) / float(len(cols)) / s, bb.y0))[0])
+
+    def wait_painted(canvas, ax, want_mhz, what):
+        got = [None]
+
+        def there():
+            got[0] = painted_mhz(canvas, ax)
+            return got[0] is not None and abs(got[0] - want_mhz) < 2.0
+        try:
+            _spin_until(there, what=what)
+        except AssertionError:
+            raise AssertionError(
+                "{0}: the cursor is PAINTED at {1}, not {2:g} MHz (ratio "
+                "{3:g}, {4})".format(
+                    what, "nowhere" if got[0] is None
+                    else "{0:.1f} MHz".format(got[0]),
+                    want_mhz, ratio(canvas), route))
+        return got[0]
+
+    def wait_index(dlg, want, what):
+        try:
+            _spin_until(lambda: dlg._ff_index == want, what=what)
+        except AssertionError:
+            raise AssertionError(
+                "{0}: selection index {1}, wanted {2} (ratio {3:g}, "
+                "{4})".format(what, dlg._ff_index, want, ratio_seen[0], route))
+
+    def step(name, fn, dlg=None, start=None):
+        """Run one mouse step; run it ONCE more if a real pointer reached a plot.
+
+        ``start`` is the selection index the step begins from, SET here on
+        every attempt so a re-run starts exactly where the first did. Only an
+        AssertionError is a step's verdict; anything else is a crash and goes
+        straight up.
+        """
+        last = None
+        for attempt in (1, 2):
+            if start is not None:
+                dlg._select_frequency(start)
+                wait_index(dlg, start, name + ": the starting selection")
+            mark = len(qt_log)
+            err = None
+            try:
+                fn()
+            except AssertionError as exc:
+                err = exc
+            stray = [e for e in qt_log[mark:] if e[3]]
+            if not stray:
+                if err is not None:
+                    raise err
+                return
+            tidy()
+            last = (stray, err)
+            if attempt == 1:
+                interfered.append(name)
+                if dlg is not None and alive(dlg):
+                    clear_of_pointer(dlg)
+        stray, err = last
+        raise AssertionError(
+            "real pointer interfered — rerun with the mouse still. Step "
+            "'{0}' ran twice, and both times mouse events this check did not "
+            "send reached the plot ({1} on the second run, the first at "
+            "global ({2:.0f}, {3:.0f})), so it cannot say whether the handler "
+            "is right; on the second run the step {4}".format(
+                name, len(stray), stray[0][1], stray[0][2],
+                "said: {0}".format(err) if err is not None
+                else "passed, which a step the real pointer reached cannot "
+                     "be trusted to mean"))
+
+    ratio_seen = [1.0]
+    painted = {}
+    dlg, tabs = open_dialog(res)
+    try:
+        canvas, ax = plot(tabs, 0)             # S-Parameters
+        ratio_seen[0] = ratio(canvas)
+        seen, errs = watch(canvas)
+        sliders = [s for s in dlg.findChildren(QtWidgets.QSlider)
+                   if s.maximum() == len(ffs) - 1]
+        assert len(sliders) == 2, \
+            "expected the two pattern-tab sliders, got {0}".format(len(sliders))
+        # Positive control for the pixel reader: it finds the cursor where
+        # the selection says it opened, before any mouse input.
+        wait_painted(canvas, ax, 300.0, "on open (no input yet)")
+
+        # 1. DRAG to an interior pattern, checked mid-drag and painted.
+        def drag():
+            press(canvas, local(canvas, ax, 250.0))
+            wait_index(dlg, 1, "a press at 250 MHz")
+            painted["press"] = wait_painted(canvas, ax, 250.0, "after a press "
+                                            "at 250 MHz")
+            move(canvas, local(canvas, ax, 300.0))
+            wait_index(dlg, 2, "mid-drag at 300 MHz")
+            painted["mid"] = wait_painted(canvas, ax, 300.0,
+                                          "mid-drag at 300 MHz")
+            move(canvas, local(canvas, ax, 350.0))
+            wait_index(dlg, 3, "mid-drag at 350 MHz")
+            # Past the right spine: off the axes, so matplotlib has no xdata
+            # — the drag must keep tracking along x and pin to the band's top.
+            n = len(seen)
+            bb = ax.bbox
+            off = QtCore.QPoint(
+                int(round((bb.x1 + 0.5 * (canvas.figure.bbox.width - bb.x1))
+                          / ratio(canvas))),
+                local(canvas, ax, 350.0).y())
+            move(canvas, off)
+            wait_index(dlg, 4, "dragged past the right spine")
+            assert any(k == "motion_notify_event" and x is None
+                       for k, x in seen[n:]), \
+                "the off-axes drag point was inside the axes — that step " \
+                "proved nothing"
+            move(canvas, local(canvas, ax, 350.0))
+            wait_index(dlg, 3, "dragged back to 350 MHz")
+            release(canvas, local(canvas, ax, 350.0))
+            wait_index(dlg, 3, "released at 350 MHz")
+            painted["drag"] = wait_painted(canvas, ax, 350.0, "after the drag")
+            assert all(s.value() == 3 for s in sliders), \
+                "the pattern-tab sliders did not follow the plot: {0}".format(
+                    [s.value() for s in sliders])
+            assert dlg._selected_farfield() is ffs[3], \
+                "'Show in 3D View' would export a different frequency than " \
+                "the plot now shows"
+        step("drag 250 -> 300 -> 350 MHz", drag, dlg, start=2)
+
+        # 2. PRESS at one pattern, RELEASE at another, no motion between: the
+        #    release must land (a platform that coalesces motion may deliver
+        #    the last position only with the button-up). The first draft
+        #    released only where a motion had already picked, so a release
+        #    that never picked passed it. Widget-level on EVERY route, on
+        #    purpose: given a release somewhere new, Qt's own dispatch first
+        #    synthesises a held-button move to it, so window-level input
+        #    cannot present "no motion between" at all, and that move would
+        #    pick for the release. The spy proves no motion got through.
+        def press_here_release_there():
+            n = len(seen)
+            send(canvas, PRESS, local(canvas, ax, 250.0), L, L)
+            wait_index(dlg, 1, "a widget-level press at 250 MHz")
+            send(canvas, RELEASE, local(canvas, ax, 350.0), L, NB)
+            wait_index(dlg, 3, "released at 350 MHz after a press at 250 "
+                               "MHz, no motion between")
+            assert not any(k == "motion_notify_event" for k, _x in seen[n:]), \
+                "a motion reached the plot between the press and the " \
+                "release — the step proved nothing about the release"
+            painted["apart"] = wait_painted(canvas, ax, 350.0, "after the "
+                                            "release at 350 MHz")
+        step("press 250 / release 350 MHz", press_here_release_there, dlg,
+             start=4)
+
+        # 3. TAP: press + release, no motion (trackpad tap-to-click).
+        def tap():
+            press(canvas, local(canvas, ax, 399.5))
+            release(canvas, local(canvas, ax, 399.5))
+            wait_index(dlg, 4, "a tap at 400 MHz")
+            painted["tap"] = wait_painted(canvas, ax, 400.0, "after a tap")
+        step("tap at 400 MHz", tap, dlg, start=1)
+
+        # 4. A RIGHT click mid-drag neither ends nor moves the drag: after it,
+        #    the left-held move must still scrub. Clicked at the drag's own
+        #    point, so neither route turns it into a motion (window-level, a
+        #    press somewhere new is preceded by a synthesised move there).
+        def right_click_mid_drag():
+            here = local(canvas, ax, 250.0)
+            press(canvas, here)
+            wait_index(dlg, 1, "a press at 250 MHz (before the right click)")
+            press(canvas, here, R)
+            release(canvas, here, R)
+            app.processEvents()
+            assert dlg._ff_index == 1, \
+                "a right click mid-drag moved the selection (index " \
+                "{0})".format(dlg._ff_index)
+            move(canvas, local(canvas, ax, 300.0))
+            wait_index(dlg, 2, "a left-held move to 300 MHz after a right "
+                               "click mid-drag (the right release ended the "
+                               "drag?)")
+            release(canvas, local(canvas, ax, 300.0))
+            wait_index(dlg, 2, "released at 300 MHz after the right click")
+        step("right click mid-drag", right_click_mid_drag, dlg, start=4)
+
+        # 5. A release that never arrived must not turn hovering into a drag,
+        #    and when the button finally comes up ELSEWHERE (400 MHz, not
+        #    where it went down) that stale release must not move it either —
+        #    a release that picked regardless would land on index 4. Before
+        #    Pan/Zoom, so that defect is caught HERE, under its own name.
+        def lost_release():
+            press(canvas, local(canvas, ax, 250.0))
+            wait_index(dlg, 1, "a press at 250 MHz (before the lost release)")
+            n = len(seen)
+            send(canvas, MOVE, local(canvas, ax, 350.0), NB, NB)
+            _spin_until(lambda: any(k == "motion_notify_event"
+                                    and x is not None and abs(x - 350.0) < 2.0
+                                    for k, x in seen[n:]),
+                        what="the no-button hover reaching matplotlib at 350 "
+                             "MHz")
+            assert dlg._ff_index == 1, \
+                "hovering after a lost release scrubbed the selection to " \
+                "index {0}".format(dlg._ff_index)
+            n = len(seen)
+            release(canvas, local(canvas, ax, 399.5))
+            _spin_until(lambda: any(k == "button_release_event"
+                                    and x is not None and abs(x - 399.5) < 2.0
+                                    for k, x in seen[n:]),
+                        what="the stale release reaching matplotlib at 400 MHz")
+            assert dlg._ff_index == 1, \
+                "a stale release (the button up at 400 MHz after the drag " \
+                "had ended) moved the selection to index {0}".format(
+                    dlg._ff_index)
+        step("lost release", lost_release, dlg, start=3)
+
+        # 6./7. The TOOLBAR owns a drag in Pan AND in Zoom mode — and really
+        # got it (the limits moved), so "the cursor stayed" is not vacuous.
+        for mode, toggle, (y_a, y_b) in (
+                ("Pan", canvas.toolbar.pan, (0.5, 0.5)),
+                ("Zoom", canvas.toolbar.zoom, (0.3, 0.7))):
+            def toolbar_drag(mode=mode, toggle=toggle, y_a=y_a, y_b=y_b):
+                xlim, ylim = ax.get_xlim(), ax.get_ylim()
+                # All three points BEFORE the press: a pan moves the very
+                # axes they are read off, so later points computed mid-drag
+                # ran off the window (QTest: "outside target window").
+                pts = (local(canvas, ax, 250.0, y_a),
+                       local(canvas, ax, 300.0, 0.5 * (y_a + y_b)),
+                       local(canvas, ax, 350.0, y_b))
+                toggle()
+                try:
+                    assert canvas.toolbar.mode, mode + " mode did not engage"
+                    press(canvas, pts[0])
+                    move(canvas, pts[1])
+                    move(canvas, pts[2])
+                    release(canvas, pts[2])
+                    _spin_until(lambda: tuple(ax.get_xlim()) != tuple(xlim),
+                                what="the {0} drag changing the axes (else "
+                                     "this step proves nothing)".format(mode))
+                    assert dlg._ff_index == 4, \
+                        "a {0}-mode drag moved the cursor (index {1})".format(
+                            mode, dlg._ff_index)
+                finally:
+                    # Let go INSIDE the mode, so the toolbar ends its own
+                    # drag; then back to idle.
+                    for b in list(held):
+                        release(canvas, pts[2], b)
+                    toggle()
+                    ax.set_xlim(*xlim)
+                    ax.set_ylim(*ylim)
+                    canvas.draw()
+                assert not canvas.toolbar.mode, mode + " mode did not disengage"
+            step(mode + "-mode drag", toolbar_drag, dlg, start=4)
+        assert not errs, "a cursor handler raised on the S11 plot: " \
+                         "{0!r}".format(errs[:3])
+
+        # 8. VSWR and Impedance are wired too, and repaint where clicked.
+        for tab, name, f_click, start, want in (
+                (1, "VSWR", 350.0, 1, 3), (2, "Impedance", 250.0, 3, 1)):
+            c, a = plot(tabs, tab)
+            _s, e = watch(c)
+
+            def click(c=c, a=a, name=name, f_click=f_click, start=start,
+                      want=want):
+                wait_painted(c, a, ffs[start].freq / 1e6,
+                             name + " before the click (it follows)")
+                press(c, local(c, a, f_click))
+                release(c, local(c, a, f_click))
+                wait_index(dlg, want, "a click at {0:g} MHz on the {1} "
+                           "plot".format(f_click, name))
+                painted[name] = wait_painted(c, a, f_click, name + " after "
+                                             "the click")
+            step(name + " click", click, dlg, start=start)
+            assert not e, "a cursor handler raised on the {0} plot: " \
+                          "{1!r}".format(name, e[:3])
+    finally:
+        tidy()
+        close_dialog(dlg)
+
+    # 9. Nothing to scrub: one pattern, and none at all (an openEMS sweep
+    #    without NF2FF). A click is harmless and no cursor appears.
+    one = SweepResult(freq, zin, z0=50.0, meta={"backend": "nec2c"})
+    one.farfield = ffs[2]
+    none = SweepResult(freq, zin, z0=50.0, meta={"backend": "nec2c"})
+    for label, result in (("one pattern", one), ("no pattern", none)):
+        d, t = open_dialog(result)
+        try:
+            c, a = plot(t, 0)
+            s, e = watch(c)
+            assert painted_mhz(c, a) is None, \
+                "{0}: a cursor is painted with nothing to scrub".format(label)
+
+            def harmless(c=c, a=a, s=s, e=e, label=label, d=d):
+                n = len(s)
+                press(c, local(c, a, 250.0))
+                release(c, local(c, a, 250.0))
+                _spin_until(lambda: any(k == "button_release_event"
+                                        for k, _x in s[n:]),
+                            what=label + ": the click reaching matplotlib")
+                assert any(k == "button_press_event" and x is not None
+                           and abs(x - 250.0) < 2.0 for k, x in s[n:]), \
+                    "{0}: the press never reached the plot at 250 " \
+                    "MHz".format(label)
+                assert not e, "{0}: a click raised inside a cursor handler: " \
+                              "{1!r}".format(label, e[:3])
+                # A synchronous draw paints the artists' CURRENT state, so
+                # this reads what a click did without waiting on a timer.
+                c.draw()
+                assert painted_mhz(c, a) is None, \
+                    "{0}: a click revealed a cursor with nothing behind " \
+                    "it".format(label)
+                if label == "one pattern":
+                    assert d._ff_index == 0, d._ff_index
+            step(label + " click", harmless, d)
+        finally:
+            tidy()
+            close_dialog(d)
+
+    # A spy that broke would see nothing, and "nothing foreign" would then be
+    # a claim nobody checked.
+    assert not spy_errs, "the pointer spy itself raised: {0}".format(
+        spy_errs[:3])
+    assert qt_log, "the pointer spy recorded no mouse event at all — it " \
+                   "cannot have been watching"
+    return ("ratio {0:g}, {1}: drag 250->300->350 MHz checked mid-drag "
+            "(painted {2:.1f} / {3:.1f}), past the spine pins to 400, press "
+            "250 / release 350 lands 350 (painted {4:.1f}), tap 400 (painted "
+            "{5:.1f}), a right click mid-drag keeps the drag, VSWR click 350 "
+            "(painted {6:.1f}), Impedance click 250 (painted {7:.1f}); Pan + "
+            "Zoom left to the toolbar; no hover scrub and no stale-release "
+            "move after a lost release; 1- and 0-pattern results harmless; "
+            "{8}; {9}".format(
+                ratio_seen[0], route, painted["mid"], painted["drag"],
+                painted["apart"], painted["tap"], painted["VSWR"],
+                painted["Impedance"], pointer_state[0],
+                "real pointer: none reached a plot" if not interfered else
+                "re-run after a real pointer reached a plot: " +
+                ", ".join(interfered)))
+
+
+def _results_dialog_shows_run_notes():
+    """A run's solver WARNINGs and NOTEs are SHOWN in the results dialog.
+
+    openEMS records what its numbers are worth in ``result.meta``:
+    ``"warnings"`` (a run stopped at MaxTimesteps with the field energy short
+    of EndCriteriaDB, a defective STL part) and ``"notes"`` (a cap reached
+    with no decay measured, a part left coarse). Before the dialog showed
+    them they reached only FreeCAD's Report view, so a user who never opened
+    it read a truncated S11 exactly like a finished one.
+
+    * The warnings are made by the RUNNER's own code (``_note_capped`` on a
+      ``_DeckWatch`` that saw the cap), not typed here, so a change to the
+      runner's wording or tag is a change this check sees.
+    * Asserted on the WIDGETS the dialog builds, shown: visible, carrying the
+      solver's text, warnings in the warning style and notes not — and the
+      warning colour read back off the painted label, so a style that never
+      applied fails too.
+    * The cases that must stay exactly as they were: a result with no notes
+      gets no label at all, and NEC2's thin-wire line still shows, alone.
+    * Repeats are shown once (every FullSMatrix excitation deck carries the
+      same model notes); past ``RUN_NOTES_SHOWN`` the rest are counted, not
+      dropped silently; a lone string is one line, not one per character.
+    """
+    import numpy as np
+    from PySide import QtGui as QtWidgets  # noqa: N813
+
+    from emstudio.post.sparams import SweepResult
+    from emstudio.solvers.openems import runner as oe_runner
+    from emstudio.ui.results_dialog import RUN_NOTES_SHOWN, SweepResultsDialog
+
+    freq = np.linspace(200e6, 400e6, 21)
+    zin = np.full(freq.shape, 60.0 + 5j)
+
+    class _Solver(object):
+        EndCriteriaDB = -40.0                 # what the runner falls back to
+
+    def capped(result, decay_db, label):
+        # The runner's path, verbatim: a watch that saw openEMS stop at NrTS,
+        # with (WARNING) or without (NOTE) a measured energy decay.
+        watch = oe_runner._DeckWatch(None)
+        watch.nrts_hit, watch.nrts, watch.end_criteria = True, 1000, 1e-4
+        watch.last_decay_db = decay_db
+        oe_runner._note_capped(result, watch, _Solver(), None, label)
+
+    def shown(result):
+        """(dialog, warnings label, notes label) with the dialog ON SCREEN."""
+        dlg = SweepResultsDialog(result)
+        dlg.show()
+        _spin_until(dlg.isVisible, what="the results dialog showing")
+        return (dlg, dlg.findChild(QtWidgets.QLabel, "runWarnings"),
+                dlg.findChild(QtWidgets.QLabel, "runNotes"))
+
+    def ink(label):
+        """(red minus blue of the label's mean INK colour, ink pixel count).
+
+        The ink is every pixel well away from the label's own background (its
+        commonest colour). Averaged, not counted pixel by pixel: with
+        subpixel antialiasing, BLACK text has orange and blue fringes, and a
+        per-pixel "is it amber" rule counted 1,282 amber pixels on a plain
+        note (measured on the owner's display). Averaged, those fringes
+        cancel to grey (red - blue ~ 0) while #b06000 text stays ~ +145. The
+        first three line-heights of every row are skipped: a fallback font
+        may draw the ⚠ lead-in as a COLOUR emoji, amber whatever the style.
+        """
+        import collections
+
+        img = label.grab().toImage()
+        x0 = int(3 * label.fontMetrics().height() * img.devicePixelRatio())
+        px = []
+        for y in range(img.height()):
+            for x in range(x0, img.width()):
+                p = img.pixel(x, y)
+                px.append(((p >> 16) & 255, (p >> 8) & 255, p & 255))
+        if not px:
+            return 0.0, 0
+        bg = collections.Counter(px).most_common(1)[0][0]
+        inked = [q for q in px
+                 if sum(abs(u - v) for u, v in zip(q, bg)) > 150]
+        if not inked:
+            return 0.0, 0
+        return (sum(q[0] - q[2] for q in inked) / float(len(inked)),
+                len(inked))
+
+    # (a) An openEMS run: the truncation WARNING, then the same warning
+    #     again (a second excitation's identical model note), the
+    #     unmeasured-cap NOTE, and enough further warnings to overflow.
+    oe = SweepResult(freq, zin, z0=50.0, meta={"backend": "openems"})
+    capped(oe, 21.3, "")
+    first = oe.meta["warnings"][0]
+    assert first.startswith("EMStudio: WARNING - "), \
+        "the runner's warning lost its tag — fix the dialog's tag list " \
+        "with it: {0!r}".format(first[:60])
+    oe.meta["warnings"].append(first)                       # a repeat
+    capped(oe, None, " on the excitation of port 2")        # -> a NOTE
+    assert len(oe.meta.get("notes") or []) == 1, oe.meta.get("notes")
+    extra = ["EMStudio: WARNING - extra warning {0}".format(k)
+             for k in range(RUN_NOTES_SHOWN)]
+    oe.meta["warnings"].extend(extra)
+    body = first[len("EMStudio: WARNING - "):]
+    note_body = oe.meta["notes"][0][len("EMStudio: NOTE - "):]
+    dlg, wl, nl = shown(oe)
+    try:
+        assert wl is not None, \
+            "the run's WARNINGs are not in the results dialog at all " \
+            "(meta['warnings'] = {0} entries)".format(len(oe.meta["warnings"]))
+        assert nl is not None, "the run's NOTE is not in the results dialog"
+        assert wl.isVisible() and nl.isVisible(), \
+            "the warnings/notes labels exist but are not on screen"
+        lines = wl.text().split("\n")
+        assert lines[0] == "⚠ " + body, \
+            "the truncation warning is not shown as the runner wrote it: " \
+            "{0!r}".format(lines[0][:80])
+        assert wl.text().count(body) == 1, \
+            "a repeated warning is shown {0} times".format(
+                wl.text().count(body))
+        want_more = 1 + len(extra) - RUN_NOTES_SHOWN
+        assert len(lines) == RUN_NOTES_SHOWN + 1 \
+            and "and {0} more".format(want_more) in lines[-1], \
+            "past {0} warnings the rest must be COUNTED: {1!r}".format(
+                RUN_NOTES_SHOWN, lines[-1][:80])
+        assert extra[-1][len("EMStudio: WARNING - "):] in wl.toolTip(), \
+            "the overflowing warnings are not in the label's tooltip"
+        assert "EMStudio: WARNING - " not in wl.text(), \
+            "the Report-view tag is shown in the dialog as well as the ⚠"
+        assert "b06000" in wl.styleSheet(), \
+            "warnings are not in the warning style: {0!r}".format(
+                wl.styleSheet())
+        assert nl.text() == "Note: " + note_body, \
+            "the NOTE is not shown as the runner wrote it: {0!r}".format(
+                nl.text()[:80])
+        assert "b06000" not in nl.styleSheet(), \
+            "a NOTE is styled as a warning"
+        (rb_w, n_w), (rb_n, n_n) = ink(wl), ink(nl)
+        assert n_w >= 50 and rb_w >= 60, \
+            "the warning label is not PAINTED amber (ink red-blue {0:+.0f} " \
+            "over {1} px)".format(rb_w, n_w)
+        assert n_n >= 50 and abs(rb_n) < 30, \
+            "the note label is not painted in plain text colour (ink " \
+            "red-blue {0:+.0f} over {1} px)".format(rb_n, n_n)
+    finally:
+        dlg.close()
+        dlg.deleteLater()
+
+    # (b) Nothing to say -> nothing shown: no label, not an empty one.
+    plain = SweepResult(freq, zin, z0=50.0,
+                        meta={"backend": "openems", "warnings": [],
+                              "notes": None})
+    dlg, wl, nl = shown(plain)
+    try:
+        assert wl is None and nl is None, \
+            "a run with no warnings or notes grew a label: {0!r} / {1!r}" \
+            .format(wl and wl.text(), nl and nl.text())
+    finally:
+        dlg.close()
+        dlg.deleteLater()
+
+    # (c) NEC2 has its own meta and its own line: the thin-wire warning still
+    #     shows, and nothing else appears beside it.
+    nec = SweepResult(freq, zin, z0=50.0, meta={
+        "backend": "nec2c",
+        "thin_wire": {"ok": False, "ratio": 2.6, "limit": 8.0}})
+    dlg, wl, nl = shown(nec)
+    try:
+        thin = [w for w in dlg.findChildren(QtWidgets.QLabel)
+                if w.text().startswith("⚠ Thin-wire check")]
+        assert len(thin) == 1 and thin[0].isVisible(), \
+            "NEC2's thin-wire warning is gone from the results dialog"
+        assert wl is None and nl is None, \
+            "a NEC2 result shows run notes it does not have"
+    finally:
+        dlg.close()
+        dlg.deleteLater()
+
+    # (d) A lone string is ONE line (not a list of characters), and an entry
+    #     that is not a list at all opens the dialog rather than losing it.
+    odd = SweepResult(freq, zin, z0=50.0, meta={
+        "backend": "openems", "warnings": "EMStudio: WARNING - just one",
+        "notes": 7})
+    dlg, wl, nl = shown(odd)
+    try:
+        assert wl is not None and wl.text() == "⚠ just one", \
+            "a lone warning string is not one line: {0!r}".format(
+                wl and wl.text())
+        assert nl is not None and nl.text() == "Note: 7", \
+            nl and nl.text()
+    finally:
+        dlg.close()
+        dlg.deleteLater()
+    _spin_until(lambda: True)                 # flush the deferred deletes
+    return ("openEMS truncation WARNING + NOTE shown (painted ink red-blue "
+            "{0:+.0f} amber / {1:+.0f} plain), a repeat once, overflow counted "
+            "past {2}; none -> no label; NEC2 thin-wire line unchanged; a lone "
+            "string = 1 line".format(rb_w, rb_n, RUN_NOTES_SHOWN))
+
+
 def _scrubber_stays_on_the_viewport_screen():
     """The floating scrubber must land on the screen its 3-D view is on.
 
@@ -1601,8 +2535,9 @@ def _element_designer_dialog():
         assert query.get_solvers(ana) and query.get_ports(ana), \
             "generated IFA analysis missing solver/port"
         assert int(ana.MeshResolution) >= 40, \
-            "IFA analysis must carry a fine mesh — at the default grid it " \
-            "solves as a SHORT while still showing a dip at the right frequency"
+            "IFA analysis must carry a fine mesh — below MeshResolution 40 it " \
+            "stops at its timestep limit with a wrong Zin that still dips " \
+            "near the right frequency (a SHORT before v1.14.0)"
     finally:
         FreeCAD.closeDocument(doc.Name)
 
@@ -3129,6 +4064,18 @@ def _about_and_legal_dialogs():
         assert must in at.upper(), "About dialog missing {0!r}".format(must)
     assert "NOT LICENSED" in at.upper(), \
         "About dialog missing the trademark notice"
+    # The in-app route to "where do I ask" (Discussions ▸ Q&A, 2026-10-17):
+    # a button whose tooltip IS the URL it opens, so the check reads the
+    # rendered widget, and the URL is the Q&A category, not the bare repo.
+    from PySide import QtWidgets as _QtW
+    from emstudio.ui import about_dialog as _ad
+    qbtn = [b for b in about.findChildren(_QtW.QPushButton)
+            if "Questions" in b.text()]
+    assert len(qbtn) == 1, "About dialog must offer ONE Questions button"
+    assert qbtn[0].toolTip() == _ad.QUESTIONS_URL \
+        and _ad.QUESTIONS_URL.endswith("/discussions/categories/q-a"), \
+        "Questions button must open Discussions Q&A, got {0!r}".format(
+            qbtn[0].toolTip())
 
     dlg = LegalDialog()
     lt = _all_text(dlg)
@@ -3629,6 +4576,10 @@ def main():
           _pattern_overlay_coloured)
     check("pattern frequency picker (multi-frequency sweep)",
           _pattern_frequency_picker)
+    check("frequency cursor follows a click / drag on the sweep plots",
+          _freq_cursor_follows_the_mouse)
+    check("results dialog shows a run's solver warnings and notes",
+          _results_dialog_shows_run_notes)
     check("viewport scrubber stays on the 3-D view's own screen "
           "(negative-coordinate monitors)",
           _scrubber_stays_on_the_viewport_screen)

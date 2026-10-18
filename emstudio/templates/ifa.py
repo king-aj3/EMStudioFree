@@ -109,30 +109,36 @@ def _build(doc, d, label):
     ana.FrequencyPoints = 401
     # ⚠⚠ THE MESH IS NOT OPTIONAL HERE, AND GETTING IT WRONG LOOKS RIGHT.
     # An IFA's features are millimetres -- a 0.5 mm port gap and a 1 mm feed
-    # trace -- while the default lambda/20 grid is ~4 mm at 2.45 GHz. At the
-    # default the port gap is not resolved at all and the feed element is
-    # electrically SHORTED to the ground plane: measured Zin = 0.05 + 9.52j ohm,
-    # S11 = -0.02 dB. The lethal part is that it still reports a dip at
-    # 2.4524 GHz -- the RIGHT frequency, because the conductor path sets that
-    # regardless -- so a coarse run looks like a working antenna that merely
-    # matches badly, and is in fact an antenna that accepts no power at all.
-    # Measured convergence on the reference geometry (see
-    # docs/upstream/ifa-anchors.md for the full table):
-    #     mesh 20 -> Zin   0.05 +  9.52j   S11  -0.02 dB   (a short)
-    #     mesh 30 -> Zin 102.08 + 58.08j   S11  -6.39 dB   (still wrong)
-    #     mesh 40 -> Zin  51.16 +  0.76j   S11 -37.24 dB
-    #     mesh 60 -> Zin  54.72 +  1.38j   S11 -26.57 dB   <- chosen
-    #     mesh 80 -> Zin  53.13 +  1.29j   S11 -29.68 dB
-    #     mesh100 -> Zin  53.65 +  0.93j   S11 -28.79 dB
-    # 60 is the cheapest value that agrees with the converged 80/100 tail in
-    # BOTH resonance and impedance (30 s against 117 s and 217 s). 40 matches
-    # best but sits ~1 % high on frequency against that tail, so it is not the
-    # value to standardise on.
+    # trace -- while the default lambda/20 grid is ~4 mm at 2.45 GHz. Before
+    # v1.14.0 the default did not resolve the port gap at all and the feed
+    # element was electrically SHORTED to the ground plane: measured Zin =
+    # 0.05 + 9.52j ohm, S11 = -0.02 dB. The lethal part was that it still
+    # reported a dip at 2.4524 GHz -- the RIGHT frequency, because the conductor
+    # path sets that regardless -- so a coarse run looked like a working antenna
+    # that merely matched badly, and was in fact one that accepted no power.
+    # v1.14.0 makes each end of a lumped port a grid line, so the port spans
+    # the drawn 0.5 mm at every mesh and the default now feeds the antenna --
+    # but mesh 20 resonates ~3 % above the 60/100 runs, and mesh 30 is still a
+    # trap: at the default MaxTimesteps it stops at its timestep limit and dips
+    # INSIDE the gate's +/-5 % window with a wrong Zin (the run does carry the
+    # timestep WARNING). Measured on v1.14.0, MaxTimesteps 30000 unless noted
+    # (docs/upstream/ifa-anchors.md has the full table and the pre-v1.14 one):
+    #     mesh 20 -> Zin  46.07 -  0.41j   S11 -27.72 dB   2.4966 GHz
+    #     mesh 30 -> Zin  98.75 + 50.55j   S11  -6.99 dB   2.5556 GHz (truncated)
+    #     mesh 30 -> Zin  49.13 -  0.77j   S11 -38.64 dB   2.4524 GHz (200000 steps)
+    #     mesh 40 -> Zin  49.28 +  0.45j   S11 -41.40 dB   2.4573 GHz
+    #     mesh 60 -> Zin  53.49 +  1.49j   S11 -28.71 dB   2.4229 GHz  <- chosen
+    #     mesh100 -> Zin  53.42 +  2.06j   S11 -28.28 dB   2.4278 GHz
+    # 60 is the cheapest value that agrees with the mesh-100 run in BOTH
+    # resonance and impedance (26 s against 156 s). 40 matches best but sits
+    # ~1.2 % high on frequency against it, so it is not the value to
+    # standardise on. (The choice was made on the pre-v1.14 table, where the
+    # same reasoning held against an 80/100 tail.)
     # ⚠ The writer's trace-aware refinement (MicrostripMeshMode) cannot help:
-    # writer.py:614 gates it on an MSL port, explicitly so that lumped-port
-    # antenna analyses stay byte-identical. An IFA is a lumped-port antenna with
-    # microstrip-scale features, which is precisely the case that falls between
-    # the two.
+    # write_deck's msl_mesh gates it on an MSL port, explicitly so that
+    # lumped-port antenna analyses stay byte-identical. An IFA is a lumped-port
+    # antenna with microstrip-scale features, which is precisely the case that
+    # falls between the two.
     ana.MeshResolution = 60
 
     m_metal = material_mod.makeMaterial(doc, ana, name="IFAPEC",

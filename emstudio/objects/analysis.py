@@ -111,11 +111,27 @@ class Analysis:
             obj.DomainPaddingWavelengths = 0.25
         # Mesh (openEMS FDTD grid)
         if "MeshResolution" not in props:
+            # ⚠ The COST of this number was invisible until v1.14.0: a forum
+            # user followed an EMStudio refusal to "raise MeshResolution", set
+            # 2700, and built a 9.4e9-cell grid openEMS cannot index (and ~1.2
+            # TB of RAM). Cells grow as its CUBE, so the tooltip says so in
+            # numbers. ⚠ Kept App::PropertyInteger on purpose — changing the
+            # type (e.g. to a constrained integer) would change what saved
+            # documents load as; the preflight is the real guard. The limits
+            # quoted here are openems/preflight.py's constants — keep them in
+            # step. Saved documents keep the tooltip they were created with.
             obj.addProperty(
                 "App::PropertyInteger",
                 "MeshResolution",
                 _GROUP_MESH,
-                "Target mesh lines per wavelength at the highest sweep frequency",
+                "openEMS: target mesh lines per wavelength at the highest "
+                "sweep frequency. The FDTD cell count grows as the CUBE of "
+                "this (doubling it is ~8x the cells and ~16x the run time). "
+                "Typical 20-60; small parts are refined locally. openEMS "
+                "cannot index 1,431,655,765 cells or more, and a run needs "
+                "about 125 bytes per cell (1.25 GB per 10 million) - EMStudio "
+                "prints the cell count and refuses a grid over either limit "
+                "before openEMS starts.",
             )
             obj.MeshResolution = 20
         if "MeshSmoothRatio" not in props:

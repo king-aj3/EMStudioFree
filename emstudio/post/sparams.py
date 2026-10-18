@@ -66,6 +66,45 @@ _CONT_INDENT = " " * 16
 FLAT_S11_SPAN_DB = 3.0
 
 
+class NonFiniteResultError(ValueError):
+    """A solver result file holds NaN / inf where numbers must be.
+
+    A ``ValueError`` so any caller that already guards a parse keeps working;
+    a class of its own so a runner can tell "the solver produced no numbers"
+    from "the file is malformed" and say which port it was.
+    """
+
+
+def require_finite(path, **columns):
+    """Raise :class:`NonFiniteResultError` unless every column is finite.
+
+    ⚠⚠ SILENT NaN IS THE ENEMY. ``np.loadtxt`` parses 'nan' without a word,
+    and every reader downstream of a SweepResult then draws or exports it:
+    an all-NaN openEMS ``port_1.csv`` (a port openEMS had dropped, 2026-10-17)
+    loaded as a finished result, its S11 plot an empty grid with nothing to
+    say why. This names the file, each bad column, how many of its points
+    are bad and the first frequency affected, so the error can be read
+    without opening the CSV.
+    """
+    freq = np.ravel(np.asarray(columns.get("freq", ()), dtype=float))
+    bad = []
+    for name, values in columns.items():
+        v = np.ravel(np.asarray(values))
+        nf = ~np.isfinite(v)
+        if not nf.any():
+            continue
+        where = ""
+        if freq.size == v.size and freq.size:
+            first = freq[int(np.argmax(nf))]
+            if np.isfinite(first):
+                where = ", first at {0:.6g} Hz".format(float(first))
+        bad.append("{0} at {1} of {2} points{3}".format(
+            name, int(nf.sum()), v.size, where))
+    if bad:
+        raise NonFiniteResultError("{0}: not a number — {1}".format(
+            path, "; ".join(bad)))
+
+
 def _z0_column(z0, freq):
     """Reference impedance as an array parallel to ``freq``.
 
@@ -322,6 +361,12 @@ class SweepResult:
         # (solvers/openems/writer.py, `z0_col = np.real(np.ravel(port.ZL))`)
         # precisely so it does not have to be a constant.
         z0 = data[:, 5]
+        # ⚠ REFUSED, not loaded, if any value is NaN/inf (require_finite):
+        # until v1.14.0 an all-NaN port file became a "finished" result. Every
+        # caller is a solver runner reading its own deck's output, where a
+        # non-finite value is never data — z0 included, because S11 and every
+        # Smith/VSWR read-out are normalised to it.
+        require_finite(path, freq=freq, s11=s11, zin=zin, z0=z0)
         return cls(freq, zin, z0=z0, s11=s11, meta=meta)
 
     # -- Touchstone -----------------------------------------------------------

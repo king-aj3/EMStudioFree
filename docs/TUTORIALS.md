@@ -672,11 +672,14 @@ patterns cost ONE run**, and you scrub through them with a slider.
 2. **Analysis ▸ Pattern Frequencies…**, set a band and a step. The dialog
    recommends a step that lands on the sweep's own sample points, so you are
    not asking the solver to interpolate.
-3. **Run Solver**, then drag the slider on either pattern tab.
+3. **Run Solver**, then drag the slider on either pattern tab — or click and
+   drag on the S-Parameters plot: the red cursor snaps to the nearest solved
+   frequency and the pattern follows (since v1.14.0; with the plot toolbar's
+   Pan or Zoom on, a drag pans or zooms instead).
 
 **You should see** one pattern per requested frequency, each carrying its *own*
-gains — and the 3-D balloon following the slider live, including after the
-results dialog is closed.
+gains — and the 3-D balloon following the slider (or the plot cursor) live,
+including after the results dialog is closed.
 
 | quantity | gate window | reference run |
 |---|---|---|
@@ -1697,14 +1700,22 @@ published example, so the reference comes from outside this project.
 
 | quantity | gate window | reference run |
 |---|---|---|
-| resonance | within **±5 %** of the quarter-wave rule's 2.4573 GHz | **2.3934 GHz** (−2.6 %) |
-| feed-point impedance | **30–80 Ω** real, **\|X\| < 15 Ω** | **54.76 + 1.40j Ω** |
-| best match | **< −10 dB** | **−26.5 dB** |
-| −10 dB bandwidth | **covers all of 2.400–2.4835 GHz** | **211 MHz** (8.83 %), 2.295–2.507 GHz |
-| peak gain | **0–6 dBi** | **3.64 dBi at θ = 90°** |
+| resonance | within **±5 %** of the quarter-wave rule's 2.4573 GHz | **2.4229 GHz** (−1.4 %) |
+| feed-point impedance | **30–80 Ω** real, **\|X\| < 15 Ω** | **53.49 + 1.49j Ω** |
+| best match | **< −10 dB** | **−28.7 dB** |
+| −10 dB bandwidth | **covers all of 2.400–2.4835 GHz** | **216 MHz** (8.92 %), 2.320–2.536 GHz |
+| peak gain | **0–6 dBi** | **3.70 dBi at θ = 90°** |
+
+(Reference run on v1.14.0. Until v1.14.0 the same file read 2.3934 GHz
+(−2.6 %), 54.76 + 1.40j Ω, −26.5 dB and 211 MHz: the grid lines nearest the
+port's ends sat 0.016 mm off the edges of the gap, so the port did not span
+exactly the drawn 0.5 mm. v1.14.0 puts each end of a lumped port exactly on
+a grid line. openEMS also wobbles a little between identical runs — it
+decides when to stop on a wall-clock cadence — so expect the best match to
+move by a few tenths of a dB.)
 
 ⛳ **The number to compare with tutorial 34.** That n78 patch managed **21 MHz**
-of −10 dB bandwidth. This managed **211 MHz** — ten times as much, from a
+of −10 dB bandwidth. This managed **216 MHz** — ten times as much, from a
 cheaper structure on a worse board. That single comparison is most of the reason
 consumer hardware uses an inverted-F and not a patch: a patch is a high-Q
 resonator over a ground plane, while an IFA is a bent quarter-wave monopole
@@ -1717,7 +1728,7 @@ resonates when the conductor path from the short to the open end is a quarter
 wave. Here that path is the stub plus the radiator: **8 + 22.5 = 30.5 mm**, and
 a free-space quarter wave at 2.45 GHz is **30.59 mm**. The published reference
 sits **0.30 %** from that rule — and neither was fitted to the other. Full-wave
-then puts the real resonance at 2.3934 GHz, **−2.6 %** below the rule, inside
+then puts the real resonance at 2.4229 GHz, **−1.4 %** below the rule, inside
 its stated ±5 %.
 
 ⚠ Why *free-space* λ on an εr 4.3 board: the ground plane is **cut away**
@@ -1726,34 +1737,50 @@ air-loaded. Run the ground the full length of the board instead and you do not
 get a detuned antenna — you get no antenna, because the element is shorted flat
 to the plane.
 
-⚠⚠ **The trap, and it is the most instructive thing in this file.** At
-EMStudio's default mesh this antenna solves as a **short circuit** —
-**Zin = 0.05 + 9.52j Ω**, S11 **−0.02 dB**, accepting essentially no power — and
-it *still reports a dip at 2.4524 GHz*, which is the **right frequency**. The
-conductor path sets the resonance whether or not the port is connected, so a
-coarse run looks like a working antenna that merely matches badly. It is not. It
-is not an antenna at all.
+⚠⚠ **The trap, and it is the most instructive thing in this file.** Until
+v1.14.0, at EMStudio's default mesh this antenna solved as a **short circuit**
+— **Zin = 0.05 + 9.52j Ω**, S11 **−0.02 dB**, accepting essentially no power —
+and it *still reported a dip at 2.4524 GHz*, which is the **right frequency**.
+The conductor path sets the resonance whether or not the port is connected, so
+a coarse run looked like a working antenna that merely matched badly. It was
+not. It was not an antenna at all.
 
 The features here are millimetres — a **0.5 mm** port gap, a **1 mm** feed trace
-— against a default λ/20 grid of about 4 mm. The example ships
-`MeshResolution = 60`; measured convergence:
+— against a default λ/20 grid of about 4 mm. Since v1.14.0 each end of a
+lumped port is a grid line at every mesh, which puts lines on both edges of
+that gap, and the default mesh now feeds it. The example still ships
+`MeshResolution = 60`. Measured on v1.14.0, one run each, at the default
+`MaxTimesteps` of 30000 unless the row says otherwise:
 
-| mesh | Zin | S11 | verdict |
-|---|---|---|---|
-| 20 | 0.05 + 9.52j | −0.02 dB | a short |
-| 30 | 102.1 + 58.1j | −6.4 dB | still wrong |
-| 40 | 51.2 + 0.8j | −37.2 dB | converged |
-| **60** | **54.7 + 1.4j** | **−26.6 dB** | **shipped** |
-| 100 | 53.7 + 0.9j | −28.8 dB | 217 s, no better |
+| mesh | Zin | S11 | dip | verdict |
+|---|---|---|---|---|
+| 20 | 46.1 − 0.4j | −27.7 dB | 2.4966 GHz (+1.6 %) | fed (a short before v1.14.0) |
+| 30 | 98.8 + 50.5j | −7.0 dB | 2.5556 GHz (+4.0 %) | **wrong — cut off at its timestep limit** |
+| 30, `MaxTimesteps` 200000 | 49.1 − 0.8j | −38.6 dB | 2.4524 GHz (−0.2 %) | the same mesh, run to the end (74 s) |
+| 40 | 49.3 + 0.4j | −41.4 dB | 2.4573 GHz (0.0 %) | converged |
+| **60** | **53.5 + 1.5j** | **−28.7 dB** | **2.4229 GHz (−1.4 %)** | **shipped** |
+| 100 | 53.4 + 2.1j | −28.3 dB | 2.4278 GHz (−1.2 %) | 156 s, no better |
 
-⛳ **The lesson generalises past this antenna: a resonance check cannot detect a
-disconnected port.** That is why the gate asserts the **feed-point impedance**
-and not only the dip — Zin is the quantity that tells a working antenna from a
-shorted one, and it is the only one that catches this. If you take one habit
-from this file, take that one.
+⚠ **The trap moved; it did not go away.** At mesh 30 the dip sits **+4.0 %**
+from the rule — *inside* the gate's ±5 % window — while Zin is 98.8 + 50.5j and
+S11 only −7 dB. That run used all 30,000 of its timesteps before the fields
+died away, so its S-parameters come from a truncated signal. Since v1.14.0 the
+Results dialog says so, in amber under the summary line: *"openEMS stopped at
+its timestep limit … Raise MaxTimesteps and re-run."* Do what it says and the
+same mesh gives 49.1 − 0.8j at 2.4524 GHz.
 
-⛳ **Try breaking it.** Set `MeshResolution` back to 20 and re-run. Watch S11
-flatten to nothing while the dip stays exactly where it was. Then put it back.
+⛳ **The lesson generalises past this antenna: a resonance check cannot tell a
+working feed from a broken one.** That is why the gate asserts the
+**feed-point impedance** and not only the dip — Zin is the quantity that tells
+a working antenna from a shorted or truncated one, and it is the one that
+catches both. If you take one habit from this file, take that one — and read
+the amber lines.
+
+⛳ **Try breaking it.** Set `MeshResolution` to 30 and re-run. The dip stays
+within ±5 % of the rule while Zin goes to about 99 + 51j and the amber
+timestep warning appears. Raise the openEMS solver's `MaxTimesteps` to 200000
+and run again: the warning goes and Zin comes back to about 49 Ω. Then put both
+back.
 
 **Prove it** — `tests/validation/ifa_openems.py`, which rebuilds the published
 geometry and asserts every row of the table above, and
@@ -1842,9 +1869,10 @@ formula meant to design real antennas. **Prove it** below runs that check with
 no solver at all.
 
 ⚠ **Not the inverted-F's mesh trap — these two antennas fail differently.**
-Tutorial 35 warns that at a coarse grid its antenna solves as a dead short. This
-one does not: its smallest features are 5 mm and 10 mm, so even the default grid
-gives a real match. Every grid from λ/20 to λ/90 lands within **1.3 %** of the
+Tutorial 35 warns that at a coarse grid its antenna solved as a dead short
+(before v1.14.0) and can still come back truncated. This one does not: its
+smallest features are 5 mm and 10 mm, so even the default grid gives a real
+match. Every grid from λ/20 to λ/90 lands within **1.3 %** of the
 measurement. Do not carry that warning across without checking which failure
 you actually have.
 

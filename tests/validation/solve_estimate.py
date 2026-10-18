@@ -16,6 +16,12 @@ So the rules this pins are:
   EXTRAPOLATED label, and only one bucket away;
 * backends never borrow each other's timings;
 * and a corrupt or unwritable store can never fail a solve.
+
+An openEMS solve is keyed by its GRID (section 9): cells x timesteps, and
+since the v1.14.0 review the cells are the REFINED grid's and the timestep
+proxy is the longest extent over the finest cell, so a locally refined
+model is never priced like the bounding-box floor at the global cell
+(mutation proven: reverting to that floor fails the last check).
 """
 from __future__ import annotations
 
@@ -175,12 +181,120 @@ def main():
     check("humanise(None) is 'unknown', not '0 seconds'",
           humanise(None) == "unknown")
 
+    # -- 9. an openEMS solve is keyed by its GRID ----------------------------
+    _openems_work_checks()
+
     print()
     if FAILURES:
         print("solve_estimate: %d FAILED" % len(FAILURES))
         raise SystemExit("solve_estimate FAILED")
     print("solve_estimate: all checks passed")
     return 0
+
+
+def _openems_work_checks():
+    """⚠ Until v1.14.0 every openEMS solve scored the same work: frequency
+    points x properties openEMS does not have — measured 201.0 (bucket 7) at
+    MeshResolution 20 AND at 2700, a 77-thousand-cell run and a 9.4-billion
+    one quoted from one history. Duck-typed stand-ins, so no FreeCAD."""
+    from emstudio.solvers import estimate as est
+
+    class BB(object):
+        def __init__(self, lo, hi):
+            self.XMin, self.YMin, self.ZMin = lo
+            self.XMax, self.YMax, self.ZMax = hi
+
+    class RodShape(object):
+        BoundBox = BB((0.0, 0.0, 0.0), (20.0, 20.0, 3000.0))
+        # A SOLID, as the shared classification reads one (query.
+        # reference_leaves, which the floor has used since the v1.14.0
+        # review): without these it is a wire, dropped from the model.
+        Solids = [None]
+        Faces = [None] * 3
+
+        def isNull(self):
+            return False
+
+    class Rod(object):
+        Shape = RodShape()
+
+    class Mat(object):
+        EMStudioType = "EMStudio::Material"
+        References = [(Rod(), ("",))]
+
+    class Port(object):
+        EMStudioType = "EMStudio::LumpedPort"
+        PortType = "Lumped"
+
+        def __init__(self, nr):
+            self.PortNumber = nr
+
+    class Q(object):
+        def __init__(self, hz):
+            self.hz = hz
+
+        def getValueAs(self, unit):
+            return self.hz
+
+    class Ana(object):
+        def __init__(self, mr, ports=1, geometry=True):
+            self.Group = ([Mat()] if geometry else []) + [
+                Port(k) for k in range(1, ports + 1)]
+            self.FrequencyStart, self.FrequencyStop = Q(80e6), Q(120e6)
+            self.FrequencyPoints = 201
+            self.MeshResolution = mr
+            self.DomainPaddingWavelengths = 0.25
+
+    class OpenEMS(object):
+        EMStudioType = "EMStudio::SolverOpenEMS"
+        FullSMatrix = False
+
+    class Nec2(object):
+        EMStudioType = "EMStudio::SolverNEC2"
+
+    w20 = est.work_of(Ana(20), OpenEMS())
+    w2700 = est.work_of(Ana(2700), OpenEMS())
+    check("openEMS at MeshResolution 20 is NOT the frequency-point count it "
+          "used to be [%g, not 201]" % w20, w20 > 0 and w20 != 201.0)
+    check("...and 2700 lands %d buckets above 20 (both were bucket 7)"
+          % (bucket_of(w2700) - bucket_of(w20)),
+          bucket_of(w2700) - bucket_of(w20) >= 20)
+    w40 = est.work_of(Ana(40), OpenEMS())
+    check("doubling MeshResolution costs ~2^4 (cells x steps) [x%.1f]"
+          % (w40 / w20), 8.0 <= w40 / w20 <= 32.0)
+    full = OpenEMS()
+    full.FullSMatrix = True
+    check("a full 3-port S-matrix still prices three solves of that grid",
+          abs(est.work_of(Ana(20, ports=3), full)
+              - 3.0 * est.work_of(Ana(20, ports=3), OpenEMS())) < 1e-6)
+    check("another backend on the same analysis keeps the generic measure",
+          est.work_of(Ana(20), Nec2()) == 201.0)
+    check("an openEMS analysis with no readable geometry falls back to the "
+          "generic measure, never a guessed grid",
+          est.work_of(Ana(20, geometry=False), OpenEMS()) == 201.0)
+
+    # A LOCALLY REFINED model is priced at its REFINED grid, not at the
+    # bounding-box floor (v1.14.0 review: the forum J-pole at MeshResolution
+    # 20 builds 2.94 M cells with 0.7 mm lines at its hardware, which the
+    # floor at the 125 mm global cell never sees). The writer's count needs
+    # FreeCAD, so it is stood in for here — the grid below has the shape of
+    # that model's — and preflight_live_openems prices a REAL refined model.
+    refined = {"lines": (126, 120, 194), "mesh_res_mm": 124.9,
+               "min_cell_mm": 0.7, "extent_mm": (3100.0, 3000.0, 4500.0),
+               "refined": 19}
+    # (getattr: on a tree without the hook this is a FAIL line, never a
+    # traceback that hides the verdict)
+    real_hook = getattr(est, "openems_refined_grid", None)
+    est.openems_refined_grid = lambda analysis, solver_obj=None: refined
+    try:
+        w_ref = est.work_of(Ana(20), OpenEMS())
+    finally:
+        est.openems_refined_grid = real_hook
+    want = 126.0 * 120.0 * 194.0 * (4500.0 / 0.7)
+    check("a locally refined model is priced at its REFINED grid: cells x "
+          "(longest extent / finest cell) [x%.0f the bounding-box floor's]"
+          % (w_ref / w20 if w20 else 0.0),
+          abs(w_ref / want - 1.0) < 1e-9 and w_ref > 1000.0 * w20)
 
 
 if __name__ == "__main__" or "FreeCAD" not in sys.modules:

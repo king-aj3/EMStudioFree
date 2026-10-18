@@ -5,7 +5,7 @@ engineering approachable**: guided workflows, real calculations, automatic
 meshing, validated solvers, and professional outputs (Touchstone, radiation
 patterns, build specs and BOMs).
 
-> **Status:** v1.13.1 — this line is checked against `package.xml` by the smoke
+> **Status:** v1.14.0 — this line is checked against `package.xml` by the smoke
 > test, so it cannot silently go stale.
 
 > 🎓 **For educational, hobbyist and experimental use — and under active
@@ -58,6 +58,20 @@ a published anechoic-chamber measurement. Eight families in all.
 Plus 20 source-verified service presets, an in-dialog
 predicted-vs-achieved verify, Accept→Generate to a runnable analysis, and PDF
 build reports with a dimensioned sketch and element schedule.
+
+**openEMS on your own CAD (v1.14.0).** Parts you pick inside a group or
+App::Part are in the model; touching parts of one material are written as
+closed STLs; each part is refined locally (metal to one cell across its
+thickness), so thin hardware no longer needs a huge `MeshResolution`; and
+every run counts its grid first, refusing — with the numbers — a grid openEMS
+cannot index or your machine cannot hold. A forum user's 85–110 MHz J-pole
+with M3 hardware, which the previous release could not mesh, now meshes in
+2.9 M cells (with its back plate — which had reached the metal through a
+whole-group reference, as a NOTE now says — given its own dielectric) and
+agrees with an independent hand-graded mesh to within 0.02 in VSWR from 85 to
+105 MHz (3.62 against 3.51 at the 110 MHz band edge). The
+Results dialog shows a run's own warnings and notes, and its frequency cursor
+can be clicked or dragged.
 
 Also: **VLF/LF/MF small-antenna analytics** — top-loading capacitance (hats,
 flat-tops, T/inverted-L), a radial-ground estimator with radial-count
@@ -158,6 +172,20 @@ explicitly in the preferences or via `EMSTUDIO_<BACKEND>`.
 [ABOUT](ABOUT.md) — what this is for ·
 [CONTRIBUTING](CONTRIBUTING.md) — how to help, and the CLA ·
 [DISCLAIMER](DISCLAIMER.md) · [TRADEMARK](TRADEMARK.md)
+
+## Getting help
+
+- **A question** — how do I…, why does…, is this the right way to model… →
+  [Discussions ▸ Q&A](https://github.com/king-aj3/EMStudioFree/discussions/categories/q-a). Anyone can answer,
+  and a good answer can be marked accepted for the next person.
+- **Something EMStudio got wrong** — a crash, a failed install, a number that
+  disagrees with a reference → [open an issue](https://github.com/king-aj3/EMStudioFree/issues/new/choose).
+  Paste the actual error text and FreeCAD's version block (**Help ▸ About
+  FreeCAD ▸ Copy to clipboard**); a report with those two is usually
+  diagnosable without a reply.
+- **Release announcements** are posted on the
+  [FreeCAD forum thread](https://forum.freecad.org/viewtopic.php?t=106753).
+- **EMStudio Pro buyers** — licence or install trouble → support@ajj3.us.
 
 ## EMStudio Pro — available now, $149
 

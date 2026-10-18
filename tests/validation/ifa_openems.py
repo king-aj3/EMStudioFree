@@ -21,20 +21,27 @@ its 2.30-2.50 GHz window from the TL model rather than from the tutorial file.
 
 ⚠⚠ WHY THIS GATE ASSERTS FEED-POINT IMPEDANCE AND NOT JUST AN S11 DIP
 ----------------------------------------------------------------------
-Because a resonance check alone CANNOT detect the failure this antenna actually
-has. At the writer's default lambda/20 mesh the 0.5 mm port gap is not resolved
-and the feed element is electrically SHORTED to the ground plane -- measured
-**Zin = 0.05 + 9.52j ohm, S11 = -0.02 dB** -- and it *still reports a dip at
-2.4524 GHz*, the RIGHT frequency, because the conductor path sets the resonance
-whether or not the port is connected. A gate that checked only "is there a dip
-near 2.45 GHz" would have passed a shorted antenna. Zin is the quantity that
-tells a working antenna from a shorted one, so Zin is gated.
+Because a resonance check alone CANNOT detect the failures this antenna has
+actually shown. Before v1.14.0, at the writer's default lambda/20 mesh the
+0.5 mm port gap was not resolved and the feed element was electrically SHORTED
+to the ground plane -- measured **Zin = 0.05 + 9.52j ohm, S11 = -0.02 dB** --
+and it *still reported a dip at 2.4524 GHz*, the RIGHT frequency, because the
+conductor path sets the resonance whether or not the port is connected. A gate
+that checked only "is there a dip near 2.45 GHz" would have passed a shorted
+antenna. v1.14.0 makes each end of a lumped port a grid line, so the default
+mesh now feeds it (46.07 - 0.41j ohm, -27.7 dB at 2.4966 GHz) -- but the trap
+moved rather than went away: mesh 30 at the default MaxTimesteps of 30000 stops
+at its timestep limit and dips at 2.5556 GHz, +4.0 % and INSIDE the +/-5 %
+resonance window below, with Zin 98.75 + 50.55j and S11 -6.99 dB. Zin is the
+quantity that tells a working antenna from a shorted or truncated one, so Zin
+is gated.
 
 The template therefore sets MeshResolution itself, and this gate re-asserts that
-it is still set -- see the convergence table in docs/upstream/ifa-anchors.md.
-⚠ The writer's trace-aware refinement cannot help: writer.py:614 gates it on an
-MSL port so that lumped-port antenna analyses stay byte-identical, and an IFA is
-a lumped-port antenna with microstrip-scale features.
+it is still set -- see the convergence tables in docs/upstream/ifa-anchors.md.
+⚠ The writer's trace-aware refinement cannot help: write_deck's ``msl_mesh``
+gates it on an MSL port so that lumped-port antenna analyses stay
+byte-identical, and an IFA is a lumped-port antenna with microstrip-scale
+features.
 
 Expensive (full FDTD, ~30 s at the shipped mesh) -- NOT in the smoke suite.
 Run:  freecadcmd tests/validation/ifa_openems.py
@@ -75,9 +82,11 @@ def _verdict():
 ISM_LO_HZ = 2.400e9
 ISM_HI_HZ = 2.4835e9
 
-#: Below this the reference geometry does not solve correctly at all (see the
-#: docstring). 40 is where the answer first agrees with the converged tail; the
-#: template ships 60.
+#: Below this the reference geometry is not to be trusted (see the docstring):
+#: before v1.14.0 the default 20 solved as a short, and on v1.14.0 mesh 30 runs
+#: out of timesteps at the default MaxTimesteps while 20 resonates ~3 % above
+#: the 60/100 runs. 40 is the coarsest mesh whose default-MaxTimesteps run
+#: agrees in impedance with the converged runs; the template ships 60.
 MIN_MESH = 40
 
 
@@ -119,8 +128,9 @@ def main():
     ana = ifa_tpl.makeIFA(doc)
 
     # The mesh is load-bearing here in a way it is not for the patch gates.
-    check("the template's MeshResolution is at least {0} (coarser solves as "
-          "a SHORT that still dips at the right frequency — "
+    check("the template's MeshResolution is at least {0} (the default 20 "
+          "solved as a SHORT before v1.14.0; 30 still stops at its timestep "
+          "limit with a wrong Zin that dips inside the window — "
           "docs/upstream/ifa-anchors.md)".format(MIN_MESH),
           int(ana.MeshResolution) >= MIN_MESH,
           "{0}".format(ana.MeshResolution))
@@ -150,11 +160,13 @@ def main():
           lo <= f_min <= hi, "{0:.4f} GHz".format(f_min / 1e9))
 
     # --- THE assertion: a fed antenna, not a shorted one ---------------------
-    # Bands are wide on purpose. The point is not to pin 54.76 ohm -- that is a
-    # mesh-dependent digit -- it is to separate "matched to a 50 ohm port" from
-    # "shorted" (0.05 ohm) and from "badly wrong" (102 + 58j at mesh 30). Both
-    # of those real, measured failures fall outside these bands by a wide
-    # margin, and any plausible good answer falls inside.
+    # Bands are wide on purpose. The point is not to pin 53.49 ohm (54.76
+    # before v1.14.0) -- that is a mesh-dependent digit -- it is to separate
+    # "matched to a 50 ohm port" from "shorted" (0.05 ohm, the default mesh
+    # before v1.14.0) and from "badly wrong" (102 + 58j at mesh 30 before
+    # v1.14.0; 98.75 + 50.55j on v1.14.0, a run cut off at its timestep
+    # limit). All three real, measured failures fall outside these bands, and
+    # any plausible good answer falls inside.
     check("feed-point R is a 50 ohm-class match (30-80 ohm; a SHORTED port "
           "reads ~0)", 30.0 <= zin.real <= 80.0, "{0:.2f} ohm".format(zin.real))
     check("feed-point |X| <= 15 ohm (resonant at its own best match)",
